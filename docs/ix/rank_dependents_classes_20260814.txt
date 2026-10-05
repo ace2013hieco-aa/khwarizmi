@@ -1,0 +1,20 @@
+=== ix command report ===
+command: ix rank --by dependents --kind class --top 12
+cwd:     /d/New folder/research-agent
+time:    2026-08-14 15:03:26
+===================================================
+Top 12 classes by dependents:
+   1. TaskRepository             78
+   2. ProjectRepository          75
+   3. RequestSpec                35
+   4. EventRepository            26
+   5. WalkRequest                24
+   6. ResearchProgramRepository  22
+   7. NodeContract               22
+   8. NotFoundError              19
+   9. SearchResult               16
+  10. RedactionPolicy            16
+  11. ProviderHazardSpec         16
+  12. Controller                 16
+===================================================
+exit_code: 0

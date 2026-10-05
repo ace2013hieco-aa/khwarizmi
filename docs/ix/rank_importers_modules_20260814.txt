@@ -1,0 +1,23 @@
+=== ix command report ===
+command: ix rank --by importers --kind module --top 15
+cwd:     /d/New folder/research-agent
+time:    2026-08-14 15:03:16
+===================================================
+Top 15 modules by importers:
+   1. Any                   1
+   2. typing                1
+   3. re                    1
+   4. json                  1
+   5. json                  1
+   6. migrate_to_latest     1
+   7. connect               1
+   8. TaskStatus            1
+   9. IntentKind            1
+  10. Intent                1
+  11. pytest                1
+  12. plan_to_payloads      1
+  13. _append_event_to_db   1
+  14. apply_intent          1
+  15. compile_from_payload  1
+===================================================
+exit_code: 0

@@ -1,0 +1,11 @@
+Top 10 modules by dependents:
+   1. Path                       18
+   2. _append_event_to_db        11
+   3. Intent                     10
+   4. apply_intent               10
+   5. artifact_blast_radius      8
+   6. apply_intent               7
+   7. Intent                     7
+   8. validate_payload_size      7
+   9. DEFAULT_PAYLOAD_MAX_BYTES  7
+  10. graph_result_hash          7

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>S2 synthetic fixture — document structure</title>
+<style>body { font-family: sans-serif; } .hidden { display: none; }</style>
+<script>window.__fixture = "this script text is not prose and must be stripped";</script>
+</head>
+<body>
+<h1>Document structure fixture</h1>
+<p>The &amp; entity, the &lt;tag&gt; rendering, an en&#x2013;dash, a non-breaking&nbsp;space,
+   an em dash — and Unicode: é, ü, Δ, 中文, العربية, עברית, and an emoji 🛡️.</p>
+<h2>Inline formatting</h2>
+<p>Plain <b>bold</b>, <i>italic</i>, <strong>strong</strong>, <em>emphasis</em>,
+   <code>inline_code()</code>, <s>struck</s>, H<sub>2</sub>O, x<sup>2</sup>,
+   and a <a href="https://fixtures.test/other-page.html">cross link</a> plus an
+   <a href="#section-two">anchor link</a>.</p>
+<h2 id="section-two">Lists and quotes</h2>
+<ol>
+  <li>first ordered item</li>
+  <li>second ordered item
+    <ul>
+      <li>nested bullet one</li>
+      <li>nested bullet two with <code>code</code></li>
+    </ul>
+  </li>
+  <li>third ordered item</li>
+</ol>
+<blockquote>
+  <p>A quoted paragraph with <a href="https://fixtures.test/quoted.html">a link</a> inside.</p>
+</blockquote>
+<h2>Table</h2>
+<table>
+  <thead>
+    <tr><th>Check</th><th>Verdict</th><th>Note</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>scheme allowlist</td><td>PASS</td><td>http/https only</td></tr>
+    <tr><td>resolve-and-pin</td><td>PASS</td><td>dials the vetted address</td></tr>
+    <tr><td>redirect re-vet</td><td>PASS</td><td>per-hop, internal refused</td></tr>
+  </tbody>
+</table>
+<h2>Preformatted</h2>
+<pre><code>guard.fetch("https://fixtures.test/page.html")
+# &lt;not a tag&gt; — literal angle brackets inside code
+if a &lt; b:
+    print("&amp; done")
+</code></pre>
+<p>Text after the code block. A footnote marker<sup>1</sup> closes the prose.</p>
+<h2>References</h2>
+<ol>
+  <li><a href="https://fixtures.test/reference-one.html">Reference one</a> — synthetic.</li>
+  <li><a href="https://fixtures.test/reference-two.html">Reference two</a> — synthetic.</li>
+</ol>
+<!-- a comment that must not become markdown text -->
+<template><p>template content is inert</p></template>
+</body>
+</html>

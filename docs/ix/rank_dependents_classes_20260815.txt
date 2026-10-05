@@ -1,0 +1,16 @@
+Top 15 classes by dependents:
+   1. TaskRepository                            115
+   2. ProjectRepository                         100
+   3. Intent                                    51
+   4. FailureClassificationRepository           49
+   5. Controller                                44
+   6. RequestSpec                               39
+   7. SourceOutcomeRepository                   38
+   8. FailureClass                              29
+   9. EventRepository                           29
+  10. WalkRequest                               24
+  11. ProgramRequirementSatisfactionRepository  24
+  12. ResearchProgramRepository                 24
+  13. SearchResult                              21
+  14. FalsificationRecord                       19
+  15. NodeContract                              19

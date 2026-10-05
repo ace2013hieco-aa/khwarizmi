@@ -1,0 +1,11 @@
+Ix Doctor
+
+  Γ£ô Server reachable ΓÇö http://localhost:8090 ΓåÆ ok
+  Γ£ô Graph has nodes ΓÇö 249769 nodes
+  Γ£ô Graph has edges ΓÇö 124912 edges
+  Γ£ô No unresolved conflicts ΓÇö clean
+  Γ£ô Backend is the released image ΓÇö running the released image
+  Γ£ô Graph schema matches engine ΓÇö schema v3
+  Γ£ô Windows launcher ΓÇö ix.cmd ΓåÆ %~dp0..\cli\ix.cmd
+
+  All checks passed.

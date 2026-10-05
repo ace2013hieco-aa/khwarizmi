@@ -1,0 +1,11 @@
+Top 10 modules by dependents:
+   1. frozen_clock                   19
+   2. Clock                          13
+   3. Path                           13
+   4. Intent                         11
+   5. extraction_draft_from_mapping  11
+   6. re_review_candidates           10
+   7. frozen_clock                   9
+   8. parse_query_hints              9
+   9. Intent                         8
+  10. artifact_blast_radius          8

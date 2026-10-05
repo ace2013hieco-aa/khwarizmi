@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 994,
+  "filename": "synthetic_malformed.html",
+  "repo_doc_copy_matches_at_record_time": null,
+  "sha256": "97ed79c0cafe58e72ee92a8799750688c6696d974a623d563653b27c0724a2b4",
+  "source_kind": "synthetic-authored",
+  "source_note": "synthetic, authored for the S2 spike: unclosed/uppercase/mismatched tags, unquoted attributes, stray '<', textarea/noscript/template",
+  "source_path_at_capture": null,
+  "source_ref": "source_payload:s2-crawl4ai/synthetic_malformed.html",
+  "url": "https://fixtures.test/synthetic_malformed.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/synthetic_malformed.html",
+   "text": "# Malformed tolerance fixture \nThis paragraph is never closed and contains a stray less-than sign (a < b) and an uppercase tag below. \nAttribute values are unquoted here. duplicate attribute\nNested **bold _italic** mismatched_ close order.\n  \n![An image with alt text⟨1⟩]\nEntities: (C) £ ½ -- … &amp; \nUnderscore emphasis_pair_with_underscores_ and underscore emphasis_pair_. looks like <html> inside a textarea and must stay inert\nnoscript fallback text\nSoft hyphen: soft\\u00adhyphen. Zero-width space between these. \nRight-to-left: العربية والعبرية mixed with Latin. \nClosing paragraph of the malformed fixture. \n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/synthetic_malformed.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/synthetic_malformed.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "49a29666be860629d75596cdc5f477da57739009a7cf6fd600040c32a2246a30",
+   "raw_markdown_sha256": "90cf231051ca105486b33cee03eebbcc669023f4462a1d982c34cc9eff2d8293",
+   "redirect_hops": [],
+   "references_sha256": "19da6e9d1cb2bd9eedefe880a1df38751f66a7bdc4676147492081905cd43e25",
+   "requested_url": "https://fixtures.test/synthetic_malformed.html",
+   "source_bytes": 994,
+   "source_ref": "source_payload:s2-crawl4ai/synthetic_malformed.html",
+   "source_sha256": "97ed79c0cafe58e72ee92a8799750688c6696d974a623d563653b27c0724a2b4",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "49a29666be860629d75596cdc5f477da57739009a7cf6fd600040c32a2246a30",
+  "markdown_sha256_b": "49a29666be860629d75596cdc5f477da57739009a7cf6fd600040c32a2246a30",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "74ac1a26c29f302fced2f70029c7913e5e0b6bc7897b7a20944193a917694d65",
+  "record_sha256_b": "74ac1a26c29f302fced2f70029c7913e5e0b6bc7897b7a20944193a917694d65",
+  "rerun_identical": true
+ }
+}

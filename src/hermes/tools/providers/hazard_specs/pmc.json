@@ -1,0 +1,30 @@
+{
+  "schema": "hermes-hazard-spec/v1",
+  "provider_id": "pmc",
+  "version": "1.0.0",
+  "markers": [],
+  "empty_body_rule": "treat-as-failure",
+  "error_field": null,
+  "count_semantics": "exact",
+  "counts_raw_rows": false,
+  "required_fields": ["esearchresult"],
+  "cursor_rule": {"kind": "offset", "loop_guard": 100},
+  "throttle_signature": [
+    {"status": 429, "body_pattern": null, "fields": []},
+    {"status": null, "body_pattern": "API rate limit exceeded|too many requests", "fields": ["error"]}
+  ],
+  "rewrite_suspect": [],
+  "fetch": {
+    "body_marker": "pmc-articleset.article.body",
+    "metadata_marker": "pmc-articleset.article.front",
+    "body_required": true,
+    "empty_body_rule": "treat-as-failure",
+    "no_full_text_status": null,
+    "no_full_text_marker": null,
+    "retraction_marker": "pmc-articleset.article.pub-history.event.event-type",
+    "retraction_pattern": "retract|withdraw",
+    "error_field": null,
+    "required_fields": ["pmc-articleset"]
+  },
+  "valid_negative_statuses": []
+}

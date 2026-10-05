@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes adversarial review — the one-verdict gate (paired traces)</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f5f5f5; color:#2d3142; margin:0; padding:40px; }
+  .wrap { max-width: 1120px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#6b7280; margin-bottom:24px; }
+  .svgbox { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
+  .manifest { margin-top:28px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; font-size:13px; line-height:1.6; }
+  .manifest h2 { font-size:15px; margin:0 0 10px; }
+  .manifest table { border-collapse:collapse; width:100%; }
+  .manifest td, .manifest th { border:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+  .manifest th { background:#f9fafb; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .pass { fill:#ffffff; stroke:#059669; stroke-width:1.4; }
+  .fail { fill:#ffffff; stroke:#b91c1c; stroke-width:1.4; }
+</style>
+</head>
+<body><div class="wrap">
+<h1>Adversarial review — the one-verdict gate</h1>
+<div class="sub">Semantic pattern: <b>paired policy-evaluation traces</b> &rarr; visual type: <b>flowchart</b> &middot; parked HUMAN_GATE with an INVALIDATED dependency &middot; verified at HEAD <code>19e47d9</code> + F14 tamper + F15-audit/Q-05 follow-up</div>
+<div class="svgbox">
+<svg viewBox="0 0 1080 660" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <!-- shared rule column -->
+  <rect x="424" y="86" width="232" height="300" rx="12" fill="none" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="540" y="106" text-anchor="middle" font-size="12" fill="#2d3142" font-weight="bold">SHARED RULES (both traces)</text>
+  <text x="540" y="132" text-anchor="middle" font-size="10.5" fill="#4b5563">R1 operator credential verify — constant-time (F2)</text>
+  <text x="540" y="154" text-anchor="middle" font-size="10.5" fill="#4b5563">R2 gate exists and is WAITING_HUMAN</text>
+  <text x="540" y="176" text-anchor="middle" font-size="10.5" fill="#4b5563">R3 dep INVALIDATED after parking &rarr; diagnostic</text>
+  <text x="540" y="192" text-anchor="middle" font-size="10.5" fill="#4b5563">&nbsp;&nbsp;&nbsp;note only — never a veto</text>
+  <text x="540" y="214" text-anchor="middle" font-size="10.5" fill="#4b5563">R4 one-verdict journal check — transactional (F6),</text>
+  <text x="540" y="230" text-anchor="middle" font-size="10.5" fill="#4b5563">&nbsp;&nbsp;&nbsp;schema index (F9)</text>
+  <text x="540" y="252" text-anchor="middle" font-size="10.5" fill="#4b5563">R5 verdict applies in ONE fenced transaction</text>
+  <text x="540" y="274" text-anchor="middle" font-size="10.5" fill="#4b5563">&nbsp;&nbsp;&nbsp;(RUNNING &rarr; event &rarr; terminal &rarr; HumanGateResolved)</text>
+  <text x="540" y="306" text-anchor="middle" font-size="11" fill="#4b5563" font-style="italic">first divergence: only the terminal</text>
+  <text x="540" y="322" text-anchor="middle" font-size="11" fill="#4b5563" font-style="italic">event differs (GatePassed vs GateFailed)</text>
+  <text x="540" y="370" text-anchor="middle" font-size="10.5" fill="#6b7280">same rules, same parked situation,</text>
+  <text x="540" y="386" text-anchor="middle" font-size="10.5" fill="#6b7280">two legal verdicts &rarr; both resolve</text>
+
+  <!-- trace A: APPROVED -->
+  <rect x="60" y="86" width="300" height="52" rx="8" fill="#fbe9e7" stroke="#eb6c36" stroke-width="2"/>
+  <text x="210" y="107" text-anchor="middle" font-size="13.5" fill="#c2410c" font-weight="bold">Trace A — verdict APPROVED</text>
+  <text x="210" y="126" text-anchor="middle" font-size="10.5" fill="#9a3412">gate parked; dep INVALIDATED after parking</text>
+
+  <rect x="60" y="160" width="300" height="40" rx="8" class="pass"/>
+  <text x="210" y="185" text-anchor="middle" font-size="12" fill="#047857">R1 PASS &middot; R2 PASS &middot; R3 note (never veto)</text>
+
+  <rect x="60" y="222" width="300" height="40" rx="8" class="pass"/>
+  <text x="210" y="247" text-anchor="middle" font-size="12" fill="#047857">R4 PASS — journal has no prior verdict</text>
+
+  <rect x="60" y="284" width="300" height="40" rx="8" class="pass"/>
+  <text x="210" y="309" text-anchor="middle" font-size="12" fill="#047857">R5 one transaction: RUNNING &rarr; GatePassed &rarr; SUCCEEDED &rarr; HumanGateResolved</text>
+
+  <rect x="60" y="352" width="300" height="44" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.8"/>
+  <text x="210" y="371" text-anchor="middle" font-size="12.5" fill="#047857" font-weight="bold">OUTCOME: SUCCEEDED</text>
+  <text x="210" y="388" text-anchor="middle" font-size="10.5" fill="#065f46">mode returns ACTIVE; escape hatch used</text>
+
+  <!-- trace B: REJECTED -->
+  <rect x="740" y="86" width="300" height="52" rx="8" fill="#fbe9e7" stroke="#eb6c36" stroke-width="2"/>
+  <text x="890" y="107" text-anchor="middle" font-size="13.5" fill="#c2410c" font-weight="bold">Trace B — verdict REJECTED</text>
+  <text x="890" y="126" text-anchor="middle" font-size="10.5" fill="#9a3412">same parked gate, same INVALIDATED dep</text>
+
+  <rect x="740" y="160" width="300" height="40" rx="8" class="pass"/>
+  <text x="890" y="185" text-anchor="middle" font-size="12" fill="#047857">R1 PASS &middot; R2 PASS &middot; R3 note (never veto)</text>
+
+  <rect x="740" y="222" width="300" height="40" rx="8" class="pass"/>
+  <text x="890" y="247" text-anchor="middle" font-size="12" fill="#047857">R4 PASS — journal has no prior verdict</text>
+
+  <rect x="740" y="284" width="300" height="40" rx="8" class="pass"/>
+  <text x="890" y="309" text-anchor="middle" font-size="12" fill="#047857">R5 one transaction: RUNNING &rarr; GateFailed &rarr; FAILED &rarr; HumanGateResolved</text>
+
+  <rect x="740" y="352" width="300" height="44" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.8"/>
+  <text x="890" y="371" text-anchor="middle" font-size="12.5" fill="#047857" font-weight="bold">OUTCOME: FAILED (as ordered)</text>
+  <text x="890" y="388" text-anchor="middle" font-size="10.5" fill="#065f46">mode returns ACTIVE; no permanent park</text>
+
+  <!-- arrows down each trace -->
+  <path d="M 210,138 V 152" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 210,200 V 214" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 210,262 V 276" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 210,324 V 344" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 890,138 V 152" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 890,200 V 214" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 890,262 V 276" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 890,324 V 344" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- refusal band -->
+  <rect x="60" y="432" width="980" height="160" rx="12" fill="none" stroke="#b91c1c" stroke-width="1.2" stroke-dasharray="6,4"/>
+  <rect x="80" y="414" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="155" y="429" text-anchor="middle" font-size="12" fill="#b91c1c" font-weight="bold">REFUSED PATHS</text>
+
+  <rect x="84" y="456" width="290" height="52" rx="8" class="fail"/>
+  <text x="229" y="476" text-anchor="middle" font-size="11.5" fill="#991b1b" font-weight="bold">wrong operator token ✗</text>
+  <text x="229" y="495" text-anchor="middle" font-size="10.5" fill="#7f1d1d">OPERATOR refusal; gate stays WAITING_HUMAN; nothing lands</text>
+
+  <rect x="396" y="456" width="290" height="52" rx="8" class="fail"/>
+  <text x="541" y="476" text-anchor="middle" font-size="11.5" fill="#991b1b" font-weight="bold">status tampered back to WAITING_HUMAN ✗</text>
+  <text x="541" y="495" text-anchor="middle" font-size="10.5" fill="#7f1d1d">journal consulted — ALREADY_RESOLVED (F14); no second verdict</text>
+
+  <rect x="708" y="456" width="290" height="52" rx="8" class="fail"/>
+  <text x="853" y="476" text-anchor="middle" font-size="11.5" fill="#991b1b" font-weight="bold">crash mid-verdict ✗</text>
+  <text x="853" y="495" text-anchor="middle" font-size="10.5" fill="#7f1d1d">R5 is one transaction — ROLLBACK; zero half-state (crash-injection test)</text>
+
+  <rect x="84" y="530" width="290" height="52" rx="8" class="fail"/>
+  <text x="229" y="550" text-anchor="middle" font-size="11.5" fill="#991b1b" font-weight="bold">forged duplicate GatePassed ✗</text>
+  <text x="229" y="569" text-anchor="middle" font-size="10.5" fill="#7f1d1d">one verdict only — second resolve NOT_WAITING (F14)</text>
+
+  <rect x="396" y="530" width="290" height="52" rx="8" class="fail"/>
+  <text x="541" y="550" text-anchor="middle" font-size="11.5" fill="#991b1b" font-weight="bold">forged HumanGateResolved ✗</text>
+  <text x="541" y="569" text-anchor="middle" font-size="10.5" fill="#7f1d1d">ALREADY_RESOLVED — tamper can only deny, never grant</text>
+
+  <rect x="708" y="530" width="290" height="52" rx="8" class="fail"/>
+  <text x="853" y="550" text-anchor="middle" font-size="11.5" fill="#991b1b" font-weight="bold">concurrent second controller ✗</text>
+  <text x="853" y="569" text-anchor="middle" font-size="10.5" fill="#7f1d1d">LOCK refusal (lease held) — nothing lands</text>
+
+  <text x="60" y="622" font-size="11" fill="#6b7280">Trace status is text + outline (never color alone) &middot; green outline = PASS, red = FAIL/forbidden &middot; escape hatch: the operator verdict resolves a gate whose dep was INVALIDATED after parking</text>
+</svg>
+</div>
+<div class="manifest">
+<h2>Provenance manifest — diagram source</h2>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Repository commit</td><td>Hermes <code>19e47d9</code> + F14-lens follow-up</td></tr>
+<tr><td>Semantic pattern → type</td><td>Paired policy-evaluation traces → Flowchart (harvested from cathrynlavery/diagram-design v2.4 @ <code>09df49d8</code>, MIT)</td></tr>
+<tr><td>Files inspected</td><td><code>src/hermes/research/controller.py</code> (<code>resolve_human_gate</code>, one-fenced-transaction verdict, escape hatch, F-10 carve-out), <code>src/hermes/research/gateway.py</code> (<code>_decision_append_transactional</code> F6), <code>src/hermes/persistence/migrations.py</code> (migration 12 unique index F9), <code>src/hermes/persistence/repositories.py</code> (constant-time verify F2)</td></tr>
+<tr><td>Architecture documents</td><td><code>hermes_redteam_operator_loop_audit.md</code>, <code>hermes_p2_residuals_governance.md</code>, IDR-029, IDR-041</td></tr>
+<tr><td>Tests</td><td><code>test_11_resolve_verdict_lands_in_one_transaction</code> (crash injection), <code>test_11_escape_hatch_invalidated_dep_after_parking_still_resolvable</code>, <code>test_11_parked_gate_invalidated_dep_diagnostic_note</code>, <code>test_11_journal_one_verdict_under_status_tamper</code> (F14), <code>test_11_forged_gate_events_can_refuse_but_never_authorize</code> (F14), <code>test_11_forged_journal_events_cannot_bypass_one_verdict_under_race</code> (F14), <code>test_f6_one_verdict_race_closed</code>, F2 constant-time test &middot; F15-audit/Q-05 (composition): <code>test_21_q05_operator_gate_resolution_never_touches_epistemic_state</code> (the verdict leaves the entire epistemic surface byte-identical — zero classification/ladder/proposal events), <code>test_21_f15_rejected_gate_wave_stops_recovery_still_completes</code> (REJECTED is terminal: one GateFailed + one HumanGateResolved, second resolve NOT_WAITING, recovery still completes once), <code>test_21_f15_rejected_gate_wave_redispatch_downstream</code> (an independent task re-dispatches past the FAILED gate and completes exactly once), <code>test_21_f15_operator_resolve_racing_recovery_first_miss</code> (the verdict races B's mid-recovery tick loop: exactly one verdict, no FAILED hop before the HumanGateResolved event, completion once at attempt 2), <code>test_21_f15_second_gate_reparks_wave</code> (gate-1 REJECTED returns ACTIVE, gate-2 re-parks AWAITING_HUMAN in the same tick; each gate exactly one verdict, zero cross-talk), <code>test_21_f15_rejected_verdict_race_retryable_task</code> (REJECTED races the mid-recovery tick loop on a retryable worker: one GateFailed + one HumanGateResolved, retry re-executes once at attempt 2), <code>test_21_f15_resolve_race_outcome_invariant_across_schedules</code> (property-style: six seeded random schedules all yield exactly one verdict and one completion), <code>test_21_f15_rejected_verdict_race_retries_exhausted</code> (REJECTED races the mid-recovery tick loop on an exhausted worker: worker FAILED at attempt 1, never re-executed, wave stops), <code>test_21_f15_second_gate_property_schedules</code> (property-style re-park: five seeded schedules, each gate exactly one verdict, one completion at attempt 2)</td></tr>
+<tr><td>Node status</td><td>All nodes <b>IMPLEMENTED</b>; refused paths are real refusals (test-pinned), not design intent</td></tr>
+</table>
+</div>
+</div></body></html>

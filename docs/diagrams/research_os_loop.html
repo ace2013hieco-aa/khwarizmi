@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes — the Research Operating System loop</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f5f5f5; color:#2d3142; margin:0; padding:40px; }
+  .wrap { max-width: 1120px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#6b7280; margin-bottom:24px; }
+  .svgbox { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
+  .manifest { margin-top:28px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; font-size:13px; line-height:1.6; }
+  .manifest h2 { font-size:15px; margin:0 0 10px; }
+  .manifest table { border-collapse:collapse; width:100%; }
+  .manifest td, .manifest th { border:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+  .manifest th { background:#f9fafb; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body><div class="wrap">
+<h1>The Research Operating System loop</h1>
+<div class="sub">Semantic pattern: <b>reinforcing loop with shared state</b> &rarr; visual type: <b>loop</b> &middot; every station <b>IMPLEMENTED</b> per the loop note &middot; verified at HEAD <code>ac770f7</code></div>
+<div class="svgbox">
+<svg viewBox="0 0 1080 660" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <!-- hub -->
+  <ellipse cx="540" cy="320" rx="128" ry="92" fill="#f3f4f6" stroke="#2d3142" stroke-width="1.6"/>
+  <text x="540" y="308" text-anchor="middle" font-size="14.5" fill="#2d3142" font-weight="bold">Task graph +</text>
+  <text x="540" y="328" text-anchor="middle" font-size="14.5" fill="#2d3142" font-weight="bold">event journal</text>
+  <text x="540" y="350" text-anchor="middle" font-size="10.5" fill="#6b7280">shared record —</text>
+  <text x="540" y="365" text-anchor="middle" font-size="10.5" fill="#6b7280">every pass writes</text>
+
+  <!-- write-back spokes (dashed) -->
+  <path d="M 540,202 L 540,242" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 655,248 L 606,274" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 666,320 L 668,320" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 655,392 L 606,366" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 540,438 L 540,398" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 425,392 L 474,366" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 414,320 L 412,320" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 425,248 L 474,274" fill="none" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <text x="700" y="312" font-size="10" fill="#6b7280">writes</text>
+  <text x="372" y="312" font-size="10" fill="#6b7280">writes</text>
+
+  <!-- stations -->
+  <rect x="455" y="84" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="540" y="108" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">ResearchProgram</text>
+  <text x="540" y="128" text-anchor="middle" font-size="10" fill="#6b7280">scope + hypothesis graph</text>
+
+  <rect x="610" y="146" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="695" y="170" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">Controller execution</text>
+  <text x="695" y="190" text-anchor="middle" font-size="10" fill="#6b7280">lease-fenced dispatch</text>
+
+  <rect x="688" y="291" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="773" y="315" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">Evidence</text>
+  <text x="773" y="335" text-anchor="middle" font-size="10" fill="#6b7280">source outcomes, artifacts</text>
+
+  <rect x="610" y="436" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="695" y="460" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">SUPPORT / REFUTED</text>
+  <text x="695" y="480" text-anchor="middle" font-size="10" fill="#6b7280">evidence ladder (REFUTED terminal)</text>
+
+  <rect x="455" y="508" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="540" y="532" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">Q-05 — WHY?</text>
+  <text x="540" y="552" text-anchor="middle" font-size="10" fill="#6b7280">failure classification + actions</text>
+
+  <rect x="300" y="436" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="385" y="460" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">Q-04 — WHAT ELSE?</text>
+  <text x="385" y="480" text-anchor="middle" font-size="10" fill="#6b7280">failure cone + blast radius</text>
+
+  <rect x="222" y="291" width="170" height="58" rx="8" fill="#fbe9e7" stroke="#eb6c36" stroke-width="2"/>
+  <text x="307" y="315" text-anchor="middle" font-size="13" fill="#c2410c" font-weight="bold">Q-02 — WHAT NEXT?</text>
+  <text x="307" y="335" text-anchor="middle" font-size="10" fill="#9a3412">ActionEvaluation → eligible ordering</text>
+
+  <rect x="300" y="146" width="170" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="385" y="170" text-anchor="middle" font-size="13" fill="#2d3142" font-weight="bold">Controller dispatch</text>
+  <text x="385" y="190" text-anchor="middle" font-size="10" fill="#6b7280">Q-02 order → task graph again</text>
+
+  <!-- ring arrows (clockwise) -->
+  <path d="M 596,122 Q 668,118 682,148" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 752,196 Q 806,252 798,294" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 788,352 Q 776,422 738,450" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 648,486 Q 618,532 566,534" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 472,528 Q 428,518 404,488" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 332,446 Q 280,408 268,356" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 286,294 Q 270,246 330,198" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M 410,148 Q 470,110 490,116" fill="none" stroke="#2d3142" stroke-width="1.3" marker-end="url(#arrow)"/>
+
+  <text x="640" y="140" font-size="10" fill="#4b5563">tasks</text>
+  <text x="812" y="262" font-size="10" fill="#4b5563">evidence</text>
+  <text x="786" y="408" font-size="10" fill="#4b5563">rungs</text>
+  <text x="596" y="548" font-size="10" fill="#4b5563">falsification fact</text>
+  <text x="430" y="516" font-size="10" fill="#4b5563">classification</text>
+  <text x="262" y="408" font-size="10" fill="#4b5563">impact view</text>
+  <text x="262" y="248" font-size="10" fill="#4b5563">eligible order</text>
+  <text x="440" y="118" font-size="10" fill="#4b5563">new/updated tasks</text>
+
+  <text x="300" y="612" font-size="11" fill="#6b7280">Solid ring = the closed feedback loop &middot; dashed spokes = every station writes to the shared record &middot; NO loop driver, NO second scheduler — the controller tick is the only execution engine</text>
+</svg>
+</div>
+<div class="manifest">
+<h2>Provenance manifest — diagram source</h2>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Repository commit</td><td>Hermes <code>ac770f7</code> (clean tree)</td></tr>
+<tr><td>Semantic pattern → type</td><td>Reinforcing loop with shared state → Loop (harvested from cathrynlavery/diagram-design v2.4 @ <code>09df49d8</code>, MIT; loop rule: 5–8 stations + exactly one hub)</td></tr>
+<tr><td>Files inspected</td><td><code>hermes_research_operating_system_loop.md</code> (the 10-link loop, every EXISTS link grep-verified at writing), <code>src/hermes/research/controller.py</code> (tick/dispatch/recovery), <code>src/hermes/research/evidence_ladder.py</code> (rungs), <code>src/hermes/research/evaluation.py</code> (Q-02 ordering), <code>src/hermes/persistence/repositories.py</code></td></tr>
+<tr><td>Architecture documents</td><td><code>hermes_current_epistemic_architecture_review.md</code> §L, IDR-038 (Q-02), IDR-039/040 (Q-04), IDR-041 (ladder)</td></tr>
+<tr><td>Tests</td><td>Q-02 ordering suite, Q-04 cone suite, ladder APPLY suite, operator-loop suite (the tests that pin each station's behavior)</td></tr>
+<tr><td>Node status</td><td>All 8 stations + hub <b>IMPLEMENTED</b>; the hub is the existing task/event store — nothing new is proposed by this figure</td></tr>
+</table>
+</div>
+</div></body></html>

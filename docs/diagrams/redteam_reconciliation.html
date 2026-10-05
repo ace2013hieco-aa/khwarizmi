@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes adversarial review — the five red-team attack paths and where each is stopped</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f5f5f5; color:#2d3142; margin:0; padding:40px; }
+  .wrap { max-width: 1120px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#6b7280; margin-bottom:24px; }
+  .svgbox { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
+  .manifest { margin-top:28px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; font-size:13px; line-height:1.6; }
+  .manifest h2 { font-size:15px; margin:0 0 10px; }
+  .manifest table { border-collapse:collapse; width:100%; }
+  .manifest td, .manifest th { border:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+  .manifest th { background:#f9fafb; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body><div class="wrap">
+<h1>Red-team reconciliation — the five attack paths and where each is stopped</h1>
+<div class="sub">Semantic pattern: <b>adversarial policy evaluation</b> &rarr; visual type: <b>flowchart (attack lanes)</b> &middot; external report RT-01&ndash;RT-05 + F14 journal-tamper + directive-#2 probe + F2 constant-work probe closures &middot; reconciled at HEAD <code>28ff259</code> + follow-ups &middot; 1424 tests</div>
+<div class="svgbox">
+<svg viewBox="0 0 1080 960" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <!-- legend -->
+  <rect x="30" y="48" width="1020" height="34" rx="6" fill="#f9fafb" stroke="#e5e7eb"/>
+  <text x="50" y="69" font-size="12" fill="#4b5563">&#9654; attack input</text>
+  <line x1="175" y1="65" x2="215" y2="65" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <text x="225" y="69" font-size="12" fill="#4b5563">attempted path</text>
+  <text x="420" y="69" font-size="12" fill="#4b5563">&#10060; stop point (fail-closed)</text>
+  <text x="650" y="69" font-size="12" fill="#4b5563">&#9670; verdict</text>
+  <text x="790" y="69" font-size="12" fill="#4b5563">residual &rarr; FUTURE DESIGN (recorded, not built)</text>
+
+  <!-- ============ RT-01 lane ============ -->
+  <rect x="30" y="100" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="84" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="121" y="99" text-anchor="middle" font-size="12" fill="#4b5563">RT-01 retraction cascade</text>
+
+  <rect x="50" y="118" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="138" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">foundational source</text>
+  <text x="150" y="156" text-anchor="middle" font-size="12" fill="#4b5563">later retracted</text>
+
+  <line x1="250" y1="144" x2="296" y2="144" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="118" width="218" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="407" y="138" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">REMOVED_OR_RETRACTED hazard</text>
+  <text x="407" y="156" text-anchor="middle" font-size="12" fill="#4b5563">value-semantics marker &rarr; SourceRetracted audit event</text>
+
+  <line x1="516" y1="144" x2="562" y2="144" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="564" y="118" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="664" y="138" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">re-review candidates</text>
+  <text x="664" y="156" text-anchor="middle" font-size="12" fill="#4b5563">advisory only &rarr; digest &rarr; human</text>
+
+  <line x1="764" y1="144" x2="800" y2="144" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="802" y="112" width="236" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="920" y="133" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; ladder auto-downgrade</text>
+  <text x="920" y="151" text-anchor="middle" font-size="11.5" fill="#7f1d1d">BLOCKED — no automatic invalidation;</text>
+  <text x="920" y="166" text-anchor="middle" font-size="11.5" fill="#7f1d1d">APPLY derives from ratified facts only</text>
+
+  <text x="50" y="210" font-size="12" fill="#4b5563">&#9670; CONFIRMED AS DESIGN (ratified posture, review &#167;20) &middot; residual: ratifiable quarantine action — FUTURE DESIGN</text>
+
+  <!-- ============ RT-02 lane ============ -->
+  <rect x="30" y="230" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="214" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="121" y="229" text-anchor="middle" font-size="12" fill="#4b5563">RT-02 classifier bypass</text>
+
+  <rect x="50" y="248" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="268" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">misclassified</text>
+  <text x="150" y="286" text-anchor="middle" font-size="12" fill="#4b5563">IMPLEMENTATION_FAILURE (EFFECTIVE by class)</text>
+
+  <line x1="250" y1="274" x2="296" y2="274" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="248" width="218" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="407" y="268" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">PROPOSE_MECHANISM_SUBSTITUTION</text>
+  <text x="407" y="286" text-anchor="middle" font-size="12" fill="#4b5563">scope-route proposal intent</text>
+
+  <line x1="516" y1="274" x2="552" y2="274" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="554" y="242" width="236" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="672" y="263" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; human-gate bypass</text>
+  <text x="672" y="281" text-anchor="middle" font-size="11.5" fill="#7f1d1d">BLOCKED — gate is action-shape-driven,</text>
+  <text x="672" y="296" text-anchor="middle" font-size="11.5" fill="#7f1d1d">recomputed at proposal time: PENDING_HUMAN_APPROVAL</text>
+
+  <rect x="812" y="248" width="224" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="924" y="268" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">test_scope_routes_are_pending</text>
+  <text x="924" y="286" text-anchor="middle" font-size="12" fill="#4b5563">+ TestDirective2ClassifierTruthGap (4)</text>
+
+  <text x="50" y="340" font-size="12" fill="#4b5563">&#9670; REFUTED (TEST-VERIFIED, 4-surface probe) &middot; a wrong class mis-routes advisory content only — it can never convert a proposal into authority; zero state mutation on any gateway surface</text>
+
+  <!-- ============ RT-03 lane ============ -->
+  <rect x="30" y="360" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="344" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="121" y="359" text-anchor="middle" font-size="12" fill="#4b5563">RT-03 obligation padding</text>
+
+  <rect x="50" y="378" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">50 trivial obligations</text>
+  <text x="150" y="416" text-anchor="middle" font-size="12" fill="#4b5563">satisfied / always-outstanding</text>
+
+  <line x1="250" y1="404" x2="296" y2="404" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="378" width="218" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="407" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">count&rarr;level mapping</text>
+  <text x="407" y="416" text-anchor="middle" font-size="12" fill="#4b5563">NONE &lt; LOW (all satisfied) &lt; MED &lt; HIGH (&ge;2 outstanding)</text>
+
+  <line x1="516" y1="404" x2="552" y2="404" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="554" y="372" width="236" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="672" y="393" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; priority inversion</text>
+  <text x="672" y="411" text-anchor="middle" font-size="11.5" fill="#7f1d1d">BLOCKED — satisfied padding LOWERS priority;</text>
+  <text x="672" y="426" text-anchor="middle" font-size="11.5" fill="#7f1d1d">outstanding padding caps at HIGH (parity) &rarr; created_at</text>
+
+  <rect x="812" y="378" width="224" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="924" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">2 regression tests</text>
+  <text x="924" y="416" text-anchor="middle" font-size="12" fill="#4b5563">satisfied-loses + outstanding-parity</text>
+
+  <text x="50" y="470" font-size="12" fill="#4b5563">&#9670; REFUTED (live probe + regression-locked) &middot; the mapping is anti-Goodhart by ratified contract</text>
+
+  <!-- ============ RT-04 lane ============ -->
+  <rect x="30" y="490" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="474" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="121" y="489" text-anchor="middle" font-size="12" fill="#4b5563">RT-04 SUCCEEDED masking</text>
+
+  <rect x="50" y="508" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="528" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">A FAILED &rarr; B fallback SUCCEEDED</text>
+  <text x="150" y="546" text-anchor="middle" font-size="12" fill="#4b5563">C executes on B&rsquo;s fallback outputs</text>
+
+  <line x1="250" y1="534" x2="296" y2="534" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="508" width="218" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="407" y="528" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">cone = hard-blocking predicate</text>
+  <text x="407" y="546" text-anchor="middle" font-size="12" fill="#4b5563">SUCCEEDED intermediate breaks propagation (by contract)</text>
+
+  <line x1="516" y1="534" x2="562" y2="534" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="564" y="508" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="664" y="528" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">provenance truthfulness</text>
+  <text x="664" y="546" text-anchor="middle" font-size="12" fill="#4b5563">B&rsquo;s artifacts link to B (real producer)</text>
+
+  <rect x="786" y="502" width="252" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="912" y="523" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">masking is visibility-only</text>
+  <text x="912" y="541" text-anchor="middle" font-size="11.5" fill="#4b5563">A&rsquo;s cone + re-review candidates surface</text>
+  <text x="912" y="556" text-anchor="middle" font-size="11.5" fill="#4b5563">in the SAME digest as B&rsquo;s outputs</text>
+
+  <text x="50" y="600" font-size="12" fill="#4b5563">&#9670; PARTIALLY VALID, BY DESIGN &middot; residual: edge-propagation policy / soft-dependency kind — FUTURE DESIGN (review &#167;19)</text>
+
+  <!-- ============ RT-05 lane ============ -->
+  <rect x="30" y="620" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="604" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="121" y="619" text-anchor="middle" font-size="12" fill="#4b5563">RT-05 hazard drift</text>
+
+  <rect x="50" y="638" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="658" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">structurally-valid &ldquo;unavailable&rdquo; page</text>
+  <text x="150" y="676" text-anchor="middle" font-size="12" fill="#4b5563">provider API drift, 200 OK</text>
+
+  <line x1="250" y1="664" x2="296" y2="664" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="638" width="218" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="407" y="658" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">deterministic hazard specs</text>
+  <text x="407" y="676" text-anchor="middle" font-size="12" fill="#4b5563">drift sentinel &middot; required_fields &middot; value-semantics markers</text>
+
+  <line x1="516" y1="664" x2="562" y2="664" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="564" y="638" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="664" y="658" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">structured hazard only</text>
+  <text x="664" y="676" text-anchor="middle" font-size="12" fill="#4b5563">no semantic authority at the ingestion boundary</text>
+
+  <rect x="786" y="632" width="252" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="912" y="653" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">defense-in-depth downstream</text>
+  <text x="912" y="671" text-anchor="middle" font-size="11.5" fill="#4b5563">garbage-but-valid content still lands as an</text>
+  <text x="912" y="686" text-anchor="middle" font-size="11.5" fill="#4b5563">artifact &rarr; provenance + review + human gate</text>
+
+  <text x="50" y="730" font-size="12" fill="#4b5563">&#9670; CONFIRMED AS DESIGN &middot; any drift detector would reintroduce the forbidden LLM dependency — FUTURE DESIGN if ever built</text>
+
+  <!-- ============ F14 lane: forged journal events ============ -->
+  <rect x="30" y="750" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="734" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="121" y="749" text-anchor="middle" font-size="12" fill="#4b5563">F14 forged journal events</text>
+
+  <rect x="50" y="768" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="788" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">forged event rows</text>
+  <text x="150" y="806" text-anchor="middle" font-size="12" fill="#4b5563">direct SQL into the journal</text>
+
+  <line x1="250" y1="794" x2="296" y2="794" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="768" width="218" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="407" y="788" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">one-verdict journal check</text>
+  <text x="407" y="806" text-anchor="middle" font-size="12" fill="#4b5563">keyed on gate task_id (F6/F9)</text>
+
+  <line x1="516" y1="794" x2="552" y2="794" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="554" y="762" width="236" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="672" y="783" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; tamper can only deny</text>
+  <text x="672" y="801" text-anchor="middle" font-size="11.5" fill="#7f1d1d">forged GatePassed &rarr; one-verdict key,</text>
+  <text x="672" y="816" text-anchor="middle" font-size="11.5" fill="#7f1d1d">forged resolve &rarr; ALREADY_RESOLVED</text>
+
+  <rect x="812" y="768" width="224" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="924" y="788" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">test_11_forged_gate_events</text>
+  <text x="924" y="806" text-anchor="middle" font-size="12" fill="#4b5563">_can_refuse_but_never_authorize</text>
+
+  <text x="50" y="860" font-size="12" fill="#4b5563">&#9670; REFUTED (TEST-VERIFIED) &middot; journal tampering can only DENY a verdict — it can never grant one (second resolve refused: NOT_WAITING)</text>
+
+  <!-- verdict band -->
+  <rect x="30" y="874" width="1020" height="44" rx="8" fill="#f0fdf4" stroke="#15803d" stroke-width="1.4"/>
+  <text x="540" y="893" text-anchor="middle" font-size="13" fill="#166534" font-weight="bold">VERDICT: 3 refuted + test-verified &middot; 1 test-pinned impossible &middot; 2 accepted design with recorded residuals &middot; 0 defects &middot; no BLOCKER, no MUST FIX</text>
+  <text x="540" y="911" text-anchor="middle" font-size="11.5" fill="#166534">external closure attacks the refined directives (forge SourceRetracted &rarr; ladder must not move; wrong class &rarr; never state mutation; count-mapping extremes; forged journal events &rarr; refuse, never authorize)</text>
+</svg>
+</div>
+<div class="manifest">
+<h2>Provenance manifest</h2>
+<table>
+<tr><th>diagram source</th><td>commit <code>48cf67d</code> + follow-ups; reconciliation record <code>hermes_redteam_reconciliation.md</code>; external report RT-01&ndash;RT-05; F14 journal-tamper closure (<code>test_11_forged_gate_events_can_refuse_but_never_authorize</code>); directive #2 probe (<code>TestDirective2ClassifierTruthGap</code>); F2/F4 constant-work probe family (register / gate-surface / LOCK / CLI / ingestion / tick-loop / hash-shape-parse / diagnostics / token-fuzz / legacy / register-refusal / brute-force — 19 probes; fuzz caught the legacy non-ASCII compare_digest crash, fixed fail-closed); F15-audit composition + Q-05 crossover (2 probes, 2 product fixes: mode-gated recovery second-miss + fail-closed dispatch claim)</td></tr>
+<tr><th>files inspected</th><td><code>src/hermes/research/controller.py</code> (record_source_retraction, retracted_source_review_candidates), <code>src/hermes/persistence/source_outcomes.py</
+code> (PS-08 / HZ-02), <code>docs/idr/IDR-040.md</code> (authority boundary), <code>hermes_current_epistemic_architecture_review.md</code> (&#167;19, &#167;20), <code>tests/test_controller.py</code> (resolve_human_gate one-verdict F14)</td></tr>
+<tr><th>tests pinning each lane</th><td>RT-01: test_two_observers_same_retraction_two_audit_events_one_seed, test_forged_retraction_events_never_touch_ladder_state, test_identical_retry_does_not_duplicate_the_event, test_fetch_without_retraction_hazard_emits_no_event &middot; RT-02: test_scope_routes_are_pending, test_non_authority_actions_stay_effective, TestDirective2ClassifierTruthGap (4 surfaces), test_21_q05_operator_gate_resolution_never_touches_epistemic_state &middot; RT-03: test_goodhart_padding_satisfied_obligations_never_wins, test_goodhart_padding_outstanding_caps_at_high &middot; RT-04: test_succeeded_intermediate_breaks_the_blocking_chain &middot; RT-05: tests/test_provider_hazards.py &middot; F14: test_11_forged_gate_events_can_refuse_but_never_authorize, test_11_journal_one_verdict_under_status_tamper &middot; F2 (new): test_12_f2_register_surface_pays_one_kdf_each, test_operator_register_cli_pays_one_kdf_per_attempt, test_12_f2_tick_loop_never_runs_pbkdf2_or_reads_credentials &middot; F2 (latest): test_12_f2_hash_shape_parse_is_bounded, test_diagnostic_cli_surfaces_never_run_pbkdf2, test_12_f2_verify_token_fuzz_one_kdf_bounded, test_12_f2_register_verify_interleaved_controllers_one_kdf_each, test_12_f2_register_repeated_no_token_oracle, test_12_f2_verify_is_pure_function_of_hash_and_token, test_12_f2_register_refusal_reveals_no_token_shape, test_12_f2_wrong_token_brute_force_pays_linear_kdf_cost, test_register_cli_refusal_output_leaks_nothing_beyond_message, test_12_f2_operator_round_trip_latency_documented, test_status_audit_json_shape_operator_state_invisible, test_backup_restore_cost_is_size_proportional_not_content_dependent, test_cold_start_import_cost_is_state_independent, test_doctor_json_config_echo_leaks_only_operator_written_values, test_audit_json_output_size_is_visible_rows_only_not_an_oracle, test_audit_human_table_same_rows_null_project_unfiltered_only, test_status_human_table_hidden_state_invariant_and_bounded, test_doctor_sandbox_resolved_path_env_derived_only_in_checks, test_20_error_precedence_matrix_deterministic, test_20_cross_project_gate_resolution_refused, test_20_journal_coherence_each_outcome_exact_events, test_20_replay_after_restore_one_verdict_survives, test_events_cli_untruncated_fields_but_strict_subset, test_gate_resolve_output_echoes_only_attacker_input, test_verdict_requires_credential_operational_surfaces_do_not, test_cli_cross_project_gate_resolution, test_canary_token_never_leaks_any_surface &middot; F2 (family): test_12_f2_unknown_operator_burn_runs_one_pbkdf2_not_skippable, test_12_f2_gate_surface_constant_work_one_kdf_each, test_12_f2_lock_path_pays_one_kdf_not_a_cheap_oracle, test_12_f2_lock_path_bounded_work_size_independent, test_gate_resolve_cli_pays_one_pbkdf2_per_outcome, test_12_f2_operator_decision_refusals_pay_one_kdf_each, test_12_f2_scope_decision_refusals_pay_one_kdf_each, test_12_f2_register_surface_pays_one_kdf_each, test_operator_register_cli_pays_one_kdf_per_attempt &middot; F4 (corpus fuzz + legacy): test_12_f4_malformed_stored_hash_corpus_never_runs_pbkdf2, test_12_f4_legacy_64hex_credential_verifies_end_to_end, test_legacy_64hex_credential_gate_resolve_cli &middot; F15-audit/Q-05 (composition): test_21_f15_heartbeat_cliff_operator_during_transition, test_21_q05_operator_gate_resolution_never_touches_epistemic_state, test_21_f15_paused_recovery_stays_no_signal_completes_after_resume, test_21_f15_rejected_gate_wave_stops_recovery_still_completes, test_21_f15_paused_revert_fresh_heartbeat_no_requeue, test_21_f15_rejected_gate_wave_redispatch_downstream, test_21_f15_chained_gates_rejected_property_schedules, test_21_f15_resolve_race_third_gate_partial_lease_stall_surfaced, test_21_f15_completion_budget_deep_wide_graph_not_a_false_stall, test_21_f15_completion_budget_mixed_mesh_depth_x_width, test_21_f15_third_gate_partial_lease_stall_property_schedules, test_21_f15_completion_budget_huge_fan_scaled_never_exhausted, test_21_f15_completion_budget_mesh_exact_product_boundary, test_21_f15_completion_budget_deep_fan_chain_total_nodes, test_21_f15_completion_budget_huge_fan_headroom_measured, test_21_f15_completion_budget_mixed_shape_mesh_sum_of_depths, test_21_f15_stalled_message_names_blocking_owner_row, test_21_f15_completion_budget_headroom_cap_sweep, test_21_f15_completion_budget_mixed_mesh_gate2_rejected, test_21_f15_stalled_owner_snapshot_lease_handoff, test_21_f15_completion_budget_unified_closed_form, test_21_f15_mixed_mesh_gate2_rejected_races_lease_holder, test_21_f15_stalled_owner_snapshot_double_handoff</td></tr>
+<tr><th>probe evidence</th><td>two cross-task observers &rarr; 2 audit events (distinct observed_by_task), advisory deduped to one seed; forged + corrupt + foreign events &rarr; ladder identical, APPLY wrote nothing, 2 fail-closed notes</td></tr>
+<tr><th>projection rule</th><td>diagrams are never authority; executable code and ratified IDRs win on any conflict (hermes_diagram_design_skill.md)</td></tr>
+</table>
+</div>
+</div></body>
+</html>

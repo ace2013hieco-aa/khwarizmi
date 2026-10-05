@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes authority / trust boundary — who may mutate what</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f5f5f5; color:#2d3142; margin:0; padding:40px; }
+  .wrap { max-width: 1120px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#6b7280; margin-bottom:24px; }
+  .svgbox { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
+  .manifest { margin-top:28px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; font-size:13px; line-height:1.6; }
+  .manifest h2 { font-size:15px; margin:0 0 10px; }
+  .manifest table { border-collapse:collapse; width:100%; }
+  .manifest td, .manifest th { border:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+  .manifest th { background:#f9fafb; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body><div class="wrap">
+<h1>Hermes authority / trust boundary</h1>
+<div class="sub">Semantic pattern: <b>secure paved road</b> &rarr; visual type: <b>architecture</b> &middot; who may mutate what &middot; verified at HEAD <code>ac770f7</code></div>
+<div class="svgbox">
+<svg viewBox="0 0 1080 600" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <!-- zones -->
+  <rect x="24" y="90" width="330" height="430" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="44" y="72" width="170" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="129" y="87" text-anchor="middle" font-size="12.5" fill="#4b5563">UNTRUSTED / EXTERNAL</text>
+
+  <rect x="390" y="90" width="666" height="430" rx="12" fill="none" stroke="#2d3142" stroke-width="1.2"/>
+  <rect x="420" y="72" width="180" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="510" y="87" text-anchor="middle" font-size="12.5" fill="#2d3142">CONTROLLED PLANE</text>
+
+  <!-- zone A: nodes -->
+  <rect x="64" y="150" width="250" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="189" y="178" text-anchor="middle" font-size="14" fill="#2d3142">Agent (LLM)</text>
+  <text x="189" y="198" text-anchor="middle" font-size="11" fill="#6b7280">claims + intent kinds — never raw SQL</text>
+
+  <rect x="64" y="330" width="250" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="189" y="358" text-anchor="middle" font-size="14" fill="#2d3142">External provider</text>
+  <text x="189" y="378" text-anchor="middle" font-size="11" fill="#6b7280">untrusted content / HTTP responses</text>
+
+  <!-- controlled nodes -->
+  <rect x="430" y="150" width="250" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="555" y="178" text-anchor="middle" font-size="14" fill="#2d3142">Intent</text>
+  <text x="555" y="198" text-anchor="middle" font-size="11" fill="#6b7280">typed, validated claims (gateway.py)</text>
+
+  <rect x="430" y="300" width="250" height="64" rx="8" fill="#fbe9e7" stroke="#eb6c36" stroke-width="2"/>
+  <text x="555" y="326" text-anchor="middle" font-size="14" fill="#c2410c" font-weight="bold">Gateway — privileged gate</text>
+  <text x="555" y="346" text-anchor="middle" font-size="11" fill="#9a3412">admission + re-verification + transactional appends</text>
+
+  <rect x="770" y="150" width="250" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="895" y="178" text-anchor="middle" font-size="14" fill="#2d3142">Repositories</text>
+  <text x="895" y="198" text-anchor="middle" font-size="11" fill="#6b7280">fenced writes — lease-guarded (ADV-02)</text>
+
+  <rect x="770" y="330" width="250" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="895" y="358" text-anchor="middle" font-size="14" fill="#2d3142">State (SQLite)</text>
+  <text x="895" y="378" text-anchor="middle" font-size="11" fill="#6b7280">append-only event journal; immutable programs</text>
+
+  <!-- permitted arrows -->
+  <path d="M 314,182 H 402" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="358" y="174" text-anchor="middle" font-size="10.5" fill="#4b5563">permitted</text>
+
+  <path d="M 555,214 V 272" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="566" y="248" font-size="10.5" fill="#4b5563">permitted</text>
+
+  <path d="M 680,332 H 742" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="711" y="324" text-anchor="middle" font-size="10.5" fill="#4b5563">permitted</text>
+
+  <path d="M 895,214 V 302" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="906" y="263" font-size="10.5" fill="#4b5563">permitted</text>
+
+  <!-- provider path: hazards at the boundary -->
+  <path d="M 314,362 H 402" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="358" y="354" text-anchor="middle" font-size="10.5" fill="#4b5563">content</text>
+
+  <rect x="430" y="440" width="250" height="56" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="555" y="464" text-anchor="middle" font-size="13" fill="#2d3142">Hazard evaluation</text>
+  <text x="555" y="482" text-anchor="middle" font-size="11" fill="#6b7280">evaluate_hazards → HazardVerdict (HZ-02)</text>
+
+  <path d="M 555,364 V 412" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="566" y="393" font-size="10.5" fill="#4b5563">permitted</text>
+
+  <path d="M 680,468 H 742" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <text x="711" y="460" text-anchor="middle" font-size="10.5" fill="#4b5563">artifact</text>
+
+  <!-- forbidden path: agent -> repositories directly -->
+  <path d="M 220,214 V 500 H 895" fill="none" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+  <g transform="translate(555,470)">
+    <rect x="-14" y="-14" width="28" height="28" rx="6" fill="#ffffff" stroke="#b91c1c" stroke-width="1.4"/>
+    <line x1="-7" y1="-7" x2="7" y2="7" stroke="#b91c1c" stroke-width="2.4"/>
+    <line x1="7" y1="-7" x2="-7" y2="7" stroke="#b91c1c" stroke-width="2.4"/>
+  </g>
+  <text x="560" y="536" text-anchor="middle" font-size="11.5" fill="#b91c1c" font-weight="bold">FORBIDDEN: direct repository call bypassing the gateway</text>
+  <text x="560" y="552" text-anchor="middle" font-size="10.5" fill="#7f1d1d">stale writes rejected — LockLostError (ADV-02 fence) / IDR29-02 binding guard</text>
+
+  <text x="24" y="580" font-size="11" fill="#6b7280">Solid = permitted ingress &middot; dashed red = forbidden, stops at the control point &middot; meaning never relies on color alone</text>
+</svg>
+</div>
+<div class="manifest">
+<h2>Provenance manifest — diagram source</h2>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Repository commit</td><td>Hermes <code>ac770f7</code> (clean tree)</td></tr>
+<tr><td>Semantic pattern → type</td><td>Secure paved road → Architecture (harvested from cathrynlavery/diagram-design v2.4 @ <code>09df49d8</code>, MIT)</td></tr>
+<tr><td>Files inspected</td><td><code>src/hermes/core/intents.py</code> (IntentKind), <code>src/hermes/research/gateway.py</code> (admission, <code>_decision_append_transactional</code>), <code>src/hermes/persistence/repositories.py</code> (fenced writes), <code>src/hermes/tools/providers/hazards.py</code> (<code>evaluate_hazards</code>/<code>HazardVerdict</code>), <code>src/hermes/persistence/migrations.py</code> (immutable programs, event journal)</td></tr>
+<tr><td>Architecture documents</td><td><code>hermes_current_epistemic_architecture_review.md</code> §J (authority model), IDR-029 (lease fencing), IDR-041</td></tr>
+<tr><td>Tests</td><td><code>test_adv02_stale_controller_repo_write_raises_lock_lost</code>, <code>test_adv02_same_owner_lease_refresh_remains_valid</code>, gateway admission suite, provider hazard suite</td></tr>
+<tr><td>Node status</td><td>All nodes <b>IMPLEMENTED</b> (grep-verified symbols above)</td></tr>
+</table>
+</div>
+</div></body></html>

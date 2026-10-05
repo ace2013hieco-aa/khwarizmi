@@ -1,0 +1,26 @@
+{
+  "schema": "hermes-hazard-spec/v1",
+  "provider_id": "arxiv",
+  "version": "1.0.0",
+  "markers": [
+    {
+      "field_path": "feed.entry.*.title",
+      "equals": "Error",
+      "pattern": null,
+      "failure_class": "MALFORMED_200"
+    }
+  ],
+  "empty_body_rule": "treat-as-failure",
+  "error_field": null,
+  "count_semantics": "exact",
+  "counts_raw_rows": false,
+  "required_fields": ["feed", "feed.entry"],
+  "cursor_rule": {"kind": "offset", "loop_guard": 100},
+  "throttle_signature": [
+    {"status": null, "body_pattern": "^Rate exceeded\\.?$", "fields": []},
+    {"status": 429, "body_pattern": null, "fields": []}
+  ],
+  "rewrite_suspect": [],
+  "fetch": null,
+  "valid_negative_statuses": [404]
+}

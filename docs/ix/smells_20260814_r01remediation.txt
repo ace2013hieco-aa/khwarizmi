@@ -1,0 +1,172 @@
+Running smell detection...
+
+Architecture Smells  rev 43 · 161 candidates
+
+Orphan File  (124)
+  ████░ hermes_v6_authority_evidence_map.md            connections=0
+  ████░ hermes_v6_step3_live_verification_report.md    connections=0
+  ████░ hermes_v6_step4_trust_boundary_report.md       connections=0
+  ████░ hermes.toml                                    connections=0
+  ████░ IDR-001.md                                     connections=0
+  ████░ IDR-002.md                                     connections=0
+  ████░ IDR-003.md                                     connections=0
+  ████░ IDR-004.md                                     connections=0
+  ████░ IDR-005.md                                     connections=0
+  ████░ IDR-006.md                                     connections=0
+  ████░ IDR-007.md                                     connections=0
+  ████░ IDR-008.md                                     connections=0
+  ████░ IDR-009.md                                     connections=0
+  ████░ IDR-010.md                                     connections=0
+  ████░ IDR-011.md                                     connections=0
+  ████░ IDR-012.md                                     connections=0
+  ████░ IDR-013.md                                     connections=0
+  ████░ IDR-014.md                                     connections=0
+  ████░ IDR-015.md                                     connections=0
+  ████░ IDR-016.md                                     connections=0
+  ████░ IDR-017.md                                     connections=0
+  ████░ IDR-019.md                                     connections=0
+  ████░ hermes_research_architecture_v3.md             connections=0
+  ████░ hermes_research_architecture_v4.md             connections=0
+  ████░ pyproject.toml                                 connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ adversary.py                                   connections=0
+  ████░ director.py                                    connections=0
+  ████░ implementer.py                                 connections=0
+  ████░ researcher.py                                  connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ changes.py                                     connections=0
+  ████░ ci.py                                          connections=0
+  ████░ worktrees.py                                   connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ heartbeat.py                                   connections=0
+  ████░ leases.py                                      connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ evidence.py                                    connections=0
+  ████░ gates.py                                       connections=0
+  ████░ integrity_gates.py                             connections=0
+  ████░ provenance.py                                  connections=0
+  ████░ reconcile.py                                   connections=0
+  ████░ registration.py                                connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ boundaries.py                                  connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ execution.py                                   connections=0
+  ████░ models.py                                      connections=0
+  ████░ reporting.py                                   connections=0
+  ████░ sandbox.py                                     connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ projection.py                                  connections=0
+  ████░ steal.md                                       connections=0
+  ████░ conftest.py                                    connections=0
+  ████░ IDR-018.md                                     connections=0
+  ████░ ci.yml                                         connections=0
+  ████░ hermes_research_architecture_v6.md             connections=0
+  ████░ IDR-020.md                                     connections=0
+  ████░ …s_researchsourceprovider_blueprint_review.md  connections=0
+  ████░ IDR-021.md                                     connections=0
+  ████░ IDR-022.md                                     connections=0
+  ████░ …_researchsourceprovider_blueprint_review2.md  connections=0
+  ████░ IDR-023.md                                     connections=0
+  ████░ IDR-024.md                                     connections=0
+  ████░ …_researchsourceprovider_blueprint_review3.md  connections=0
+  ████░ hermes_researchsourceprovider_contract.md      connections=0
+  ████░ IDR-025.md                                     connections=0
+  ████░ IDR-026.md                                     connections=0
+  ████░ IDR-027.md                                     connections=0
+  ████░ IDR-028.md                                     connections=0
+  ████░ hermes_researchsourceprovider_fetch_audit.md   connections=0
+  ████░ …researchsourceprovider_fetch_design_audit.md  connections=0
+  ████░ IDR-029.md                                     connections=0
+  ████░ IDR-030.md                                     connections=0
+  ████░ …researchsourceprovider_fetch_driver_audit.md  connections=0
+  ████░ IDR-031.md                                     connections=0
+  ████░ …esearchsourceprovider_fetch_driver_design.md  connections=0
+  ████░ …6_step5_trust_boundary_remediation_report.md  connections=0
+  ████░ …archsourceprovider_fetch_gate_remediation.md  connections=0
+  ████░ hermes_contra_adversarial_review.md            connections=0
+  ████░ …_researchsourceprovider_fetch_gate_review.md  connections=0
+  ████░ hermes_researchsourceprovider_hazard_audit.md  connections=0
+  ████░ …rmes_researchsourceprovider_hazard_audit2.md  connections=0
+  ████░ …es_researchsourceprovider_ratelimit_audit.md  connections=0
+  ████░ …s_researchsourceprovider_ratelimit_audit2.md  connections=0
+  ████░ …s_researchsourceprovider_ratelimit_review.md  connections=0
+  ████░ …_researchsourceprovider_ratelimit_review2.md  connections=0
+  ████░ …_researchsourceprovider_ratelimit_review3.md  connections=0
+  ████░ …researchsourceprovider_step6_design_audit.md  connections=0
+  ████░ …esearchsourceprovider_step6_design_audit2.md  connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ arxiv.json                                     connections=0
+  ████░ hermes_researchsourceprovider_walk_audit.md    connections=0
+  ████░ hermes_researchsourceprovider_walk_audit3.md   connections=0
+  ████░ europepmc.json                                 connections=0
+  ████░ hermes_researchsourceprovider_walk_review.md   connections=0
+  ████░ hermes_scientific_agent_skills_audit.md        connections=0
+  ████░ openalex.json                                  connections=0
+  ████░ pmc.json                                       connections=0
+  ████░ hermes_v6_adversarial_defense.md               connections=0
+  ████░ hermes_v6_adversarial_remediation_report.md    connections=0
+  ████░ hermes_v6_fence_audit.md                       connections=0
+  ████░ hermes_v6_scientific_skills_amendment.md       connections=0
+  ████░ __init__.py                                    connections=0
+  ████░ cache.py                                       connections=0
+  ████░ retention.py                                   connections=0
+  ████░ README.md                                      connections=0
+  ████░ …earchsourceprovider_implementation_design.md  connections=0
+  ████░ …s_researchsourceprovider_step6_code_audit.md  connections=0
+  ████░ …esearchsourceprovider_step6_design_audit3.md  connections=0
+  ████░ …chsourceprovider_step6_design_remediation.md  connections=0
+  ████░ step6_structural_comparison_20260814.md        connections=0
+  ████░ …_researchsourceprovider_step6_code_audit2.md  connections=0
+  ████░ …_researchsourceprovider_step6_code_audit3.md  connections=0
+  ████░ README.md                                      connections=0
+  ████░ IDR-033.md                                     connections=0
+  ████░ step6_closure_candidate_evidence_map.md        connections=0
+  ████░ …_researchsourceprovider_step6_code_audit4.md  connections=0
+  ████░ IDR-032.md                                     connections=0
+  ████░ …researchsourceprovider_step6_remediation2.md  connections=0
+  ████░ …sourceprovider_step6_orchestration_design.md  connections=0
+
+God Module  (36)
+  ████░ repositories.py                                chunks=0 fan_in=22 fan_out=59
+  ███░░ cli.py                                         chunks=0 fan_in=1 fan_out=33
+  ███░░ task_status.py                                 chunks=0 fan_in=17 fan_out=2
+  ███░░ database.py                                    chunks=0 fan_in=20 fan_out=9
+  ███░░ test_artifacts.py                              chunks=0 fan_in=0 fan_out=15
+  ███░░ test_concurrency.py                            chunks=0 fan_in=0 fan_out=23
+  ███░░ test_database.py                               chunks=0 fan_in=0 fan_out=25
+  ███░░ test_evaluation.py                             chunks=0 fan_in=0 fan_out=17
+  ███░░ test_events.py                                 chunks=0 fan_in=0 fan_out=20
+  ███░░ test_failure_injection.py                      chunks=0 fan_in=0 fan_out=17
+  ███░░ test_phase1_acceptance.py                      chunks=0 fan_in=0 fan_out=32
+  ███░░ test_repositories.py                           chunks=0 fan_in=0 fan_out=27
+  ███░░ test_research_program.py                       chunks=0 fan_in=0 fan_out=30
+  ███░░ migrations.py                                  chunks=0 fan_in=18 fan_out=6
+  ███░░ extraction.py                                  chunks=0 fan_in=5 fan_out=18
+  ███░░ http.py                                        chunks=0 fan_in=1 fan_out=17
+  ███░░ paginate.py                                    chunks=0 fan_in=4 fan_out=50
+  ███░░ test_claims_write_path.py                      chunks=0 fan_in=0 fan_out=38
+  ███░░ test_event_validation.py                       chunks=0 fan_in=0 fan_out=21
+  ███░░ test_thesis_ar03.py                            chunks=0 fan_in=0 fan_out=16
+  ███░░ test_v6_attacks.py                             chunks=0 fan_in=0 fan_out=30
+  ███░░ test_extraction_pipeline.py                    chunks=0 fan_in=0 fan_out=35
+  ███░░ test_walking_skeleton.py                       chunks=0 fan_in=0 fan_out=25
+  ███░░ test_gateway.py                                chunks=0 fan_in=0 fan_out=34
+  ███░░ test_provider_fetch.py                         chunks=0 fan_in=0 fan_out=32
+  ███░░ test_provider_hazards.py                       chunks=0 fan_in=0 fan_out=16
+  ███░░ test_provider_ratelimit.py                     chunks=0 fan_in=0 fan_out=40
+  ███░░ test_provider_walk.py                          chunks=0 fan_in=0 fan_out=29
+  ███░░ test_research_sources.py                       chunks=0 fan_in=0 fan_out=35
+  ███░░ programs.py                                    chunks=0 fan_in=17 fan_out=10
+  ███░░ test_controller.py                             chunks=0 fan_in=0 fan_out=29
+  ███░░ controller.py                                  chunks=0 fan_in=2 fan_out=33
+  ███░░ test_provider_orchestration.py                 chunks=0 fan_in=0 fan_out=67
+  ███░░ source_outcomes.py                             chunks=0 fan_in=5 fan_out=25
+  ███░░ gateway.py                                     chunks=0 fan_in=6 fan_out=49
+  ███░░ source_handlers.py                             chunks=0 fan_in=2 fan_out=48
+
+Weak Component  (1)
+  ███░░ recovery.py                                    neighbors=1
+
+Smell claims stored with inference_version=smell_v1. Use 'ix smells --list' to retrieve.

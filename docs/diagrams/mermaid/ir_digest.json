@@ -1,0 +1,358 @@
+{
+  "source": "docs\\diagrams\\mermaid\\research_os_loop.mmd",
+  "diagrams_total": 1,
+  "diagrams": [
+    {
+      "index": 0,
+      "kind": "flowchart",
+      "source_line": 1,
+      "direction": "LR",
+      "analysis": {
+        "nodes_total": 9,
+        "nodes_drawable": 9,
+        "containers": 0,
+        "leaves": 9,
+        "edges_total": 16,
+        "edges_labeled": 16,
+        "edges_dangling": 0,
+        "max_depth": 0,
+        "shapes": {
+          "rect": 9
+        },
+        "has_cycle": true,
+        "hubs": [
+          {
+            "id": "TG",
+            "label": "Task graph + event journal · (shared record — every pass writes)",
+            "degree": 8
+          },
+          {
+            "id": "RP",
+            "label": "ResearchProgram · scope + hypothesis graph",
+            "degree": 3
+          },
+          {
+            "id": "Q5",
+            "label": "Q-05 — WHY? · failure classification + actions",
+            "degree": 3
+          },
+          {
+            "id": "Q4",
+            "label": "Q-04 — WHAT ELSE? · failure cone + blast radius",
+            "degree": 3
+          },
+          {
+            "id": "Q2",
+            "label": "Q-02 — WHAT NEXT? · ActionEvaluation → eligible ordering",
+            "degree": 3
+          }
+        ],
+        "entry_points": [],
+        "terminals": [
+          "Task graph + event journal · (shared record — every pass writes)"
+        ],
+        "orphans": [],
+        "type_candidates": [
+          "architecture"
+        ],
+        "collapsible_groups": [],
+        "over_node_budget": false,
+        "over_edge_budget": true
+      },
+      "discarded": {
+        "style_directives": 0,
+        "click_handlers": 0
+      },
+      "fragments": [],
+      "notes": [],
+      "nodes": [
+        {
+          "id": "TG",
+          "label": "Task graph + event journal\n(shared record — every pass writes)",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 8,
+          "out_degree": 0
+        },
+        {
+          "id": "RP",
+          "label": "ResearchProgram\nscope + hypothesis graph",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "EX",
+          "label": "Controller execution\nlease-fenced dispatch",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "EV",
+          "label": "Evidence\nsource outcomes, artifacts",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "LA",
+          "label": "SUPPORT / REFUTED\nevidence ladder (REFUTED terminal)",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "Q5",
+          "label": "Q-05 — WHY?\nfailure classification + actions",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "Q4",
+          "label": "Q-04 — WHAT ELSE?\nfailure cone + blast radius",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "Q2",
+          "label": "Q-02 — WHAT NEXT?\nActionEvaluation → eligible ordering",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        },
+        {
+          "id": "DI",
+          "label": "Controller dispatch\nQ-02 order → task graph again",
+          "shape": "rect",
+          "parent": null,
+          "depth": 0,
+          "container": false,
+          "children": [],
+          "fields": [],
+          "in_degree": 1,
+          "out_degree": 2
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "source": "RP",
+          "target": "EX",
+          "label": "tasks",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 1
+        },
+        {
+          "id": "e2",
+          "source": "EX",
+          "target": "EV",
+          "label": "evidence",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 2
+        },
+        {
+          "id": "e3",
+          "source": "EV",
+          "target": "LA",
+          "label": "rungs",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 3
+        },
+        {
+          "id": "e4",
+          "source": "LA",
+          "target": "Q5",
+          "label": "falsification fact",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 4
+        },
+        {
+          "id": "e5",
+          "source": "Q5",
+          "target": "Q4",
+          "label": "classification",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 5
+        },
+        {
+          "id": "e6",
+          "source": "Q4",
+          "target": "Q2",
+          "label": "impact view",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 6
+        },
+        {
+          "id": "e7",
+          "source": "Q2",
+          "target": "DI",
+          "label": "eligible order",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 7
+        },
+        {
+          "id": "e8",
+          "source": "DI",
+          "target": "RP",
+          "label": "new/updated tasks",
+          "style": "solid",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 8
+        },
+        {
+          "id": "e9",
+          "source": "RP",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 9
+        },
+        {
+          "id": "e10",
+          "source": "EX",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 10
+        },
+        {
+          "id": "e11",
+          "source": "EV",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 11
+        },
+        {
+          "id": "e12",
+          "source": "LA",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 12
+        },
+        {
+          "id": "e13",
+          "source": "Q5",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 13
+        },
+        {
+          "id": "e14",
+          "source": "Q4",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 14
+        },
+        {
+          "id": "e15",
+          "source": "Q2",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 15
+        },
+        {
+          "id": "e16",
+          "source": "DI",
+          "target": "TG",
+          "label": "writes",
+          "style": "dashed",
+          "arrowhead": "arrow",
+          "bidirectional": false,
+          "undirected": false,
+          "order": 16
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+# GR3 governed corpus — EOL defense-in-depth for C1 (GR3-P2-b4fixtures).
+#
+# The 12 governed documents (CORPUS_REFS + CORPUS_B4_COHORT_REFS) are read by
+# load_corpus_bytes with CRLF->LF normalization, so the governed identity
+# (size_bytes/content_hash) is stable even where core.autocrlf=mixed.
+# This pin ensures the working-tree bytes are LF regardless of config,
+# so any tool that reads without normalization still sees LF (the blob).
+# B4 fixtures remain -text (byte-identity is their own fixture invariant).
+
+AGENTS.md eol=lf
+docs/API.md eol=lf
+docs/ARCHITECTURE.md eol=lf
+docs/STATE.md eol=lf
+docs/idr/IDR-018.md eol=lf
+docs/idr/IDR-023.md eol=lf
+docs/idr/IDR-024.md eol=lf
+docs/idr/IDR-025.md eol=lf
+docs/idr/IDR-026.md eol=lf
+docs/idr/IDR-027.md eol=lf
+docs/idr/IDR-028.md eol=lf
+docs/idr/IDR-036.md eol=lf

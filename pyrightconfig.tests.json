@@ -1,0 +1,13 @@
+{
+  "include": ["src", "tests"],
+  // probe scripts verified by execution; their sys.path imports are invisible to pyright (director decision MERGE/pyright-scope)
+  "ignore": [
+    "tests/texp_p3_reconcile_probe.py",
+    "tests/texp_p3_audit_checks.py"
+  ],
+  "pythonVersion": "3.14",
+  "extraPaths": ["src"],
+  "reportArgumentType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "none"
+}

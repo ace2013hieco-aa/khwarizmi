@@ -1,0 +1,16 @@
+Top 15 modules by dependents:
+   1. frozen_clock                   19
+   2. Intent                         14
+   3. Path                           13
+   4. extraction_draft_from_mapping  11
+   5. Intent                         11
+   6. Intent                         11
+   7. parse_query_hints              9
+   8. normalize_identifier           7
+   9. redact_params                  6
+  10. Intent                         6
+  11. NodeContract                   6
+  12. compute_content_hash           6
+  13. redact_url                     5
+  14. Intent                         5
+  15. accept_extraction_output       5

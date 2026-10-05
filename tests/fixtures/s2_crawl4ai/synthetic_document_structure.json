@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 2222,
+  "filename": "synthetic_document_structure.html",
+  "repo_doc_copy_matches_at_record_time": null,
+  "sha256": "7d4c7abc49e3cbc2c21fa4332e9fa34d6609f17472a924d4c352847e85de77c2",
+  "source_kind": "synthetic-authored",
+  "source_note": "synthetic, authored for the S2 spike: headings, inline formatting, lists, blockquote, table, pre/code, entities, unicode, references",
+  "source_path_at_capture": null,
+  "source_ref": "source_payload:s2-crawl4ai/synthetic_document_structure.html",
+  "url": "https://fixtures.test/synthetic_document_structure.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/synthetic_document_structure.html",
+   "text": "# Document structure fixture\nThe & entity, the <tag> rendering, an en-dash, a non-breaking space, an em dash — and Unicode: é, ü, Δ, 中文, العربية, עברית, and an emoji 🛡️.\n## Inline formatting\nPlain **bold** , _italic_ , **strong** , _emphasis_ , `inline_code()`, ~~struck~~ , H2O, x2, and a cross link⟨1⟩ plus an anchor link⟨2⟩.\n## Lists and quotes\n  1. first ordered item\n  2. second ordered item \n     * nested bullet one\n     * nested bullet two with `code`\n  3. third ordered item\n\n\n> A quoted paragraph with a link⟨3⟩ inside.\n## Table  \n| Check | Verdict | Note |  \n| --- | --- | --- |  \n| scheme allowlist | PASS | http/https only |  \n| resolve-and-pin | PASS | dials the vetted address |  \n| redirect re-vet | PASS | per-hop, internal refused |  \n## Preformatted\n\n```\nguard.fetch(\"https://fixtures.test/page.html\")\n# <not a tag> — literal angle brackets inside code\nif a < b:\n    print(\"& done\")\n\n```\n\nText after the code block. A footnote marker1 closes the prose.\n## References\n  1. Reference one⟨4⟩ — synthetic.\n  2. Reference two⟨5⟩ — synthetic.\n\n\ntemplate content is inert\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/synthetic_document_structure.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/synthetic_document_structure.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "2e52d9490114f348dfe4d2e1cbc282379b32ec883d30c931de01ff456cbdb659",
+   "raw_markdown_sha256": "57c418456c719fa445a2d270811180a23157b7d52cd50397d517d70f5ad76c8c",
+   "redirect_hops": [],
+   "references_sha256": "1c8c916a9ff0e3546bbec6af8b07742e0442384732e6db49150c51a3c3fcb12d",
+   "requested_url": "https://fixtures.test/synthetic_document_structure.html",
+   "source_bytes": 2222,
+   "source_ref": "source_payload:s2-crawl4ai/synthetic_document_structure.html",
+   "source_sha256": "7d4c7abc49e3cbc2c21fa4332e9fa34d6609f17472a924d4c352847e85de77c2",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "2e52d9490114f348dfe4d2e1cbc282379b32ec883d30c931de01ff456cbdb659",
+  "markdown_sha256_b": "2e52d9490114f348dfe4d2e1cbc282379b32ec883d30c931de01ff456cbdb659",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "1bb227d269685482ac0464b89b1089e61749788e8f861247b6352272945eeb97",
+  "record_sha256_b": "1bb227d269685482ac0464b89b1089e61749788e8f861247b6352272945eeb97",
+  "rerun_identical": true
+ }
+}

@@ -1,0 +1,28 @@
+flowchart LR
+    TG["Task graph + event journal<br/>(shared record — every pass writes)"]
+    RP["ResearchProgram<br/>scope + hypothesis graph"]
+    EX["Controller execution<br/>lease-fenced dispatch"]
+    EV["Evidence<br/>source outcomes, artifacts"]
+    LA["SUPPORT / REFUTED<br/>evidence ladder (REFUTED terminal)"]
+    Q5["Q-05 — WHY?<br/>failure classification + actions"]
+    Q4["Q-04 — WHAT ELSE?<br/>failure cone + blast radius"]
+    Q2["Q-02 — WHAT NEXT?<br/>ActionEvaluation → eligible ordering"]
+    DI["Controller dispatch<br/>Q-02 order → task graph again"]
+
+    RP -->|tasks| EX
+    EX -->|evidence| EV
+    EV -->|rungs| LA
+    LA -->|falsification fact| Q5
+    Q5 -->|classification| Q4
+    Q4 -->|impact view| Q2
+    Q2 -->|eligible order| DI
+    DI -->|new/updated tasks| RP
+
+    RP -.->|writes| TG
+    EX -.->|writes| TG
+    EV -.->|writes| TG
+    LA -.->|writes| TG
+    Q5 -.->|writes| TG
+    Q4 -.->|writes| TG
+    Q2 -.->|writes| TG
+    DI -.->|writes| TG

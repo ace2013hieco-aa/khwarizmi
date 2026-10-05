@@ -1,0 +1,206 @@
+{
+ "captured": "2026-10-01",
+ "fixture_version": "s2-crawl4ai-manifest/1",
+ "pages": [
+  {
+   "bytes": 8634,
+   "fixture": "authority_trust_boundary.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/authority_trust_boundary.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 1921,
+   "markdown_sha256": "0d6b4a51279db595fed796570bd0162ff7f39e50237fe3094fe2d72ce54c22b8",
+   "page": "authority_trust_boundary.html",
+   "provenance_bytes": 1004,
+   "record_sha256": "99e8ecb3265bab0b641575ad436eb04fad1f3e07eeb90e611ef14e03e358fc0d",
+   "rerun_identical": true,
+   "sha256": "ea02bbfe57ee71749ef983ddd977da5dc3e275d6d2d66a5ef3fa46334baf145d",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/authority_trust_boundary.html"
+  },
+  {
+   "bytes": 15828,
+   "fixture": "digest_fold_adversarial.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/digest_fold_adversarial.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 3792,
+   "markdown_sha256": "1c5cdaba95866e0fd0670476f6c7746d85e14aa6b39a78218a7eb9ed6c908048",
+   "page": "digest_fold_adversarial.html",
+   "provenance_bytes": 1001,
+   "record_sha256": "96e0cb5ac166f95336584bd905a6aa563de49cbc127c14d125a79e42539e7021",
+   "rerun_identical": true,
+   "sha256": "41a309cefeddee7dcf740faaba0b00f61f1c60afaeeeffde2cabf438c5f254d6",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/digest_fold_adversarial.html"
+  },
+  {
+   "bytes": 19275,
+   "fixture": "horizon_cliff_late_handler.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/horizon_cliff_late_handler.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 12163,
+   "markdown_sha256": "c5299b5074df306fb9405f8647a0c08e6a1257a7905dde2fdcb94c3b0c143483",
+   "page": "horizon_cliff_late_handler.html",
+   "provenance_bytes": 1013,
+   "record_sha256": "798310fe66e45e4d424e75d0d4797a7db2c3352894bd49abc5bf564a9026e84c",
+   "rerun_identical": true,
+   "sha256": "0f74aba4bdc647c9162c1d9eed0f8d89e416e4d278f58b6a45e20f96c1642596",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/horizon_cliff_late_handler.html"
+  },
+  {
+   "bytes": 10857,
+   "fixture": "ladder_refuted_drivers.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/ladder_refuted_drivers.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 3313,
+   "markdown_sha256": "f364ad00da28f88feed0f2c927f915a8f2f2626755048c164959d8b251d43b41",
+   "page": "ladder_refuted_drivers.html",
+   "provenance_bytes": 997,
+   "record_sha256": "9ad15a4d320f812815c07ec68c9056664f6170e2182e348d746edf0792afa586",
+   "rerun_identical": true,
+   "sha256": "a6fc13dd71f967545fe7eea44149ffe5f4f6141b64849e21fe91f3b14eece848",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/ladder_refuted_drivers.html"
+  },
+  {
+   "bytes": 13749,
+   "fixture": "one_verdict_gate_adversarial.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/one_verdict_gate_adversarial.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 4990,
+   "markdown_sha256": "7cb0081a8b1bbe7139c7c86de9ca1be8d1f1f42b96fcf51c73d6f7814738a353",
+   "page": "one_verdict_gate_adversarial.html",
+   "provenance_bytes": 1021,
+   "record_sha256": "db36e7300034f15ead64e15684ed6ace70ee99e6bc9d4bee0478b3d062c9315a",
+   "rerun_identical": true,
+   "sha256": "bfdf1848876ac1edbc5038ff2decda50969c3c2abb4bda9fabb6a855a3444caa",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/one_verdict_gate_adversarial.html"
+  },
+  {
+   "bytes": 11197,
+   "fixture": "provider_search_fetch_recovery.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/provider_search_fetch_recovery.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 2660,
+   "markdown_sha256": "e86b73d33d4df50709fc5aec3f843b29b7935b1af0c3a2f621e0690c9f242745",
+   "page": "provider_search_fetch_recovery.html",
+   "provenance_bytes": 1029,
+   "record_sha256": "6f070176919383f90e617bb34695be60654754e40c46117d23cca384b913f039",
+   "rerun_identical": true,
+   "sha256": "d632204d1b36701e87892e45b5d9156e8f934823c3cb46151ea2e750cd0d12f6",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/provider_search_fetch_recovery.html"
+  },
+  {
+   "bytes": 23854,
+   "fixture": "redteam_reconciliation.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/redteam_reconciliation.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 9430,
+   "markdown_sha256": "16279b44d4f88b78ee6c3f7ffc088d70429f60bcc09c12baf73b48b670faabf9",
+   "page": "redteam_reconciliation.html",
+   "provenance_bytes": 997,
+   "record_sha256": "6d3285c0c349a66dafc541ee54d9b5a686969a868975ebaea2ac17e74af69926",
+   "rerun_identical": true,
+   "sha256": "20a3e5389022a7a118c0d939456ca9409ae7608e189ba3b535383e2484407cb0",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/redteam_reconciliation.html"
+  },
+  {
+   "bytes": 9367,
+   "fixture": "research_os_loop.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/research_os_loop.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 1999,
+   "markdown_sha256": "9c008c5fa36364fe2682aa9f4abec5307cd08a2841356c95bba9062d33f9eef7",
+   "page": "research_os_loop.html",
+   "provenance_bytes": 972,
+   "record_sha256": "deb70cf76b6af699ced5731b63742341d223dac50bfacee40d6568a4c301cda2",
+   "rerun_identical": true,
+   "sha256": "b01212d9ca151529940c48552bfda3793da465d3df4b19f5cb128b487ae93706",
+   "source_kind": "repo-doc-vendored",
+   "source_note": "vendored copy of a repository document",
+   "url": "https://fixtures.test/research_os_loop.html"
+  },
+  {
+   "bytes": 2222,
+   "fixture": "synthetic_document_structure.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/synthetic_document_structure.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 1084,
+   "markdown_sha256": "2e52d9490114f348dfe4d2e1cbc282379b32ec883d30c931de01ff456cbdb659",
+   "page": "synthetic_document_structure.html",
+   "provenance_bytes": 1020,
+   "record_sha256": "1bb227d269685482ac0464b89b1089e61749788e8f861247b6352272945eeb97",
+   "rerun_identical": true,
+   "sha256": "7d4c7abc49e3cbc2c21fa4332e9fa34d6609f17472a924d4c352847e85de77c2",
+   "source_kind": "synthetic-authored",
+   "source_note": "synthetic, authored for the S2 spike: headings, inline formatting, lists, blockquote, table, pre/code, entities, unicode, references",
+   "url": "https://fixtures.test/synthetic_document_structure.html"
+  },
+  {
+   "bytes": 994,
+   "fixture": "synthetic_malformed.json",
+   "guard_hops": [
+    [
+     "https://fixtures.test/synthetic_malformed.html",
+     "1.1.1.1"
+    ]
+   ],
+   "markdown_chars": 615,
+   "markdown_sha256": "49a29666be860629d75596cdc5f477da57739009a7cf6fd600040c32a2246a30",
+   "page": "synthetic_malformed.html",
+   "provenance_bytes": 983,
+   "record_sha256": "74ac1a26c29f302fced2f70029c7913e5e0b6bc7897b7a20944193a917694d65",
+   "rerun_identical": true,
+   "sha256": "97ed79c0cafe58e72ee92a8799750688c6696d974a623d563653b27c0724a2b4",
+   "source_kind": "synthetic-authored",
+   "source_note": "synthetic, authored for the S2 spike: unclosed/uppercase/mismatched tags, unquoted attributes, stray '<', textarea/noscript/template",
+   "url": "https://fixtures.test/synthetic_malformed.html"
+  }
+ ]
+}

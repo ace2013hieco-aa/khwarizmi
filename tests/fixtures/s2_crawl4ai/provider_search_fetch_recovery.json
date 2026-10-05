@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 11197,
+  "filename": "provider_search_fetch_recovery.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "d632204d1b36701e87892e45b5d9156e8f934823c3cb46151ea2e750cd0d12f6",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/provider_search_fetch_recovery.html",
+  "source_ref": "source_payload:s2-crawl4ai/provider_search_fetch_recovery.html",
+  "url": "https://fixtures.test/provider_search_fetch_recovery.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/provider_search_fetch_recovery.html",
+   "text": "# Provider search / fetch — execution and recovery\nSemantic pattern: **unstructured input → structured artifact** + recovery -> visual types: **data flow** + **flowchart** * verified at HEAD `ac770f7`\nController SOURCE_SEARCH / SOURCE_FETCH ProviderAdapter provider-scoped, spec-driven Rate limiter ProviderRateLimiter HTTP transport untrusted responses Hazard evaluation evaluate_hazards → HazardVerdict Outcome record NEW / IDENTICAL / DIVERGENT Artifacts + provenance edges SourceRetracted retraction marker only (HZ-02) NEW: artifact + edges REMOVED_OR_RETRACTED same transaction as the record NEW-only; NOT_OA never emits RECOVERY Task RUNNING lease held (generation fenced) crash / NO_SIGNAL lease goes stale; horizon refresh exits recovery reclaims generation++ — new owner outcome persisted? SourceOutcomeRepository lookup IDENTICAL → reuse no duplicate artifacts/events re-execute (fenced) NO_SIGNAL → FAILED → requeue YES NO stale A write after B reclaims -> rejected (binding guard before the fence) At-most-one active lease + at-least-once completion + idempotent/binding-protected persistence * recovery band = flowchart detail of the main data flow (overview + detail split)\n## Provenance manifest — diagram source  \n| Item | Value |  \n| --- | --- |  \n| Repository commit | Hermes `ac770f7` (clean tree) |  \n| Semantic pattern → type | Unstructured input → structured artifact (Data flow) + recovery (Flowchart) — harvested from cathrynlavery/diagram-design v2.4 @ `09df49d8`, MIT |  \n| Files inspected | `src/hermes/research/source_handlers.py` (`SourceTaskExecutionContext`), `src/hermes/research/gateway.py` (SOURCE_SEARCH/SOURCE_FETCH admission, OQ-5), `src/hermes/tools/providers/base.py` (`ProviderAdapter`), `src/hermes/tools/providers/ratelimit.py` (`ProviderRateLimiter`), `src/hermes/tools/providers/hazards.py` (`evaluate_hazards`, HZ-02), `src/hermes/persistence/source_outcomes.py` (NEW/IDENTICAL/DIVERGENT, SourceRetracted auto-emit), `src/hermes/research/controller.py` (NO_SIGNAL ladder, fence) |  \n| Architecture documents | IDR-039/040 (Q-04 + SourceRetracted), provider closure package (historical, pinned to `55c35c2` — this figure is verified at the current HEAD, not by that package) |  \n| Tests | `test_retraction_hazard_emits_the_event_atomically`, `test_identical_retry_does_not_duplicate_the_event`, `test_fetch_without_retraction_hazard_emits_no_event`, `test_15_f15_hung_worker_recovered_after_horizon`, `test_15_f15_horizon_cliff_late_handler_discarded`, rate-limit suite |  \n| Node status | All nodes **IMPLEMENTED** ; dashed red branch = the retraction-only event path; recovery band shows only verified behavior |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/provider_search_fetch_recovery.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/provider_search_fetch_recovery.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "e86b73d33d4df50709fc5aec3f843b29b7935b1af0c3a2f621e0690c9f242745",
+   "raw_markdown_sha256": "e86b73d33d4df50709fc5aec3f843b29b7935b1af0c3a2f621e0690c9f242745",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/provider_search_fetch_recovery.html",
+   "source_bytes": 11197,
+   "source_ref": "source_payload:s2-crawl4ai/provider_search_fetch_recovery.html",
+   "source_sha256": "d632204d1b36701e87892e45b5d9156e8f934823c3cb46151ea2e750cd0d12f6",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "e86b73d33d4df50709fc5aec3f843b29b7935b1af0c3a2f621e0690c9f242745",
+  "markdown_sha256_b": "e86b73d33d4df50709fc5aec3f843b29b7935b1af0c3a2f621e0690c9f242745",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "6f070176919383f90e617bb34695be60654754e40c46117d23cca384b913f039",
+  "record_sha256_b": "6f070176919383f90e617bb34695be60654754e40c46117d23cca384b913f039",
+  "rerun_identical": true
+ }
+}

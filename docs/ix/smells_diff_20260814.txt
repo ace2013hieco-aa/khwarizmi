@@ -1,0 +1,85 @@
+=== ix smells diff ===
+cwd:  D:/New folder/research-agent
+prev: rev 31 (75 candidates)  C:/Users/Ali Zoghi/.ix/reports/smells/latest_research_agent.json
+new:  rev 36 (146 candidates)  C:/Users/Ali Zoghi/.ix/reports/smells/20260814_145808_research_agent_rev36.json
+added: 71   removed: 2   confidence-changed: 1
+
+ADDED:
+  + IDR-020.md  [has_smell.orphan_file] conf=0.85
+  + IDR-021.md  [has_smell.orphan_file] conf=0.85
+  + IDR-022.md  [has_smell.orphan_file] conf=0.85
+  + IDR-023.md  [has_smell.orphan_file] conf=0.85
+  + IDR-024.md  [has_smell.orphan_file] conf=0.85
+  + IDR-025.md  [has_smell.orphan_file] conf=0.85
+  + IDR-026.md  [has_smell.orphan_file] conf=0.85
+  + IDR-027.md  [has_smell.orphan_file] conf=0.85
+  + IDR-028.md  [has_smell.orphan_file] conf=0.85
+  + IDR-029.md  [has_smell.orphan_file] conf=0.85
+  + IDR-030.md  [has_smell.orphan_file] conf=0.85
+  + IDR-031.md  [has_smell.orphan_file] conf=0.85
+  + arxiv.json  [has_smell.orphan_file] conf=0.85
+  + cache.py  [has_smell.orphan_file] conf=0.85
+  + ci.yml  [has_smell.orphan_file] conf=0.85
+  + controller.py  [has_smell.god_module] conf=0.65
+  + database.py  [has_smell.god_module] conf=0.65
+  + europepmc.json  [has_smell.orphan_file] conf=0.85
+  + extraction.py  [has_smell.god_module] conf=0.65
+  + gateway.py  [has_smell.god_module] conf=0.65
+  + hermes_contra_adversarial_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_blueprint_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_blueprint_review2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_blueprint_review3.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_contract.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_fetch_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_fetch_design_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_fetch_driver_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_fetch_driver_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_fetch_gate_remediation.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_fetch_gate_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_hazard_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_hazard_audit2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_implementation_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_ratelimit_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_ratelimit_audit2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_ratelimit_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_ratelimit_review2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_ratelimit_review3.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_design_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_design_audit2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_orchestration_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_walk_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_walk_audit3.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_walk_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_scientific_agent_skills_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_v6_adversarial_defense.md  [has_smell.orphan_file] conf=0.85
+  + hermes_v6_adversarial_remediation_report.md  [has_smell.orphan_file] conf=0.85
+  + hermes_v6_fence_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_v6_scientific_skills_amendment.md  [has_smell.orphan_file] conf=0.85
+  + hermes_v6_step5_trust_boundary_remediation_report.md  [has_smell.orphan_file] conf=0.85
+  + http.py  [has_smell.god_module] conf=0.65
+  + migrations.py  [has_smell.god_module] conf=0.65
+  + openalex.json  [has_smell.orphan_file] conf=0.85
+  + paginate.py  [has_smell.god_module] conf=0.65
+  + pmc.json  [has_smell.orphan_file] conf=0.85
+  + programs.py  [has_smell.god_module] conf=0.65
+  + retention.py  [has_smell.orphan_file] conf=0.85
+  + task_status.py  [has_smell.god_module] conf=0.65
+  + test_claims_write_path.py  [has_smell.god_module] conf=0.65
+  + test_controller.py  [has_smell.god_module] conf=0.65
+  + test_extraction_pipeline.py  [has_smell.god_module] conf=0.65
+  + test_gateway.py  [has_smell.god_module] conf=0.65
+  + test_provider_fetch.py  [has_smell.god_module] conf=0.65
+  + test_provider_hazards.py  [has_smell.god_module] conf=0.65
+  + test_provider_ratelimit.py  [has_smell.god_module] conf=0.65
+  + test_provider_walk.py  [has_smell.god_module] conf=0.65
+  + test_research_sources.py  [has_smell.god_module] conf=0.65
+  + test_thesis_ar03.py  [has_smell.god_module] conf=0.65
+  + test_v6_attacks.py  [has_smell.god_module] conf=0.65
+  + test_walking_skeleton.py  [has_smell.god_module] conf=0.65
+REMOVED:
+  - gateway.py  [has_smell.orphan_file] conf=0.85
+  - research_sources.py  [has_smell.orphan_file] conf=0.85
+CONFIDENCE CHANGED:
+  ~ repositories.py  [has_smell.god_module] 0.65 -> 0.8
+
+by-smell: god_module=33, orphan_file=112, weak_component_member=1   (prev: {'orphan_file': 62, 'god_module': 12, 'weak_component_member': 1})

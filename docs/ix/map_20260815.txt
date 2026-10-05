@@ -1,0 +1,2 @@
+  Ingested in 38.7s
+Error: Ingest committed nothing: all 19 patches failed to commit. The graph is unchanged and may now be stale. Re-run with --verbose to see why.

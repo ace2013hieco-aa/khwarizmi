@@ -1,0 +1,25 @@
+<!doctype html>
+<HTML>
+<HEAD>
+<TITLE>S2 synthetic fixture — malformed tolerance</TITLE>
+<META charset="utf-8">
+</head>
+<BODY>
+<h1>Malformed tolerance fixture
+<p>This paragraph is never closed and contains a stray less-than sign (a < b) and
+an uppercase tag below.
+<DIV CLASS=box data-flag=yes>
+  <P>Attribute values are unquoted here.
+  <span class="dup" class="second">duplicate attribute</span>
+  <p>Nested <b>bold <i>italic</b> mismatched</i> close order.</p>
+</DIV>
+<br>
+<img src="fixture.png" alt="An image with alt text">
+<p>Entities: &copy; &pound; &frac12; &#8212; &#x2026; &amp;amp;
+<p>Underscore emphasis_pair_with_underscores_ and underscore emphasis_pair_.
+<textarea>looks like &lt;html&gt; inside a textarea and must stay inert</textarea>
+<noscript><p>noscript fallback text</p></noscript>
+<p>Soft hyphen: soft\u00adhyphen. Zero-width space between these.
+<p>Right-to-left: العربية والعبرية mixed with Latin.
+<p>Closing paragraph of the malformed fixture.
+</body>

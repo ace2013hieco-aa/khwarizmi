@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 13749,
+  "filename": "one_verdict_gate_adversarial.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "bfdf1848876ac1edbc5038ff2decda50969c3c2abb4bda9fabb6a855a3444caa",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/one_verdict_gate_adversarial.html",
+  "source_ref": "source_payload:s2-crawl4ai/one_verdict_gate_adversarial.html",
+  "url": "https://fixtures.test/one_verdict_gate_adversarial.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/one_verdict_gate_adversarial.html",
+   "text": "# Adversarial review — the one-verdict gate\nSemantic pattern: **paired policy-evaluation traces** -> visual type: **flowchart** * parked HUMAN_GATE with an INVALIDATED dependency * verified at HEAD `19e47d9` + F14 tamper + F15-audit/Q-05 follow-up\nSHARED RULES (both traces) R1 operator credential verify — constant-time (F2) R2 gate exists and is WAITING_HUMAN R3 dep INVALIDATED after parking -> diagnostic    note only — never a veto R4 one-verdict journal check — transactional (F6),    schema index (F9) R5 verdict applies in ONE fenced transaction    (RUNNING -> event -> terminal -> HumanGateResolved) first divergence: only the terminal event differs (GatePassed vs GateFailed) same rules, same parked situation, two legal verdicts -> both resolve Trace A — verdict APPROVED gate parked; dep INVALIDATED after parking R1 PASS * R2 PASS * R3 note (never veto) R4 PASS — journal has no prior verdict R5 one transaction: RUNNING -> GatePassed -> SUCCEEDED -> HumanGateResolved OUTCOME: SUCCEEDED mode returns ACTIVE; escape hatch used Trace B — verdict REJECTED same parked gate, same INVALIDATED dep R1 PASS * R2 PASS * R3 note (never veto) R4 PASS — journal has no prior verdict R5 one transaction: RUNNING -> GateFailed -> FAILED -> HumanGateResolved OUTCOME: FAILED (as ordered) mode returns ACTIVE; no permanent park REFUSED PATHS wrong operator token ✗ OPERATOR refusal; gate stays WAITING_HUMAN; nothing lands status tampered back to WAITING_HUMAN ✗ journal consulted — ALREADY_RESOLVED (F14); no second verdict crash mid-verdict ✗ R5 is one transaction — ROLLBACK; zero half-state (crash-injection test) forged duplicate GatePassed ✗ one verdict only — second resolve NOT_WAITING (F14) forged HumanGateResolved ✗ ALREADY_RESOLVED — tamper can only deny, never grant concurrent second controller ✗ LOCK refusal (lease held) — nothing lands Trace status is text + outline (never color alone) * green outline = PASS, red = FAIL/forbidden * escape hatch: the operator verdict resolves a gate whose dep was INVALIDATED after parking\n## Provenance manifest — diagram source  \n| Item | Value |  \n| --- | --- |  \n| Repository commit | Hermes `19e47d9` + F14-lens follow-up |  \n| Semantic pattern → type | Paired policy-evaluation traces → Flowchart (harvested from cathrynlavery/diagram-design v2.4 @ `09df49d8`, MIT) |  \n| Files inspected | `src/hermes/research/controller.py` (`resolve_human_gate`, one-fenced-transaction verdict, escape hatch, F-10 carve-out), `src/hermes/research/gateway.py` (`_decision_append_transactional` F6), `src/hermes/persistence/migrations.py` (migration 12 unique index F9), `src/hermes/persistence/repositories.py` (constant-time verify F2) |  \n| Architecture documents | `hermes_redteam_operator_loop_audit.md`, `hermes_p2_residuals_governance.md`, IDR-029, IDR-041 |  \n| Tests | `test_11_resolve_verdict_lands_in_one_transaction` (crash injection), `test_11_escape_hatch_invalidated_dep_after_parking_still_resolvable`, `test_11_parked_gate_invalidated_dep_diagnostic_note`, `test_11_journal_one_verdict_under_status_tamper` (F14), `test_11_forged_gate_events_can_refuse_but_never_authorize` (F14), `test_11_forged_journal_events_cannot_bypass_one_verdict_under_race` (F14), `test_f6_one_verdict_race_closed`, F2 constant-time test * F15-audit/Q-05 (composition): `test_21_q05_operator_gate_resolution_never_touches_epistemic_state` (the verdict leaves the entire epistemic surface byte-identical — zero classification/ladder/proposal events), `test_21_f15_rejected_gate_wave_stops_recovery_still_completes` (REJECTED is terminal: one GateFailed + one HumanGateResolved, second resolve NOT_WAITING, recovery still completes once), `test_21_f15_rejected_gate_wave_redispatch_downstream` (an independent task re-dispatches past the FAILED gate and completes exactly once), `test_21_f15_operator_resolve_racing_recovery_first_miss` (the verdict races B's mid-recovery tick loop: exactly one verdict, no FAILED hop before the HumanGateResolved event, completion once at attempt 2), `test_21_f15_second_gate_reparks_wave` (gate-1 REJECTED returns ACTIVE, gate-2 re-parks AWAITING_HUMAN in the same tick; each gate exactly one verdict, zero cross-talk), `test_21_f15_rejected_verdict_race_retryable_task` (REJECTED races the mid-recovery tick loop on a retryable worker: one GateFailed + one HumanGateResolved, retry re-executes once at attempt 2), `test_21_f15_resolve_race_outcome_invariant_across_schedules` (property-style: six seeded random schedules all yield exactly one verdict and one completion), `test_21_f15_rejected_verdict_race_retries_exhausted` (REJECTED races the mid-recovery tick loop on an exhausted worker: worker FAILED at attempt 1, never re-executed, wave stops), `test_21_f15_second_gate_property_schedules` (property-style re-park: five seeded schedules, each gate exactly one verdict, one completion at attempt 2) |  \n| Node status | All nodes **IMPLEMENTED** ; refused paths are real refusals (test-pinned), not design intent |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/one_verdict_gate_adversarial.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/one_verdict_gate_adversarial.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "7cb0081a8b1bbe7139c7c86de9ca1be8d1f1f42b96fcf51c73d6f7814738a353",
+   "raw_markdown_sha256": "7cb0081a8b1bbe7139c7c86de9ca1be8d1f1f42b96fcf51c73d6f7814738a353",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/one_verdict_gate_adversarial.html",
+   "source_bytes": 13749,
+   "source_ref": "source_payload:s2-crawl4ai/one_verdict_gate_adversarial.html",
+   "source_sha256": "bfdf1848876ac1edbc5038ff2decda50969c3c2abb4bda9fabb6a855a3444caa",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "7cb0081a8b1bbe7139c7c86de9ca1be8d1f1f42b96fcf51c73d6f7814738a353",
+  "markdown_sha256_b": "7cb0081a8b1bbe7139c7c86de9ca1be8d1f1f42b96fcf51c73d6f7814738a353",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "db36e7300034f15ead64e15684ed6ace70ee99e6bc9d4bee0478b3d062c9315a",
+  "record_sha256_b": "db36e7300034f15ead64e15684ed6ace70ee99e6bc9d4bee0478b3d062c9315a",
+  "rerun_identical": true
+ }
+}

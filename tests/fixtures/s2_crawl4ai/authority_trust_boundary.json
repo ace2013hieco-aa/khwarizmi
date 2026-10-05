@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 8634,
+  "filename": "authority_trust_boundary.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "ea02bbfe57ee71749ef983ddd977da5dc3e275d6d2d66a5ef3fa46334baf145d",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/authority_trust_boundary.html",
+  "source_ref": "source_payload:s2-crawl4ai/authority_trust_boundary.html",
+  "url": "https://fixtures.test/authority_trust_boundary.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/authority_trust_boundary.html",
+   "text": "# Hermes authority / trust boundary\nSemantic pattern: **secure paved road** -> visual type: **architecture** * who may mutate what * verified at HEAD `ac770f7`\nUNTRUSTED / EXTERNAL CONTROLLED PLANE Agent (LLM) claims + intent kinds — never raw SQL External provider untrusted content / HTTP responses Intent typed, validated claims (gateway.py) Gateway — privileged gate admission + re-verification + transactional appends Repositories fenced writes — lease-guarded (ADV-02) State (SQLite) append-only event journal; immutable programs permitted permitted permitted permitted content Hazard evaluation evaluate_hazards → HazardVerdict (HZ-02) permitted artifact FORBIDDEN: direct repository call bypassing the gateway stale writes rejected — LockLostError (ADV-02 fence) / IDR29-02 binding guard Solid = permitted ingress * dashed red = forbidden, stops at the control point * meaning never relies on color alone\n## Provenance manifest — diagram source  \n| Item | Value |  \n| --- | --- |  \n| Repository commit | Hermes `ac770f7` (clean tree) |  \n| Semantic pattern → type | Secure paved road → Architecture (harvested from cathrynlavery/diagram-design v2.4 @ `09df49d8`, MIT) |  \n| Files inspected | `src/hermes/core/intents.py` (IntentKind), `src/hermes/research/gateway.py` (admission, `_decision_append_transactional`), `src/hermes/persistence/repositories.py` (fenced writes), `src/hermes/tools/providers/hazards.py` (`evaluate_hazards`/`HazardVerdict`), `src/hermes/persistence/migrations.py` (immutable programs, event journal) |  \n| Architecture documents | `hermes_current_epistemic_architecture_review.md` §J (authority model), IDR-029 (lease fencing), IDR-041 |  \n| Tests | `test_adv02_stale_controller_repo_write_raises_lock_lost`, `test_adv02_same_owner_lease_refresh_remains_valid`, gateway admission suite, provider hazard suite |  \n| Node status | All nodes **IMPLEMENTED** (grep-verified symbols above) |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/authority_trust_boundary.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/authority_trust_boundary.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "0d6b4a51279db595fed796570bd0162ff7f39e50237fe3094fe2d72ce54c22b8",
+   "raw_markdown_sha256": "0d6b4a51279db595fed796570bd0162ff7f39e50237fe3094fe2d72ce54c22b8",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/authority_trust_boundary.html",
+   "source_bytes": 8634,
+   "source_ref": "source_payload:s2-crawl4ai/authority_trust_boundary.html",
+   "source_sha256": "ea02bbfe57ee71749ef983ddd977da5dc3e275d6d2d66a5ef3fa46334baf145d",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "0d6b4a51279db595fed796570bd0162ff7f39e50237fe3094fe2d72ce54c22b8",
+  "markdown_sha256_b": "0d6b4a51279db595fed796570bd0162ff7f39e50237fe3094fe2d72ce54c22b8",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "99e8ecb3265bab0b641575ad436eb04fad1f3e07eeb90e611ef14e03e358fc0d",
+  "record_sha256_b": "99e8ecb3265bab0b641575ad436eb04fad1f3e07eeb90e611ef14e03e358fc0d",
+  "rerun_identical": true
+ }
+}

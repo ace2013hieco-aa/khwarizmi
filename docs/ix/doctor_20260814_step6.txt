@@ -1,0 +1,12 @@
+
+Ix Doctor
+
+  ✓ Server reachable — http://localhost:8090 → ok
+  ✓ Graph has nodes — 185949 nodes
+  ✓ Graph has edges — 475585 edges
+  ✓ No unresolved conflicts — clean
+  ✓ Backend is the released image — running the released image
+  ✓ Graph schema matches engine — schema v3
+  ✓ Windows launcher — ix.cmd → %~dp0..\cli\ix.cmd
+
+  All checks passed.

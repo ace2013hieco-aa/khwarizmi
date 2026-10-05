@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 15828,
+  "filename": "digest_fold_adversarial.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "41a309cefeddee7dcf740faaba0b00f61f1c60afaeeeffde2cabf438c5f254d6",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/digest_fold_adversarial.html",
+  "source_ref": "source_payload:s2-crawl4ai/digest_fold_adversarial.html",
+  "url": "https://fixtures.test/digest_fold_adversarial.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/digest_fold_adversarial.html",
+   "text": "# Adversarial review — the reconcile digest fold under failure injection\nSemantic pattern: **policy evaluation under injected corruption** -> visual type: **flowchart (attack lanes)** * verified at HEAD `156b7ee` * 1334 tests\n▶ injected corruption digest fold ❌ stop point (fail-closed) ◆ observable outcome forged classification identity classification_id rewritten to FORGED in stored metadata classifications_digest D8 re-derivation of the identity ❌ silent recommendation BLOCKED — row surfaces as FORGED_IDENTITY error; integrity_status DEGRADED never a silent \"no data\" errors carry the code + artifact id ◆ FAIL-CLOSED * corrupt row is dropped from recommendations but explicitly represented in errors tamper: stored PENDING, gate False proposal stored PENDING non-authority action (gate False) gate RECOMPUTED from classification class + action shape (F2) ❌ fabricated pending item BLOCKED — tamper-signal note fires, proposal NOT replayed stored state never trusted the class wins in both directions ◆ FAIL-CLOSED * recomputation wins; the note makes the tamper observable tamper: stored EFFECTIVE, gate True proposal tampered to EFFECTIVE authority-shaped action (gate True) gate RECOMPUTED (F2) class + action still require confirmation ❌ authority by stored state BLOCKED — replayed as PENDING anyway decision still required one verdict via the gateway, never here ◆ FAIL-CLOSED * a tampered EFFECTIVE stamp cannot fabricate authority — the replay keeps the proposal pending duplicate decision event second ClassificationActionDecision same correlation_id, hand-forged idx_events_one_verdict F9 partial unique index (schema v12) ❌ second verdict on the journal REFUSED at the DB — UNIQUE constraint, even for a hand-forged INSERT one proposal, one verdict schema-level, not app-level ◆ FAIL-CLOSED * the F9 migration enforces one-verdict at the schema; the digest never sees a phantom decision duplicate proposal event duplicate ClassificationActionProposed same correlation, hand-forged pending replay (journal-faithful) skips anything with a ratified decision ❌ resurrecting a decided proposal BLOCKED — after one decision the replay yields nothing, duplicate or not digest deterministic identical content_hash across runs ◆ FAIL-CLOSED * duplicates cannot resurrect pending work; the fold hash is stable under all injections VERDICT: all five injections fail closed — corruption observable, gate recomputed, one-verdict schema-enforced, fold deterministic * 0 defects pinned by test_digest_fold_fail_closed_deterministic (commit 156b7ee)\n## Provenance manifest  \n| diagram source | commit `156b7ee`; probe evidence in `hermes_redteam_reconciliation.md` (second-audit section) |  \n| --- | --- |  \n| files inspected | `src/hermes/research/controller.py` (reconcile_digest, pending_classification_proposals, _classification_gate), `src/hermes/persistence/failure_classifications.py` (classifications_digest), `src/hermes/persistence/migrations.py` (idx_events_one_verdict, v11->12) |  \n| tests pinning each lane | lane 1: classifications_digest FORGED_IDENTITY/DEGRADED assertions in test_digest_fold_fail_closed_deterministic * lanes 2-3: tamper-signal + recomputed-gate assertions (same test) * lane 4: duplicate-decision IntegrityError asse rtion (same test) * lane 5: duplicate-proposal + deterministic-hash assertions (same test) |  \n| probe evidence | FORGED_IDENTITY error + DEGRADED status; tamper note fired for stored-PENDING/non-authority; stored-EFFECTIVE replayed as pending; second decision refused by the schema index; duplicate proposal could not resurrect a decided proposal; content_hash identical across repeated runs |  \n| projection rule | diagrams are never authority; executable code and ratified IDRs win on any conflict (hermes_diagram_design_skill.md) |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/digest_fold_adversarial.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/digest_fold_adversarial.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "1c5cdaba95866e0fd0670476f6c7746d85e14aa6b39a78218a7eb9ed6c908048",
+   "raw_markdown_sha256": "1c5cdaba95866e0fd0670476f6c7746d85e14aa6b39a78218a7eb9ed6c908048",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/digest_fold_adversarial.html",
+   "source_bytes": 15828,
+   "source_ref": "source_payload:s2-crawl4ai/digest_fold_adversarial.html",
+   "source_sha256": "41a309cefeddee7dcf740faaba0b00f61f1c60afaeeeffde2cabf438c5f254d6",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "1c5cdaba95866e0fd0670476f6c7746d85e14aa6b39a78218a7eb9ed6c908048",
+  "markdown_sha256_b": "1c5cdaba95866e0fd0670476f6c7746d85e14aa6b39a78218a7eb9ed6c908048",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "96e0cb5ac166f95336584bd905a6aa563de49cbc127c14d125a79e42539e7021",
+  "record_sha256_b": "96e0cb5ac166f95336584bd905a6aa563de49cbc127c14d125a79e42539e7021",
+  "rerun_identical": true
+ }
+}

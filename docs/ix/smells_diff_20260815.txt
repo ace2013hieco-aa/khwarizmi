@@ -1,0 +1,68 @@
+==> /c/Users/Ali Zoghi/bin/ix smells --format json  (cwd: /d/New folder/research-agent, scope: research_agent)
+added=54 removed=1 confidence_changed=0
+
+=== ix smells diff ===
+cwd:  D:/New folder/research-agent
+prev: rev 36 (146 candidates)  C:/Users/Ali Zoghi/.ix/reports/smells/latest_research_agent.json
+new:  rev 56 (200 candidates)  C:/Users/Ali Zoghi/.ix/reports/smells/20260815_202131_research_agent_rev56.json
+added: 54   removed: 1   confidence-changed: 0
+
+ADDED:
+  + HERMES_RED_TEAM_AUDIT_20260815.md  [has_smell.orphan_file] conf=0.85
+  + IDR-032.md  [has_smell.orphan_file] conf=0.85
+  + IDR-033.md  [has_smell.orphan_file] conf=0.85
+  + IDR-034.md  [has_smell.orphan_file] conf=0.85
+  + IDR-035.md  [has_smell.orphan_file] conf=0.85
+  + IDR-036.md  [has_smell.orphan_file] conf=0.85
+  + IDR-037.md  [has_smell.orphan_file] conf=0.85
+  + IDR-038.md  [has_smell.orphan_file] conf=0.85
+  + IDR-039.md  [has_smell.orphan_file] conf=0.85
+  + IDR-040.md  [has_smell.orphan_file] conf=0.85
+  + IDR-041.md  [has_smell.orphan_file] conf=0.85
+  + e2e_operator_loop.py  [has_smell.god_module] conf=0.65
+  + failure_classifications.py  [has_smell.god_module] conf=0.65
+  + hermes_q02_epistemic_roi_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q04_failure_propagation_design_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_approved_proposal_handoff_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_evidence_ladder_applied_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_failure_classification_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_independent_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_persistence_slice_design.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_post_adversarial_remediation.md  [has_smell.orphan_file] conf=0.85
+  + hermes_q05_q02_current_state_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_closure_gate_package.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_code_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_code_audit2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_code_audit3.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_code_audit4.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_design_audit3.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_design_remediation.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_final_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_r01_resolver_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_remediation2.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_step6_remediation_report.md  [has_smell.orphan_file] conf=0.85
+  + hermes_researchsourceprovider_store_dedup_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_surviving_ideas_application_framework.md  [has_smell.orphan_file] conf=0.85
+  + hermes_surviving_ideas_repo_reconciliation.md  [has_smell.orphan_file] conf=0.85
+  + intents.py  [has_smell.god_module] conf=0.65
+  + pyrightconfig.json  [has_smell.orphan_file] conf=0.85
+  + pyrightconfig.tests.json  [has_smell.orphan_file] conf=0.85
+  + source_handlers.py  [has_smell.god_module] conf=0.65
+  + source_outcomes.py  [has_smell.god_module] conf=0.65
+  + step6_closure_candidate_evidence_map.md  [has_smell.orphan_file] conf=0.85
+  + step6_structural_comparison_20260814.md  [has_smell.orphan_file] conf=0.85
+  + test_controller_q02.py  [has_smell.god_module] conf=0.65
+  + test_controller_q04.py  [has_smell.god_module] conf=0.65
+  + test_program_obligations.py  [has_smell.god_module] conf=0.65
+  + test_provider_orchestration.py  [has_smell.god_module] conf=0.65
+  + test_q04_artifact_radius.py  [has_smell.god_module] conf=0.65
+  + test_q04_director_loop.py  [has_smell.god_module] conf=0.65
+  + test_q04_gate_replay.py  [has_smell.god_module] conf=0.65
+  + test_q04_review_candidates.py  [has_smell.god_module] conf=0.65
+  + test_q05_evidence_ladder.py  [has_smell.god_module] conf=0.65
+  + test_q05_persistence.py  [has_smell.god_module] conf=0.65
+  + test_q05_ratification_consumers.py  [has_smell.god_module] conf=0.65
+REMOVED:
+  - test_artifacts.py  [has_smell.god_module] conf=0.65
+
+by-smell: god_module=48, orphan_file=151, weak_component_member=1   (prev: {'orphan_file': 112, 'god_module': 33, 'weak_component_member': 1})

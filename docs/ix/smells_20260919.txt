@@ -1,0 +1,280 @@
+Running smell detection...
+
+Architecture Smells  rev 133 ┬╖ 269 candidates
+
+Orphan File  (197)
+  ΓûêΓûêΓûêΓûêΓûæ inspect_notes.md                               connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ci.yml                                         connections=0
+  ΓûêΓûêΓûêΓûêΓûæ FRESH_REDTEAM_AUDIT.md                         connections=0
+  ΓûêΓûêΓûêΓûêΓûæ HERMES_RED_TEAM_AUDIT_20260815.md              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªAYESIAN-PROTOCOL-01_reconciliation_record.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ README.md                                      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes.toml                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ README.md                                      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ authority_trust_boundary.html                  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ digest_fold_adversarial.html                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ horizon_cliff_late_handler.html                connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ladder_refuted_drivers.html                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ README.md                                      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ir_digest.json                                 connections=0
+  ΓûêΓûêΓûêΓûêΓûæ puppeteer-config.json                          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ one_verdict_gate_adversarial.html              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ provider_search_fetch_recovery.html            connections=0
+  ΓûêΓûêΓûêΓûêΓûæ redteam_reconciliation.html                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ research_os_loop.html                          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-001.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-002.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-003.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-004.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-005.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-006.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-007.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-008.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-009.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-010.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-011.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-012.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-013.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-014.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-015.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-016.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-017.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-018.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-019.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-020.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-021.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-022.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-023.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-024.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-025.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-026.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-027.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-028.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-029.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-030.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-031.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-032.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-033.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-034.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-035.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-036.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-037.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-038.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-039.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-040.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ IDR-041.md                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_authority_evidence_map.md            connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_step3_live_verification_report.md    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_step4_trust_boundary_report.md       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª6_step5_trust_boundary_remediation_report.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hr04_source_identifier_capture.md              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hr07_decisive_refuted_contract.md              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hr08_completion_invariant.md                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ step6_closure_candidate_evidence_map.md        connections=0
+  ΓûêΓûêΓûêΓûêΓûæ README.md                                      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ step6_structural_comparison_20260814.md        connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_architecture_harvest_report.md          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_architecture_harvest_v2_addendum.md     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_architecture_ratification.md            connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_architecture_team_handoff.md            connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_c1_slot_ref_design_gate.md              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_c1_step3_adversarial_closure.md         connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªmes_c1_step3_schema_version_spec_conflict.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_c4_exploration_floor_design_gate.md     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_c5_director_priority_design_gate.md     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªmes_c6_convergence_diagnostic_design_gate.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_contra_adversarial_review.md            connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªmes_current_epistemic_architecture_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_diagram_design_integration.md           connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_diagram_design_skill.md                 connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_final_ratification_gate.md              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_five_fundamentals_blueprint.md          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªfundamentals_blueprint_adversarial_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªfive_fundamentals_blueprint_review_prompt.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_five_fundamentals_ratification_readiness.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªmes_gr4_annealed_bridge_sampling_proposal.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªoperator_control_plane_adversarial_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_p2_residuals_governance.md              connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q02_epistemic_roi_design.md             connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q04_failure_propagation_design_gate.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªrmes_q05_approved_proposal_handoff_design.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q05_evidence_ladder_applied_design.md   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q05_failure_classification_design.md    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q05_independent_review.md               connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q05_persistence_slice_design.md         connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q05_post_adversarial_remediation.md     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_q05_q02_current_state_review.md         connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_redteam_operator_loop_audit.md          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_redteam_reconciliation.md               connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_research_architecture_v3.md             connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_research_architecture_v4.md             connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_research_architecture_v6.md             connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_research_operating_system_loop.md       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªs_researchsourceprovider_blueprint_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_blueprint_review2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_blueprint_review3.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªsearchsourceprovider_closure_gate_package.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_researchsourceprovider_contract.md      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_researchsourceprovider_fetch_audit.md   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªresearchsourceprovider_fetch_design_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªresearchsourceprovider_fetch_driver_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªesearchsourceprovider_fetch_driver_design.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªarchsourceprovider_fetch_gate_remediation.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_fetch_gate_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_researchsourceprovider_hazard_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªrmes_researchsourceprovider_hazard_audit2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªearchsourceprovider_implementation_design.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªes_researchsourceprovider_ratelimit_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªs_researchsourceprovider_ratelimit_audit2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªs_researchsourceprovider_ratelimit_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_ratelimit_review2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_ratelimit_review3.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªs_researchsourceprovider_step6_code_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_step6_code_audit2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_step6_code_audit3.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_step6_code_audit4.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªresearchsourceprovider_step6_design_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªesearchsourceprovider_step6_design_audit2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªesearchsourceprovider_step6_design_audit3.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªchsourceprovider_step6_design_remediation.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªresearchsourceprovider_step6_final_review.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªsourceprovider_step6_orchestration_design.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªchsourceprovider_step6_r01_resolver_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªresearchsourceprovider_step6_remediation2.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªchsourceprovider_step6_remediation_report.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇª_researchsourceprovider_store_dedup_audit.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_researchsourceprovider_walk_audit.md    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_researchsourceprovider_walk_audit3.md   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_researchsourceprovider_walk_review.md   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_scientific_agent_skills_audit.md        connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_step4_s5_s7_decision_gate.md            connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_step4_s5_s7_decision_gate_hashes.md     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_step6_reconcile_design_gate.md          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ΓÇªmes_surviving_ideas_application_framework.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_surviving_ideas_repo_reconciliation.md  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_adversarial_defense.md               connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_adversarial_remediation_report.md    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_fence_audit.md                       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ hermes_v6_scientific_skills_amendment.md       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ pyproject.toml                                 connections=0
+  ΓûêΓûêΓûêΓûêΓûæ pyrightconfig.json                             connections=0
+  ΓûêΓûêΓûêΓûêΓûæ pyrightconfig.tests.json                       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ run_tests.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ adversary.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ director.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ implementer.py                                 connections=0
+  ΓûêΓûêΓûêΓûêΓûæ researcher.py                                  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ cache.py                                       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ retention.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ changes.py                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ ci.py                                          connections=0
+  ΓûêΓûêΓûêΓûêΓûæ worktrees.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ heartbeat.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ leases.py                                      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ evidence.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ gates.py                                       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ integrity_gates.py                             connections=0
+  ΓûêΓûêΓûêΓûêΓûæ provenance.py                                  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ reconcile.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ registration.py                                connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ execution.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ models.py                                      connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ arxiv.json                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ europepmc.json                                 connections=0
+  ΓûêΓûêΓûêΓûêΓûæ openalex.json                                  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ pmc.json                                       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ reporting.py                                   connections=0
+  ΓûêΓûêΓûêΓûêΓûæ sandbox.py                                     connections=0
+  ΓûêΓûêΓûêΓûêΓûæ __init__.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ projection.py                                  connections=0
+  ΓûêΓûêΓûêΓûêΓûæ steal.md                                       connections=0
+  ΓûêΓûêΓûêΓûêΓûæ conftest.py                                    connections=0
+  ΓûêΓûêΓûêΓûêΓûæ contradiction_classification_wiring_audit.md   connections=0
+
+God Module  (71)
+  ΓûêΓûêΓûêΓûêΓûæ repositories.py                                chunks=0 fan_in=52 fan_out=61
+  ΓûêΓûêΓûêΓûêΓûæ gateway.py                                     chunks=0 fan_in=26 fan_out=104
+  ΓûêΓûêΓûêΓûêΓûæ controller.py                                  chunks=0 fan_in=21 fan_out=105
+  ΓûêΓûêΓûêΓûæΓûæ test_research_sources.py                       chunks=0 fan_in=0 fan_out=34
+  ΓûêΓûêΓûêΓûæΓûæ test_s5_l2_resolution.py                       chunks=0 fan_in=0 fan_out=36
+  ΓûêΓûêΓûêΓûæΓûæ test_s5_retraction.py                          chunks=0 fan_in=0 fan_out=33
+  ΓûêΓûêΓûêΓûæΓûæ test_s6_event_capacity.py                      chunks=0 fan_in=0 fan_out=41
+  ΓûêΓûêΓûêΓûæΓûæ test_s6a_retraction_ingestion.py               chunks=0 fan_in=0 fan_out=39
+  ΓûêΓûêΓûêΓûæΓûæ test_step7_curated_registry.py                 chunks=0 fan_in=0 fan_out=49
+  ΓûêΓûêΓûêΓûæΓûæ test_v6_attacks.py                             chunks=0 fan_in=0 fan_out=29
+  ΓûêΓûêΓûêΓûæΓûæ test_walking_skeleton.py                       chunks=0 fan_in=0 fan_out=25
+  ΓûêΓûêΓûêΓûæΓûæ adversarial_probe_s5.py                        chunks=0 fan_in=0 fan_out=30
+  ΓûêΓûêΓûêΓûæΓûæ e2e_operator_loop.py                           chunks=0 fan_in=0 fan_out=15
+  ΓûêΓûêΓûêΓûæΓûæ cli.py                                         chunks=0 fan_in=1 fan_out=41
+  ΓûêΓûêΓûêΓûæΓûæ intents.py                                     chunks=0 fan_in=29 fan_out=7
+  ΓûêΓûêΓûêΓûæΓûæ node.py                                        chunks=0 fan_in=20 fan_out=9
+  ΓûêΓûêΓûêΓûæΓûæ task_status.py                                 chunks=0 fan_in=27 fan_out=2
+  ΓûêΓûêΓûêΓûæΓûæ database.py                                    chunks=0 fan_in=46 fan_out=6
+  ΓûêΓûêΓûêΓûæΓûæ failure_classifications.py                     chunks=0 fan_in=11 fan_out=25
+  ΓûêΓûêΓûêΓûæΓûæ migrations.py                                  chunks=0 fan_in=44 fan_out=6
+  ΓûêΓûêΓûêΓûæΓûæ source_outcomes.py                             chunks=0 fan_in=7 fan_out=26
+  ΓûêΓûêΓûêΓûæΓûæ extraction.py                                  chunks=0 fan_in=8 fan_out=18
+  ΓûêΓûêΓûêΓûæΓûæ programs.py                                    chunks=0 fan_in=24 fan_out=10
+  ΓûêΓûêΓûêΓûæΓûæ source_handlers.py                             chunks=0 fan_in=5 fan_out=44
+  ΓûêΓûêΓûêΓûæΓûæ __init__.py                                    chunks=0 fan_in=0 fan_out=27
+  ΓûêΓûêΓûêΓûæΓûæ base_adapter.py                                chunks=0 fan_in=11 fan_out=16
+  ΓûêΓûêΓûêΓûæΓûæ core.py                                        chunks=0 fan_in=42 fan_out=3
+  ΓûêΓûêΓûêΓûæΓûæ base.py                                        chunks=0 fan_in=18 fan_out=14
+  ΓûêΓûêΓûêΓûæΓûæ http.py                                        chunks=0 fan_in=1 fan_out=17
+  ΓûêΓûêΓûêΓûæΓûæ paginate.py                                    chunks=0 fan_in=5 fan_out=50
+  ΓûêΓûêΓûêΓûæΓûæ replay.py                                      chunks=0 fan_in=4 fan_out=20
+  ΓûêΓûêΓûêΓûæΓûæ research_sources.py                            chunks=0 fan_in=22 fan_out=10
+  ΓûêΓûêΓûêΓûæΓûæ test_c1_slot_ref.py                            chunks=0 fan_in=0 fan_out=40
+  ΓûêΓûêΓûêΓûæΓûæ test_c4_exploration_floor.py                   chunks=0 fan_in=0 fan_out=21
+  ΓûêΓûêΓûêΓûæΓûæ test_chg2_providers.py                         chunks=0 fan_in=0 fan_out=60
+  ΓûêΓûêΓûêΓûæΓûæ test_claims.py                                 chunks=0 fan_in=0 fan_out=15
+  ΓûêΓûêΓûêΓûæΓûæ test_claims_write_path.py                      chunks=0 fan_in=0 fan_out=34
+  ΓûêΓûêΓûêΓûæΓûæ test_cli.py                                    chunks=0 fan_in=0 fan_out=34
+  ΓûêΓûêΓûêΓûæΓûæ test_concurrency.py                            chunks=0 fan_in=0 fan_out=18
+  ΓûêΓûêΓûêΓûæΓûæ test_controller.py                             chunks=0 fan_in=0 fan_out=43
+  ΓûêΓûêΓûêΓûæΓûæ test_controller_c4.py                          chunks=0 fan_in=0 fan_out=15
+  ΓûêΓûêΓûêΓûæΓûæ test_controller_q02.py                         chunks=0 fan_in=1 fan_out=35
+  ΓûêΓûêΓûêΓûæΓûæ test_controller_q04.py                         chunks=0 fan_in=0 fan_out=19
+  ΓûêΓûêΓûêΓûæΓûæ test_database.py                               chunks=0 fan_in=0 fan_out=24
+  ΓûêΓûêΓûêΓûæΓûæ test_event_validation.py                       chunks=0 fan_in=0 fan_out=21
+  ΓûêΓûêΓûêΓûæΓûæ test_events.py                                 chunks=0 fan_in=0 fan_out=15
+  ΓûêΓûêΓûêΓûæΓûæ test_extraction_pipeline.py                    chunks=0 fan_in=0 fan_out=33
+  ΓûêΓûêΓûêΓûæΓûæ test_failure_injection.py                      chunks=0 fan_in=0 fan_out=15
+  ΓûêΓûêΓûêΓûæΓûæ test_gateway.py                                chunks=0 fan_in=0 fan_out=31
+  ΓûêΓûêΓûêΓûæΓûæ test_hr04_source_identifier_capture.py         chunks=0 fan_in=0 fan_out=62
+  ΓûêΓûêΓûêΓûæΓûæ test_hr07_decisive_refuted_contract.py         chunks=0 fan_in=0 fan_out=27
+  ΓûêΓûêΓûêΓûæΓûæ test_hr08_completion_invariant.py              chunks=0 fan_in=0 fan_out=25
+  ΓûêΓûêΓûêΓûæΓûæ test_p4_wiring.py                              chunks=0 fan_in=0 fan_out=50
+  ΓûêΓûêΓûêΓûæΓûæ test_p6_classification.py                      chunks=0 fan_in=0 fan_out=34
+  ΓûêΓûêΓûêΓûæΓûæ test_phase1_acceptance.py                      chunks=0 fan_in=0 fan_out=28
+  ΓûêΓûêΓûêΓûæΓûæ test_program_obligations.py                    chunks=0 fan_in=0 fan_out=31
+  ΓûêΓûêΓûêΓûæΓûæ test_provider_fetch.py                         chunks=0 fan_in=0 fan_out=35
+  ΓûêΓûêΓûêΓûæΓûæ test_provider_hazards.py                       chunks=0 fan_in=0 fan_out=16
+  ΓûêΓûêΓûêΓûæΓûæ test_provider_orchestration.py                 chunks=0 fan_in=0 fan_out=80
+  ΓûêΓûêΓûêΓûæΓûæ test_provider_ratelimit.py                     chunks=0 fan_in=0 fan_out=40
+  ΓûêΓûêΓûêΓûæΓûæ test_provider_walk.py                          chunks=0 fan_in=0 fan_out=29
+  ΓûêΓûêΓûêΓûæΓûæ test_q04_artifact_radius.py                    chunks=0 fan_in=0 fan_out=16
+  ΓûêΓûêΓûêΓûæΓûæ test_q04_director_loop.py                      chunks=0 fan_in=0 fan_out=22
+  ΓûêΓûêΓûêΓûæΓûæ test_q04_gate_replay.py                        chunks=0 fan_in=0 fan_out=25
+  ΓûêΓûêΓûêΓûæΓûæ test_q04_review_candidates.py                  chunks=0 fan_in=0 fan_out=27
+  ΓûêΓûêΓûêΓûæΓûæ test_q05_evidence_ladder.py                    chunks=0 fan_in=0 fan_out=52
+  ΓûêΓûêΓûêΓûæΓûæ test_q05_persistence.py                        chunks=0 fan_in=0 fan_out=43
+  ΓûêΓûêΓûêΓûæΓûæ test_q05_ratification_consumers.py             chunks=0 fan_in=0 fan_out=26
+  ΓûêΓûêΓûêΓûæΓûæ test_repositories.py                           chunks=0 fan_in=0 fan_out=23
+  ΓûêΓûêΓûêΓûæΓûæ test_research_program.py                       chunks=0 fan_in=0 fan_out=41
+  ΓûêΓûêΓûêΓûæΓûæ test_chg1_contradictions.py                    chunks=0 fan_in=0 fan_out=38
+
+Weak Component  (1)
+  ΓûêΓûêΓûêΓûæΓûæ recovery.py                                    neighbors=1
+
+Smell claims stored with inference_version=smell_v1. Use 'ix smells --list' to retrieve.

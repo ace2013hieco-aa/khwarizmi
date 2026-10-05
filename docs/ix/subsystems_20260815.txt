@@ -1,0 +1,53 @@
+
+Architectural Map — 133 files · 29 regions
+System: Core
+Scope: 11 systems · 0 subsystems · 18 modules
+Clarity: 0 well-defined · 13 moderate · 16 fuzzy · 2 cross-cutting
+
+Architecture Graph
+  System → subsystem → module
+
+●  SYSTEM  Core  52 files  Moderate 66%  calls · imports
+   ├─  MODULE  Persistence / Core  12  Moderate 54%  calls · imports
+   ├─  MODULE  Persistence (2)  11  Moderate 57%  calls · imports shared
+   ├─  MODULE  Scripts  10  Moderate 60%  calls · imports
+   ├─  MODULE  Core  5  Fuzzy 38%  imports · calls
+   ├─  MODULE  Persistence (3)  4  Fuzzy 48%  calls · imports
+   ├─  MODULE  Core (2)  4  Fuzzy 47%  calls · imports
+   ├─  MODULE  Core / Persistence  3  Fuzzy 45%  calls · imports
+   └─  MODULE  Hermes  3  Fuzzy 39%  calls · imports
+
+●  SYSTEM  Research  47 files  Moderate 53%  calls · path
+   ├─  MODULE  Providers  18  Moderate 71%  calls · imports
+   ├─  MODULE  Research  9  Fuzzy 35%  path
+   ├─  MODULE  Conftest  5  Fuzzy 23%  path
+   ├─  MODULE  Research (2)  4  Fuzzy 49%  calls · imports
+   ├─  MODULE  Research (3)  4  Fuzzy 45%  calls · imports
+   ├─  MODULE  Research (4)  3  Fuzzy 45%  calls · imports
+   ├─  MODULE  Artifacts  2  Fuzzy 41%  calls · imports
+   └─  MODULE  Research (5)  2  Fuzzy 40%  calls · imports
+
+●  SYSTEM  Tools  6 files  Fuzzy 26%  path
+
+●  SYSTEM  Agents  5 files  Moderate 63%  path
+
+●  SYSTEM  Engineering  4 files  Moderate 60%  path
+
+●  SYSTEM  Hazard Specs  4 files  Moderate 60%  path
+
+●  SYSTEM  Recovery  4 files  Moderate 54%  path
+
+●  SYSTEM  Artifacts  4 files  Fuzzy 22%  path
+
+●  SYSTEM  Pyrightconfig  3 files  Moderate 57%  path
+
+●  SYSTEM  Security  2 files  Moderate 53%  path
+
+●  SYSTEM  Vault  2 files  Moderate 53%  path
+
+●  MODULE  Workflows  1 files  Fuzzy 4%  path
+
+●  MODULE  Config  1 files  Fuzzy 0%  path shared
+
+Legend: cross-cutting = spans multiple subsystems.
+Run 'ix map --verbose' for confidence scores and raw metrics. Use --list for the ranked view.

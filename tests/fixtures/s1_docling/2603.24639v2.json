@@ -1,0 +1,7450 @@
+{
+ "claims": [
+  {
+   "id": "first_page",
+   "quote": "Recent advances in large language models (LLMs) have enabled the development of autonomous agents capable of complex reasoning and multi-step problem solving.",
+   "rule": "longest text span on page 1",
+   "span": {
+    "bbox": [
+     143.866,
+     563.9196526000001,
+     468.1386673999998,
+     390.98377439292057
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 1
+   }
+  },
+  {
+   "id": "middle_page",
+   "quote": "We investigate whether heuristics outperform few-shot trajectories beyond token efficiency alone.",
+   "rule": "longest text span on page 8",
+   "span": {
+    "bbox": [
+     108.00000000000001,
+     486.62065260000014,
+     504.0033873999998,
+     401.35577439292047
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 8
+   }
+  },
+  {
+   "id": "last_page",
+   "quote": "You are an expert assistant specialized in selecting the most relevant heuristics to help an AI agent improve its performance on a given task.",
+   "rule": "longest text span on page 14",
+   "span": {
+    "bbox": [
+     119.837,
+     629.3261263999999,
+     479.5600015999998,
+     601.7043845097345
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 14
+   }
+  },
+  {
+   "id": "table_cell",
+   "quote": "Heuristic generation Heuristic retrieval Scenario rollout",
+   "rule": "longest table cell (8..200 chars)",
+   "span": {
+    "bbox": [
+     199.749,
+     578.9448736,
+     272.70859680000007,
+     606.5666154902655
+    ],
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "kind": "table_cell",
+    "page": 9
+   }
+  }
+ ],
+ "fixture_version": "s1-docling-fixture/1",
+ "negative_claims": [
+  {
+   "id": "fabricated",
+   "quote": "Qecent advances in large language models (LLMs) have enabled the development of autonomous agents capable of complex reasoning and multi-step problem solving.",
+   "reason": "fabricated",
+   "rule": "first character replaced"
+  },
+  {
+   "id": "block_boundary",
+   "quote": "aud\n\nIll",
+   "reason": "block_boundary",
+   "rule": "quote spanning two payload blocks"
+  }
+ ],
+ "paper": {
+  "bytes": 387448,
+  "filename": "2603.24639v2.pdf",
+  "sha256": "5da7e0a446bde09fd27cd5d4bdb8846f0a7369995f128e9d18f180d39defc575",
+  "source_note": "vendored local fixture; not for redistribution",
+  "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers\\2603.24639v2.pdf"
+ },
+ "record": {
+  "content": {
+   "origin": "docling.pdf",
+   "ref": "source_payload:s1-docling/2603.24639v2.pdf",
+   "text": "EXPERIENTIAL REFLECTIVE LEARNING FOR SELFIMPROVING LLM AGENTS\n\nMarc-Antoine Allard∗ Arnaud Teinturier∗ Victor Xing∗ Gautier Viaud\n\nIlluin Technology\n\n{marc-antoine.allard,victor.xing}@illuin.tech\n\nABSTRACT\n\nRecent advances in large language models (LLMs) have enabled the development of autonomous agents capable of complex reasoning and multi-step problem solving. However, these agents struggle to adapt to specialized environments and do not leverage past interactions, approaching each new task from scratch regardless of their accumulated experience. We introduce Experiential Reflective Learning (ERL), a simple self-improvement framework that enables rapid environment adaptation through experiential learning. ERL reflects on task trajectories and outcomes to generate heuristics, capturing actionable lessons that transfer across tasks. At test time, relevant heuristics are retrieved based on the current task and injected into the agent's context to guide execution. On the Gaia2 benchmark, ERL improves success rate by 7.8% over a ReAct baseline, with large gains in task completion reliability, and outperforms prior experiential learning methods. Through systematic ablations, we find that selective retrieval is essential and that heuristics provide more transferable abstractions than few-shot trajectory prompting. These results demonstrate that reflecting on single-attempt experiences to extract transferable heuristics enables effective agent self-improvement.\n\n1 INTRODUCTION\n\nAgentic systems powered by large language models (LLMs) are increasingly deployed for complex tasks requiring multi-step planning, reasoning, and tool use (Luo et al., 2025; Yao et al., 2025; Wei et al., 2025). However, general-purpose agents often fail to adapt to new environments with unfamiliar tools and domain-specific conventions (Chen et al., 2026). Fine-tuning can enable such adaptation but is resource-intensive, infeasible for closed-source models, and does not support continuous learning. These limitations have motivated research into experiential memory systems that enable parameter-free improvement through accumulated experience (Hu et al., 2026).\n\nRecent work has explored how to make LLM agents learn from accumulated experience without parameter updates (Cai et al., 2025; Fang et al., 2026; Sarukkai et al., 2025; Ouyang et al., 2025; Fu et al., 2024; Zhao et al., 2024). ExpeL (Zhao et al., 2024) extracts reusable insights by comparing successful and failed trajectories, using Reflexion to retry each task until success. Extracted insights are then concatenated into every test prompt regardless of task relevance, an approach that scales poorly as experience accumulates. AutoGuide (Fu et al., 2024) creates context-aware guidelines on offline training tasks by contrasting paired trajectories with different outcomes. At test time, it performs context identification and guideline retrieval at every agent turn, incurring substantial overhead, and provides no guidance when the current state fails to match any stored context. Both methods require multiple rollouts per task to construct contrastive trajectory pairs, an assumption that breaks down in practical agent deployment where tasks cannot be retried.\n\nIn this work, we propose Experiential Reflective Learning (ERL), an experiential memory framework designed for efficient self-improvement in new environments. ERL builds a pool of reusable heuristics that capture effective strategies and failure modes, generated by reflecting on past experience trajectories and their outcomes. Then, for each new task, an LLM scores stored heuristics for relevance and injects the top candidates into the agent's context, providing task-specific guidance. ERL extracts heuristics from single-attempt trajectories, enabling efficient adaptation without curated training sets or repeated execution. Moreover, ERL heuristics preserve granular trajectory details that existing methods lose through cross-task aggregation.\n\n∗Equal contribution.\n\nFigure 1: The ERL framework. During experience accumulation (left), the agent reflects on task outcomes to generate heuristics stored in a persistent pool. At test time (right), relevant heuristics are retrieved and injected into context for new tasks.\n\nOn the Search and Execution splits of Gaia2 (Froger et al., 2025), ERL achieves an overall success rate of 56.1%, an improvement of +7.8% over a ReAct baseline and outperforming ExpeL and AutoGuide. We carry out experiments highlighting that heuristic retrieval plays a critical role in improving performance and reliability, lessons from failures and successes benefit different task types, and heuristics provide more transferable abstractions than raw agent trajectories.\n\n2 METHODS : EXPERIENTIAL REFLECTIVE LEARNING\n\nERL consists of two components (Figure 1): heuristic generation from task experience, and retrievalaugmented execution for new tasks.\n\nHeuristic generation. We consider an agent operating in an environment that provides binary success/failure feedback upon task completion (we analyze performance when outcome signals are unavailable in Appendix C). As the agent executes tasks, it accumulates experiences consisting of the task description, the execution trajectory (reasoning steps, tool calls, and outputs), and the outcome signal. After each task, the agent reflects on this experience to generate a structured heuristic containing: (1) an analysis identifying what led to success or failure, and (2) a learned guideline with explicit trigger conditions and recommended actions (e.g., \"When sending emails to calendar attendees, first resolve names to email addresses via the Contacts tool before calling the email API\"). These heuristics are stored in a persistent pool.\n\nRetrieval-augmented execution. When facing a new task, the agent retrieves relevant heuristics from the pool to guide its execution and improve from past experiences. An LLM analyzes the new task, decomposes it into potential sub-tasks and action steps, and scores each stored heuristic for relevance. Selection is made based on the similarity between the stored and current task descriptions, the diversity of experiences to cover a range of potential lessons, and the informativeness of the guideline content. The top-k heuristics are then injected into the agent's system prompt, ensuring that the agent receives task-specific advice rather than being overwhelmed with the full heuristic pool. Appendix F provides an example heuristic and a trajectory where the agent explicitly references the guidance it was given, and Appendix G contains the prompts for heuristic generation and retrieval.\n\n3 EXPERIMENTS\n\nExperimental setup. We evaluate ERL against existing approaches onGaia2 (Froger et al., 2025), a recent benchmark that assesses long-horizon agentic capabilities within a simulated mobile environment containing 12 applications and 101 tools. We focus on the Search and Execution splits which contain tasks involving information retrieval and multi-step execution capabilities.\n\nWe use the default ReAct agent scaffold of Gaia2 as the baseline method in our evaluations. ERL augments this baseline by injecting retrieved heuristics into the agent's system prompt before execution, requiring no modifications to the core ReAct loop. Unless otherwise noted, we evaluate ERL with k = 20 heuristics retrieved by an LLM (see Appendix C.2 for discussions on the retrieval method and choice of k). We use GPT-5-mini as the agent backbone for all methods.\n\nA key feature of Gaia2 is its organization into universes: isolated data partitions that expose identical applications and tools but contain completely disjoint information (e.g., different contacts, files, and calendar events). This structure enables evaluation without knowledge contamination: we accumulate heuristics on 8 universes (112 execution / 132 search tasks) and evaluate on 2 held-out test universes (48 / 28 tasks). This setup mirrors real-world deployment where agents typically operate within a fixed set of tools while encountering continuously evolving data. Additional evaluation details are available in Appendix B.\n\nMain results. Figure 2 summarizes performance across methods. ERL achieves a 56.1% overall success rate, an improvement of +7.8% over the ReAct baseline and +5.2% over the strongest prior method (ExpeL at 50.9%). Gains are consistent across task types: +8.3% on Execution and +7.1% on Search relative to the baseline. Prior methods exhibit uneven performance across splits, as AutoGuide achieves strong Search results (61.9%) but underperforms on Execution (39.6%, below baseline), while ExpeL shows modest improvements on both. Few-shot prompting with raw trajectory demonstrations also fails to improve over the baseline (46.4%).\n\nERL improves agent reliability. Figure 3 compares pass@3 and passˆ3 between the baseline and ERL. pass@3 measures the fraction of scenarios where the agent succeeds at least once across three runs, capturing whether a task is within the agent's capability. passˆ3 requires success on all three runs, measuring whether the agent can reliably complete a task (Chen et al., 2021; Yao et al., 2025). ERL yields substantial gains on passˆ3 (+8.3% in Execution and +10.6% in Search), indicating more stable performance across runs. Improvements on pass@3 are comparatively smaller, suggesting only marginal gains in newly solved scenarios.\n\nHeuristics generalize better than trajectories. A simple approach to in-context learning from experiences is to append raw trajectories as few-shot demonstrations. However, this approach fails\n\n(a) Averaged across Search and Execution splits.\n\nSuccess Rate (%)\nMethod | Exec. | Search | Overall\nBaseline | 43.1 | 53.6 | 48.3\nFew-shot | 41.7 | 51.2 | 46.4\nExpeL | 45.8 | 56.0 | 50.9\nAutoGuide | 39.6 | 61.9 | 50.8\nERL (Ours) | 51.4 | 60.7 | 56.1\nAblations:\nno retrieval | 44.4 | 63.1 | 53.8\nembedding retrieval | 50.7 | 56.0 | 53.3\nonly failures | 50.0 | 67.9 | 58.9\nonly successes | 52.1 | 47.6 | 49.9\n\n(b) Per-split results and ablations.\n\nFigure 2: Success rates on the Gaia2 test universes (3 runs). Bold: best; underline: second best.\n\nFigure 3: Success rate, pass@3 and passˆ3 comparison between baseline and ERL\n\nFigure 4: Success rate vs. number of randomly selected heuristics. ERL with LLM-based retrieval of k = 20 heuristics (⋆) outperforms all random configurations.\n\nto improve performance (-1.9% vs. baseline), suggesting that raw trajectories lack the actionable insights necessary for the agent to improve on new scenarios. On the other hand, heuristics provide distilled strategic principles that generalize across tasks and are more context-efficient. We show that this advantage holds across token budgets, as heuristics consistently outperform trajectories even when controlling for context length (Appendix C).\n\nRetrieval quality matters more than quantity. ERL retrieves task-relevant heuristics using an LLM-based selection mechanism. To validate the value of this choice, we compare against random selection. Figure 4 shows average success rate as a function of the number of randomly selected heuristics. Performance exhibits a non-monotonic pattern, peaking around 40-60 heuristics before degrading with excessive inclusion. This motivates the need for a selection mechanism that identifies the most relevant heuristics from an extensive pool, rather than relying on quantity alone. LLMbased retrieval with k = 20 achieves 56.1% overall, outperforming both embedding-based retrieval using Qwen3-Embedding-0.6B (Zhang et al., 2025) (53.3%, Table 2b) and the best random selection configuration (53.8%), confirming that retrieval quality matters more than heuristic quantity.\n\nFailure heuristics favor Search; success heuristics favor Execution. Prior methods explore learning specifically from past failures or successes (Sarukkai et al., 2025; Zhao et al., 2024; Shinn et al., 2023). We examine whether the outcome of source experiences affects heuristic quality. Table 2b shows that failure-derived heuristics substantially outperform success-derived ones overall. The effect is split-dependent (Table 2b): failure heuristics excel on Search (+14.3% over baseline) by providing negative constraints that prune ineffective strategies, whereas success heuristics work best on Execution (+9.0%) by reinforcing proven action sequences. While failure-only retrieval yields the highest overall score (58.9%), this reflects strong Search performance at the expense of Execution tasks. In practical deployment scenarios where the task distribution is unknown, retrieving from both sources offers a reliable compromise.\n\n4 CONCLUSION\n\nWe introduce Experiential Reflective Learning (ERL), a framework enabling LLM agents to improve through accumulated experience. By distilling trajectories into reusable heuristics and retrieving relevant guidance at test time, ERL outperforms prior experiential learning methods and improves task completion reliability on Gaia2. Our analysis reveals that (1) heuristics transfer better than raw trajectories, (2) LLM-based retrieval outperforms random and embedding-based selection, and (3) learning from failures versus successes has a variable impact depending on the task type. Future work could bootstrap heuristic accumulation via synthetic task generation or address challenges in scaling heuristic pools, such as resolving conflicting guidelines and maintaining retrieval quality.\n\nACKNOWLEDGMENTS\n\nThis work was carried out within the framework of the LIAGORA \"LabCom\", a joint laboratory supported by the French National Research Agency (ANR) and established between ILLUIN Technology and the MICS laboratory of CentraleSupelec.\n\nREFERENCES\n\nVictor Barres, Honghua Dong, Soham Ray, Xujie Si, and Karthik Narasimhan. τ 2 -bench: Evaluating conversational agents in a dual-control environment, 2025. URL https://arxiv.org/abs/ 2506.07982.\n\nZhicheng Cai, Xinyuan Guo, Yu Pei, Jiangtao Feng, Jinsong Su, Jiangjie Chen, Ya-Qin Zhang, WeiYing Ma, Mingxuan Wang, and Hao Zhou. Flex: Continuous agent evolution via forward learning from experience, 2025. URL https://arxiv.org/abs/2511.06449.\n\nArthur Chen, Zuxin Liu, Jianguo Zhang, Akshara Prabhakar, Zhiwei Liu, Shelby Heinecke, Silvio Savarese, Victor Zhong, and Caiming Xiong. Grounded test-time adaptation for llm agents, 2026. URL https://arxiv.org/abs/2511.04847.\n\nMark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, Alex Ray, Raul Puri, Gretchen Krueger, Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela Mishkin, Brooke Chan, Scott Gray, Nick Ryder, Mikhail Pavlov, Alethea Power, Lukasz Kaiser, Mohammad Bavarian, Clemens Winter, Philippe Tillet, Felipe Petroski Such, Dave Cummings, Matthias Plappert, Fotios Chantzis, Elizabeth Barnes, Ariel Herbert-Voss, William Hebgen Guss, Alex Nichol, Alex Paino, Nikolas Tezak, Jie Tang, Igor Babuschkin, Suchir Balaji, Shantanu Jain, William Saunders, Christopher Hesse, Andrew N. Carr, Jan Leike, Josh Achiam, Vedant Misra, Evan Morikawa, Alec Radford, Matthew Knight, Miles Brundage, Mira Murati, Katie Mayer, Peter Welinder, Bob McGrew, Dario Amodei, Sam McCandlish, Ilya Sutskever, and Wojciech Zaremba. Evaluating large language models trained on code, 2021. URL https://arxiv.org/abs/2107.03374.\n\nRunnan Fang, Yuan Liang, Xiaobin Wang, Jialong Wu, Shuofei Qiao, Pengjun Xie, Fei Huang, Huajun Chen, and Ningyu Zhang. Memp: Exploring agent procedural memory, 2026. URL https://arxiv.org/abs/2508.06433.\n\nRomain Froger, Pierre Andrews, Matteo Bettini, Amar Budhiraja, Ricardo Silveira Cabral, Virginie Do, Emilien Garreau, Jean-Baptiste Gaya, Hugo Laurenc¸on, Maxime Lecanu, Kunal Malkan, Dheeraj Mekala, Pierre M´enard, Gerard Moreno-Torres Bertran, Ulyana Piterbarg, Mikhail Plekhanov, Mathieu Rita, Andrey Rusakov, Vladislav Vorotilov, Mengjue Wang, Ian Yu, Amine Benhalloum, Gr´egoire Mialon, and Thomas Scialom. Are: Scaling up agent environments and evaluations, 2025. URL https://arxiv.org/abs/2509.17158.\n\nYao Fu, Dong-Ki Kim, Jaekyeom Kim, Sungryull Sohn, Lajanugen Logeswaran, Kyunghoon Bae, and Honglak Lee. Autoguide: Automated generation and selection of context-aware guidelines for large language model agents. Advances in Neural Information Processing Systems, 37: 119919-119948, 2024.\n\nYuyang Hu, Shichun Liu, Yanwei Yue, Guibin Zhang, Boyang Liu, Fangyi Zhu, Jiahang Lin, Honglin Guo, Shihan Dou, Zhiheng Xi, Senjie Jin, Jiejun Tan, Yanbin Yin, Jiongnan Liu, Zeyu Zhang, Zhongxiang Sun, Yutao Zhu, Hao Sun, Boci Peng, Zhenrong Cheng, Xuanbo Fan, Jiaxin Guo, Xinlei Yu, Zhenhong Zhou, Zewen Hu, Jiahao Huo, Junhao Wang, Yuwei Niu, Yu Wang, Zhenfei Yin, Xiaobin Hu, Yue Liao, Qiankun Li, Kun Wang, Wangchunshu Zhou, Yixin Liu,\n\nDawei Cheng, Qi Zhang, Tao Gui, Shirui Pan, Yan Zhang, Philip Torr, Zhicheng Dou, Ji-Rong Wen, Xuanjing Huang, Yu-Gang Jiang, and Shuicheng Yan. Memory in the age of ai agents, 2026. URL https://arxiv.org/abs/2512.13564.\n\nZiyang Luo, Zhiqi Shen, Wenzhuo Yang, Zirui Zhao, Prathyusha Jwalapuram, Amrita Saha, Doyen Sahoo, Silvio Savarese, Caiming Xiong, and Junnan Li. Mcp-universe: Benchmarking large language models with real-world model context protocol servers, 2025. URL https: //arxiv.org/abs/2508.14704.\n\nSiru Ouyang, Jun Yan, I-Hung Hsu, Yanfei Chen, Ke Jiang, Zifeng Wang, Rujun Han, Long T. Le, Samira Daruki, Xiangru Tang, Vishy Tirumalashetty, George Lee, Mahsan Rofouei, Hangfei Lin, Jiawei Han, Chen-Yu Lee, and Tomas Pfister. Reasoningbank: Scaling agent self-evolving with reasoning memory, 2025. URL https://arxiv.org/abs/2509.25140.\n\nVishnu Sarukkai, Zhiqiang Xie, and Kayvon Fatahalian. Self-generated in-context examples improve llm agents for sequential decision-making tasks, 2025. URL https://arxiv.org/ abs/2505.00234.\n\nNoah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Reflexion: Language agents with verbal reinforcement learning. Advances in Neural Information Processing Systems, 36:8634-8652, 2023.\n\nJason Wei, Zhiqing Sun, Spencer Papay, Scott McKinney, Jeffrey Han, Isa Fulford, Hyung Won Chung, Alex Tachard Passos, William Fedus, and Amelia Glaese. Browsecomp: A simple yet challenging benchmark for browsing agents, 2025. URL https://arxiv.org/abs/2504. 12516.\n\nShunyu Yao, Noah Shinn, Pedram Razavi, and Karthik R Narasimhan. τ-bench: A benchmark for tool-agent-user interaction in real-world domains. In The Thirteenth International Conference on Learning Representations, 2025. URL https://openreview.net/forum?id= roNSXZpUDN.\n\nYanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, Fei Huang, and Jingren Zhou. Qwen3 embedding: Advancing text embedding and reranking through foundation models, 2025. URL https: //arxiv.org/abs/2506.05176.\n\nAndrew Zhao, Daniel Huang, Quentin Xu, Matthieu Lin, Yong-Jin Liu, and Gao Huang. Expel: Llm agents are experiential learners. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 38, pp. 19632-19642, 2024.\n\nA τ 2 -BENCH EVALUATION\n\nWhile Gaia2 evaluates agents in a single-control setting, real-world deployment often requires agents to coordinate with users who actively participate in task resolution. We therefore evaluate ERL on τ 2 -bench (Barres et al., 2025), a benchmark spanning three customer service domains (Airline, Retail, and Telecom).\n\nTable 1 shows that ERL improves overall success rate over the baseline (0.380 vs. 0.367), with gains on Airline and Retail but a slight drop on Telecom. On Airline and Retail, ERL improves passˆ3 while pass@3 decreases. This corroborates our findings on Gaia2 where ERL mainly improved consistency through passˆ3 gains with modest pass@3 changes.\n\nTelecom follows the opposite trend on every metric: success rate drops, passˆ3 falls to zero, yet pass@3 improves (0.625 vs. 0.575). We hypothesize that two design differences between Telecom and the other domains may explain this divergence. First, Telecom tasks are composed combinatorially from atomic subtasks, yielding a large configuration space that reduces the likelihood of any heuristic matching the specific subtask composition of a test task. Second, Telecom is a dual-control domain where the agent must guide a user who has their own tools, a randomly assigned persona, and variable device state. This makes the interaction less predictable than in single-control domains like Airline and Retail. As a result, a retrieved heuristic may improve the agent's diagnostic strategy on some trials, but fail on others when the user interaction unfolds differently.\n\nOverall, results on τ 2 -bench corroborate the Gaia2 findings in single-control domains, while the Telecom results highlight limitations around capturing user coordination strategies that could be an interesting direction for future work.\n\nAirline | Retail | Telecom | Overall\nSuccess Rate | Baseline ERL | 36.7 38.3 | 43.3 47.5 | 30.0 28.3 | 36.7 38.0\npassˆ3 | Baseline ERL | 20.0 25.0 | 12.5 17.5 | 10.0 0.0 | 14.2 14.2\npass@3 | ERL | 80.0 | 57.5 | 64.2\nBaseline | 55.0 50.0\n75.0 | 62.5 | 62.5\n\nTable 1: Per-domain results (in %) on τ 2 -bench. Success rates are averaged over 3 trials per task. Evaluation is performed on the test split of each domain. ERL uses heuristics generated from the training split. Bold: best per group.\n\nB GAIA2 EVALUATION SETUP\n\nWe conduct experiments on the Agents Research Environments (ARE) platform (Froger et al., 2025), which provides infrastructure for running and evaluating agents on the Gaia2 benchmark. ARE provides a default ReAct agentic scaffold which we use as our baseline. Each scenario defines a task along with a ground-truth trajectory, enabling automatic verification of task completion.\n\nTest universes (22 and 25) were randomly selected from the available pool. As detailed in Table 2, we select GPT-5-mini to maintain an optimal balance between reasoning performance, inference latency, and computational cost.\n\nExpeL (Zhao et al., 2024) implementation. We sample a subset of training tasks matching the test set distribution (48 execution, 28 search). Following the original implementation, we collect success and failure experiences by running the Reflexion (Shinn et al., 2023) algorithm with GPT-5mini for up to 3 retries. For insights extraction, we use a batch size of L = 3 successful trajectories. During inference, we retrieve 3 task-relevant few-shot examples using the Qwen3-Embedding-0.6B embedding model.\n\nAutoGuide (Fu et al., 2024) implementation. To generate context-aware guidelines, we run Reflexion with GPT-5-mini for up to 3 retries on all training tasks, and run the guideline generation process on scenarios with contrastive successful/failed trajectories. At test-time, the top 3 relevant guidelines are contextually retrieved and fed into the agent context after each observation ReAct turn. We use GPT-5-mini for guideline selection, extraction and context identification.\n\nRole | LLM\nAgent | gpt-5-mini-2025-08-07\nARE LLM Judge | gpt-5-mini-2025-08-07\nHeuristic generation | gpt-5-mini-2025-08-07\nHeuristic retrieval | gpt-5.2-2025-12-11\n\nTable 2: LLMmodel selection\n\nC ADDITIONAL EXPERIMENTS\n\nC.1 TOKEN-MATCHED COMPARISON WITH A FEW-SHOT BASELINE\n\nWe investigate whether heuristics outperform few-shot trajectories beyond token efficiency alone. Figure 5 demonstrates that for any number of experiences, using heuristics leads to higher success rates than raw trajectories. This holds when comparing the same number of experiences provided in-context as either heuristics or raw trajectories: heuristics yield a +5.5% gain in Execution at approximately 20 scenarios and a +23.8% gain in Search at 40 scenarios, where raw trajectories approach a regime where long-context performance starts to degrade. This confirms that distilling experiences into heuristics provides a superior learning signal compared to raw trajectory accumulation, while enabling substantially more experiences to fit within a fixed context budget.\n\nFigure 5: Success Rate over feedback token count for heuristic feedback and few-shot trajectories.\n\nC.2 HEURISTIC RETRIEVAL\n\nTo determine the optimal retrieval approach and number of heuristics k to retrieve, we evaluate two methods: embedding-based and LLM-based retrieval. We limit our experiments to at most k = 20 heuristics, as this represents a practical upper bound: retrieving too many heuristics can be detrimental in complex scenarios, and the LLM-based retrieval approach becomes inefficient for k > 20. The experimental setup follows the general environment configuration described in Section B.\n\nEmbedding retrieval. We first evaluate embedding-based retrieval using the Qwen3-Embedding0.6B model, computing cosine similarity between the test task and all training tasks, then selecting the top-k most similar heuristics. This approach effectively retrieves contextually similar tasks that use the same tools (e.g., a calendar task retrieves all calendar-related training scenarios). However, it does not necessarily prioritize heuristics addressing similar error patterns. Table 3a shows the best overall performance is achieved with k = 20, yielding a 53.3% success rate.\n\nLLM retrieval. To account for similarity between the test task and the content of the feedback itself, we evaluate LLM-based retrieval using GPT-5.2 as the ranker. The prompt in Figure 9 instructs the model to consider not only task similarity but also error patterns and the lessons articulated in each heuristic. Table 3b shows that LLM-based ranking outperforms embedding-based retrieval for most values of k, particularly on the Search split, with optimal performance again at k = 20 with a 56.1% success rate.\n\nImportance of the reward signal. Reward signals may not always be available in real-world agentic tasks. We investigate a configuration where environment validation rewards are unavailable during heuristic generation, requiring the agent to infer the outcome of its trajectory and derive generalizable guidelines from this self-assessment. In this setting, the agent correctly identifies success or failure only 70% of the time, and the success rate of ERL drops to 51.2% (-4.8%). We note that this still exceeds the baseline (48.3%), indicating that ERL provides value even with imperfect reward signals, though accurate outcome feedback remains important for optimal performance.\n\nSuccess Rate (%)\nk | Execution | Search | Overall\n1 | 43.1 | 57.1 | 50.1\n2 | 49.3 | 44.1 | 46.7\n3 | 43.8 | 57.1 | 50.5\n4 | 50.0 | 56.0 | 53.0\n5 | 51.4 | 47.6 | 49.5\n10 | 45.8 | 56.0 | 50.9\n15 | 47.2 | 51.2 | 49.2\n20 | 50.7 | 56.0 | 53.3\n\n(a) Embedding-based (Qwen3-Embedding-0.6B)\n\nSuccess Rate (%)\n\nk Execution Search Overall\n\n1\n\n45.1\n\n53.6\n\n49.4\n\n3\n\n47.2\n\n58.3\n\n52.8\n\n5\n\n49.3\n\n58.3\n\n53.8\n\n10\n\n51.4\n\n54.8\n\n53.1\n\n20\n\n51.4\n\n60.7\n\n56.1\n\n(b) LLM-based (GPT-5.2)\n\nTable 3: Effect of retrieved heuristics count (k) by retrieval method. Bold: best; underline: second best.\n\nD TOKEN COUNT AND COST ANALYSIS\n\nTokens (M)\nConfiguration | Step | Input (%cached) | Output | Cost ($) | Avg. Turns\nBaseline | Scenario rollout | 103.8 (82%) | 4.3 | 15.27 | 16.6\nERL | Heuristic generation Heuristic retrieval Scenario rollout | 7.5 (8%) 1.0 (86%) 192.0 (88%) | 0.3 0.1 3.9 | 2.42 1.38 17.60 | 17.6\nTotal\n200.5 (85%) | 4.3 | 21.40\n\nTable 4: Breakdown of token usage and costs for the evaluation of the baseline and ERL agents. All experiments used the official OpenAI API with flex processing and models listed in Table 2.\n\nWe report total cumulative token counts and API costs for one full evaluation run on our Gaia2 test set, comparing the baseline ReAct agent against ERL with LLM retrieval of 20 heuristics per task. Input tokens for scenario rollout nearly double (+85%), primarily because retrieved heuristics (∼20k tokens) are appended to the base system prompt (∼12k tokens) at every turn, while the number of turns per scenario remains roughly constant (16.6 vs. 17.6). Thanks to prompt caching, which absorbs a larger share of input tokens under ERL (88% vs. 82%), the cost increase for scenario rollout alone is a moderate +15%. Accounting for heuristic generation and retrieval, ERL incurs a 40% overall increase in API costs. Future work could explore more compact heuristic representations to preserve agent self-adaptation at lower computational overhead.\n\nWe do not measure latency, as it depends heavily on the model provider's API load. However, we note the additional LLM call involved in ERL to retrieve relevant heuristics is marginal for most Gaia2 tasks that span dozens of turns, but may be non-negligible for shorter tasks.\n\nE ITERATIVE ERL\n\nWe also evaluate an iterative variant of ERL where the agent retrieves heuristics from the pool as it grows, rather than accumulating all heuristics first. Tasks are processed in batches; within each batch, the agent retrieves guidance from the current heuristic pool before execution, then adds newly generated heuristics to the pool (Algorithm 1). This creates a cumulative learning effect: early batches establish foundational knowledge from naive failures, while later batches benefit from this guidance and potentially encounter more nuanced errors. Comparing these two approaches tests whether learning from progressively improving trajectories offers advantages over learning from independent executions.\n\nAlgorithm 1 Iterative ERL\n1: | Input: N batches, size B, retrieval count k\n2: | Init: Pool P ←∅\n3: | for i = 1 to N do\n4: | Sample batch Bi\n5: | for each x ∈ Bi do\n6: | C ← RETRIEVE(P, x, k)\n7: | τ ← EXECUTE(x, C)\n8: | r ← REWARD(τ )\n9: | h ← ANALYZE(x, τ, r)\n10: | P ←P ∪ {(x, r, h)}\n11: | end for\n12: | end for\n13: | Return: P\n\nSource Tasks (%) | Test Tasks (%)\nMethod | Execution | Search | Execution | Search | Overall\nBaseline | - | - | 43.1 | 53.6 | 48.3\nERL | 42.0 | 53.8 | 51.4 | 60.7 | 56.1\nIterative ERL | 44.6 | 59.9 | 46.5 | 54.8 | 50.7\nIterative ERL (only failures) | 41.1 | 56.8 | 47.9 | 60.7 | 54.3\n\nTable 5: Success rates on source and test tasks for ERL variants. Iterative ERL achieves higher source task performance but lower test generalization. Bold: best; underline: second best.\n\nIn Table 5, we report success rates on the test universes and on the source universes on which heuristics are accumulated. The scores reveal that iterative ERL achieves higher success rates than the standard version during accumulation but lower test performance (-5.4%). Several factors may explain this generalization gap. First, as iterative guidance improves performance, the agent may encounter fewer and narrower failure modes. The resulting heuristics could miss the breadth of naive mistakes that new tasks are likely to trigger. Second, heuristics from guided trajectories may be less transferable, as they reflect behavior shaped by prior guidance rather than independent discovery by the agent.\n\nF HEURISTIC AND TRAJECTORY EXAMPLE\n\nFigure 6 shows a sample heuristic. Heuristics follow a set structure with an analysis of why the agent succeeded or failed and a guideline with generalizable takeaways. We observe that guidelines often make reference to specific tools that the agent can call, and clarify idiosyncratic behaviors and errors that can steer future behavior.\n\nFigure 7 shows an abridged trajectory where the agent explicitly refers to a heuristic during the completion of a new task. The heuristic, derived from a past failure where the agent forgot to delete an original event when rescheduling, prescribes a safe reschedule procedure: create the replacement event first, then delete the original. Although the new task involves replacing events rather than rescheduling, the agent recognizes the structural similarity and repeatedly applies the guideline (underlined), ensuring each original event is deleted after its replacement is created.\n\nG HEURISTIC GENERATION AND RETRIEVAL PROMPTS\n\nThe heuristic generation prompt is provided in Figure 8. It takes as input a task, the trajectory of the agent, and the associated reward (success or failure). We guide the heuristics to emphasize constructive insights, enabling the agent to avoid repeating past mistakes and to build upon effective reasoning patterns when forming future reflections.\n\nHeuristic retrieval at test time is performed by an LLMwith structured outputs using the prompt in Figure 9. This version was selected after a human comparison with other variants containing more detailed rubrics and different scoring ranges. To handle retrieval a large pool of heuristics, future work could explore a two-stage process combining an embedding model to collect a large set of candidate heuristics, and the LLM to rerank them and select the top k.\n\nScenario ID: scenario universe 27 9aqrhh\n\nTask: Please order me an American Girl Pink Owl Bedroom Decor Girls Craft Kit that is of intermediate skill level. Also, can you reschedule my first upcoming dinner with colleagues to 10/20/2024 instead from 6 pm to 8 pm? Send an email to the attendees to inform them of the updated event. Additionally, remove all saved properties frommy saved list that cost exactly $2000.\n\nReward: failure\n\nRationale: Pre-resolving and validating recipients prevents invalid tool inputs, reduces retries, and keeps execution robust and auditable when sending messages on the user's behalf.\n\nFigure 6: Heuristic example\n\nFigure 7: Example trajectory with explicit reference to heuristics\n\nYou are an AI agent engaging in self-reflection. You analyze your own trajectories to extract generalizable principles and guidelines that improve your future task execution across diverse scenarios. Your feedback is concise, strategic, and applicable beyond the specific task analyzed.\n\nYou are an intelligent agent operating in the ARE environment. You have just completed a task trajectory. Your goal is to perform a \"Post-Mortem Analysis\" to extract transferable lessons that will improve your reliability and reasoning on future tasks.\n\nContext:\n\nInstructions: Analyze your performance based on the Outcome.\n\nIF FAILURE:\n\nIF SUCCESS:\n\nOutput Format: Construct your response to be appended to your future memory.\n\nReflect now:\n\nFigure 8: Heuristic generation prompt\n\nROLE\n\nYou are an expert assistant specialized in selecting the most relevant heuristics to help an AI agent improve its performance on a given task. Heuristics are derived from past experiences (successful or failed) and contain a task description, an analysis of task completion, and learned guidelines.\n\nGOAL\n\nYour goal is to analyze and decompose the provided task into potential sub-tasks and action steps. Then, from the list of heuristics, identify the TOP {k} most relevant heuristics.\n\nINPUT\n\nYou will be provided with:\n\nOUTPUT\n\nYour output should be a list of the TOP {k} scenario IDs of the most relevant heuristics that can help the agent improve its performance on the given task. You must also return a score between 0 and 100 and a brief justification for this score, based on the scoring criteria below.\n\nHEURISTIC SELECTION\n\nWhen selecting the most relevant heuristics, consider the following criteria:\n\nOUTPUT FORMAT\n\nYour output should be a JSON object with the TOP {k} scenario IDs. For each ID, first provide a brief justification (1-2 sentences) of the score, then give a score (0-100):\n\n{\"ID number 1\": [\"rationale\", score], \"ID number 2\": [\"rationale\", score], ... \"ID number k\": [\"rationale\", score] }\n\nLIST OF HEURISTICS:\n\n{heuristics list}\n\nTASK TO COMPLETE:\n\n{task}\n\nFigure 9: Heuristic retrieval prompt"
+  },
+  "provenance": {
+   "config": {
+    "do_ocr": false,
+    "do_table_structure": true,
+    "pipeline": "standard"
+   },
+   "config_fingerprint": "cc1a02f48c1293e4d66f49f0ca43c728b049c0a3caeb44ca39e99d3a2d668c3b",
+   "filename": "2603.24639v2.pdf",
+   "item_count": 192,
+   "library": "docling",
+   "page_count": 14,
+   "page_sizes": [
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ]
+   ],
+   "pdf_bytes": 387448,
+   "pdf_sha256": "5da7e0a446bde09fd27cd5d4bdb8846f0a7369995f128e9d18f180d39defc575",
+   "skipped_nontext_items": 38,
+   "source_ref": "source_payload:s1-docling/2603.24639v2.pdf",
+   "span_count": 348,
+   "table_count": 7,
+   "text_item_count": 147,
+   "version": "2.131.0"
+  },
+  "record_version": "s1-docling/1",
+  "spans": [
+   {
+    "bbox": [
+     108.43,
+     709.6562253999999,
+     503.57806400000044,
+     674.9535565097345
+    ],
+    "char_end": 61,
+    "char_start": 0,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 0,
+    "kind": "text",
+    "label": "section_header",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     113.97800000000001,
+     655.8031053999999,
+     424.14169079999994,
+     645.3418166
+    ],
+    "char_end": 129,
+    "char_start": 63,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 1,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     113.97800000000004,
+     640.7096525999999,
+     184.95156240000009,
+     632.1577743929203
+    ],
+    "char_end": 148,
+    "char_start": 131,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 2,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     113.97800000000004,
+     630.0694558,
+     380.9756799999999,
+     621.5049140997334
+    ],
+    "char_end": 195,
+    "char_start": 150,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 3,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     278.288,
+     589.8008352,
+     333.7167957,
+     579.538512679646
+    ],
+    "char_end": 205,
+    "char_start": 197,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 4,
+    "kind": "text",
+    "label": "section_header",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     143.866,
+     563.9196526000001,
+     468.1386673999998,
+     390.98377439292057
+    ],
+    "char_end": 1480,
+    "char_start": 207,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 5,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     365.89783520000026,
+     205.99403169999985,
+     355.63551267964624
+    ],
+    "char_end": 1496,
+    "char_start": 1482,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 6,
+    "kind": "text",
+    "label": "section_header",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     340.55665260000023,
+     504.0033873999997,
+     266.25177439292054
+    ],
+    "char_end": 2164,
+    "char_start": 1498,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 7,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     257.8666526000002,
+     504.0033873999998,
+     139.72577439292058
+    ],
+    "char_end": 3235,
+    "char_start": 2166,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 8,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     131.7301940000002,
+     504.00338739999984,
+     78.95377439292054
+    ],
+    "char_end": 3723,
+    "char_start": 3237,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 9,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.822,
+     70.0297008,
+     193.19821280000008,
+     60.278384509734565
+    ],
+    "char_end": 4011,
+    "char_start": 3991,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 10,
+    "kind": "text",
+    "label": "footnote",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     516.9486526000001,
+     504.00338739999944,
+     486.47877439292034
+    ],
+    "char_end": 4265,
+    "char_start": 4013,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 12,
+    "kind": "text",
+    "label": "caption",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     420.3466526,
+     504.0033873999997,
+     367.95877439292036
+    ],
+    "char_end": 4741,
+    "char_start": 4267,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 13,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     345.92983520000007,
+     391.20551779999994,
+     335.66751267964605
+    ],
+    "char_end": 4787,
+    "char_start": 4743,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 14,
+    "kind": "text",
+    "label": "section_header",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     319.17965260000005,
+     504.0033873999996,
+     299.6687743929204
+    ],
+    "char_end": 4922,
+    "char_start": 4789,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 15,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     281.96119400000003,
+     504.00338739999955,
+     185.34977439292038
+    ],
+    "char_end": 5764,
+    "char_start": 4924,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 16,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     167.643194,
+     504.0033873999997,
+     60.07177439292036
+    ],
+    "char_end": 6661,
+    "char_start": 5766,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 17,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     707.9588352000001,
+     200.08822079999996,
+     697.696512679646
+    ],
+    "char_end": 6676,
+    "char_start": 6663,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 18,
+    "kind": "text",
+    "label": "section_header",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     683.131194,
+     504.0033873999997,
+     641.3137743929205
+    ],
+    "char_end": 7054,
+    "char_start": 6678,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 19,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     632.9286526000002,
+     504.0033873999995,
+     580.5417743929207
+    ],
+    "char_end": 7524,
+    "char_start": 7056,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 20,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     572.3359794000004,
+     504.00338739999967,
+     497.8517743929209
+    ],
+    "char_end": 8161,
+    "char_start": 7526,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 21,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     482.70119400000056,
+     504.00338739999984,
+     408.00777439292085
+    ],
+    "char_end": 8794,
+    "char_start": 8163,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 22,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     392.8571940000005,
+     504.0033873999997,
+     318.1627743929208
+    ],
+    "char_end": 9429,
+    "char_start": 8796,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 23,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     303.0121940000005,
+     504.00338739999955,
+     283.1127743929208
+    ],
+    "char_end": 9623,
+    "char_start": 9431,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 24,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     109.795,
+     91.88612639999997,
+     284.40667360000015,
+     84.18938450973451
+    ],
+    "char_end": 9673,
+    "char_start": 9625,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 26,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     412.532,
+     544.970806,
+     486.1257262,
+     553.9271834
+    ],
+    "char_end": 9691,
+    "char_start": 9675,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     560.731806,
+     331.28334579999995,
+     569.6881834
+    ],
+    "char_end": 9698,
+    "char_start": 9692,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     398.64048439999993,
+     561.1203474,
+     420.89693279999995,
+     569.6722256070797
+    ],
+    "char_end": 9706,
+    "char_start": 9701,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     432.0351196,
+     561.1203474,
+     459.1433542,
+     569.6722256070797
+    ],
+    "char_end": 9715,
+    "char_start": 9709,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     470.287,
+     561.1203474,
+     500.0153983999999,
+     569.6722256070797
+    ],
+    "char_end": 9725,
+    "char_start": 9718,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     577.0813474,
+     332.3891943999999,
+     585.6332256070797
+    ],
+    "char_end": 9734,
+    "char_start": 9726,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.0514335999999,
+     577.0813474,
+     418.4859835999998,
+     585.6332256070797
+    ],
+    "char_end": 9741,
+    "char_start": 9737,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8769431999998,
+     577.0813474,
+     454.31149319999975,
+     585.6332256070797
+    ],
+    "char_end": 9748,
+    "char_start": 9744,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     577.0813474,
+     493.86754999999994,
+     585.6332256070797
+    ],
+    "char_end": 9755,
+    "char_start": 9751,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     588.0403474,
+     334.9097321999999,
+     596.5922256070796
+    ],
+    "char_end": 9764,
+    "char_start": 9756,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.0514335999999,
+     588.0403474,
+     418.4859835999998,
+     596.5922256070796
+    ],
+    "char_end": 9771,
+    "char_start": 9767,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8769431999998,
+     588.0403474,
+     454.31149319999975,
+     596.5922256070796
+    ],
+    "char_end": 9778,
+    "char_start": 9774,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     588.0403474,
+     493.86754999999994,
+     596.5922256070796
+    ],
+    "char_end": 9785,
+    "char_start": 9781,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     598.9993474,
+     324.6382915999999,
+     607.5512256070797
+    ],
+    "char_end": 9791,
+    "char_start": 9786,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.0514335999999,
+     598.9993474,
+     418.4859835999998,
+     607.5512256070797
+    ],
+    "char_end": 9798,
+    "char_start": 9794,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8769431999998,
+     598.9993474,
+     454.31149319999975,
+     607.5512256070797
+    ],
+    "char_end": 9805,
+    "char_start": 9801,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     598.9993474,
+     493.86754999999994,
+     607.5512256070797
+    ],
+    "char_end": 9812,
+    "char_start": 9808,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     609.9583474,
+     342.3517943999998,
+     618.5102256070796
+    ],
+    "char_end": 9822,
+    "char_start": 9813,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.05143359999977,
+     609.9583474,
+     418.4859835999997,
+     618.5102256070796
+    ],
+    "char_end": 9829,
+    "char_start": 9825,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8769431999997,
+     609.9583474,
+     454.31149319999963,
+     618.5102256070796
+    ],
+    "char_end": 9836,
+    "char_start": 9832,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     609.9583474,
+     493.86754999999994,
+     618.5102256070796
+    ],
+    "char_end": 9843,
+    "char_start": 9839,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     625.530806,
+     349.2758014,
+     634.4871834
+    ],
+    "char_end": 9854,
+    "char_start": 9844,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.0514336,
+     625.9193474,
+     418.48598359999994,
+     634.4712256070796
+    ],
+    "char_end": 9861,
+    "char_start": 9857,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.875,
+     625.9193474,
+     454.30954999999994,
+     634.4712256070796
+    ],
+    "char_end": 9868,
+    "char_start": 9864,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     625.9193474,
+     493.86754999999994,
+     634.4712256070796
+    ],
+    "char_end": 9875,
+    "char_start": 9871,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     298.078,
+     636.6990206,
+     339.59215419999975,
+     645.2867818
+    ],
+    "char_end": 9886,
+    "char_start": 9876,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     308.041,
+     647.8373474,
+     353.19150319999994,
+     656.3892256070797
+    ],
+    "char_end": 9899,
+    "char_start": 9887,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.05183359999995,
+     647.8373474,
+     418.4863835999999,
+     656.3892256070797
+    ],
+    "char_end": 9906,
+    "char_start": 9902,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8773431999999,
+     647.8373474,
+     454.3118931999999,
+     656.3892256070797
+    ],
+    "char_end": 9913,
+    "char_start": 9909,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     647.8373474,
+     493.86754999999994,
+     656.3892256070797
+    ],
+    "char_end": 9920,
+    "char_start": 9916,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     308.041,
+     658.7963474000001,
+     387.50269759999986,
+     667.3482256070797
+    ],
+    "char_end": 9940,
+    "char_start": 9921,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.05183359999984,
+     658.7963474000001,
+     418.4863835999998,
+     667.3482256070797
+    ],
+    "char_end": 9947,
+    "char_start": 9943,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8773431999998,
+     658.7963474000001,
+     454.31189319999976,
+     667.3482256070797
+    ],
+    "char_end": 9954,
+    "char_start": 9950,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     658.7963474000001,
+     493.86754999999994,
+     667.3482256070796
+    ],
+    "char_end": 9961,
+    "char_start": 9957,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     308.041,
+     669.7553474,
+     358.02336419999983,
+     678.3072256070797
+    ],
+    "char_end": 9975,
+    "char_start": 9962,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.05183359999984,
+     669.7553474,
+     418.4863835999998,
+     678.3072256070797
+    ],
+    "char_end": 9982,
+    "char_start": 9978,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8773431999998,
+     669.366806,
+     454.31189319999976,
+     678.3231834000001
+    ],
+    "char_end": 9989,
+    "char_start": 9985,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     669.366806,
+     493.86754999999994,
+     678.3231834000001
+    ],
+    "char_end": 9996,
+    "char_start": 9992,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     308.041,
+     680.7143474,
+     366.4218359999998,
+     689.2662256070796
+    ],
+    "char_end": 10011,
+    "char_start": 9997,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     401.05183359999984,
+     680.3258060000001,
+     418.4863835999998,
+     689.2821834
+    ],
+    "char_end": 10018,
+    "char_start": 10014,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     436.8773431999998,
+     680.7143474,
+     454.31189319999976,
+     689.2662256070796
+    ],
+    "char_end": 10025,
+    "char_start": 10021,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     476.433,
+     680.7143474,
+     493.86754999999994,
+     689.2662256070796
+    ],
+    "char_end": 10032,
+    "char_start": 10028,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 27,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 3,
+    "table_index": 0
+   },
+   {
+    "bbox": [
+     340.737,
+     91.88612639999997,
+     461.34404639999985,
+     84.18938450973451
+    ],
+    "char_end": 10070,
+    "char_start": 10034,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 28,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     115.87500000000003,
+     72.30019400000003,
+     496.12519759999986,
+     63.34381659999997
+    ],
+    "char_end": 10169,
+    "char_start": 10072,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 29,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     142.296,
+     602.6496526,
+     469.70688639999963,
+     594.0977743929203
+    ],
+    "char_end": 10248,
+    "char_start": 10171,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 31,
+    "kind": "text",
+    "label": "caption",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     456.8826526,
+     504.0033873999995,
+     437.3717743929203
+    ],
+    "char_end": 10409,
+    "char_start": 10250,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 33,
+    "kind": "text",
+    "label": "caption",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     412.12365259999996,
+     504.0033873999998,
+     359.73677439292027
+    ],
+    "char_end": 10862,
+    "char_start": 10411,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 34,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     344.31319399999995,
+     504.0033873999997,
+     247.70177439292024
+    ],
+    "char_end": 11730,
+    "char_start": 10864,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 35,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     232.27819399999987,
+     504.0033873999998,
+     124.70777439292021
+    ],
+    "char_end": 12668,
+    "char_start": 11732,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 36,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     104.96283519999986,
+     195.3731236999999,
+     94.70051267964595
+    ],
+    "char_end": 12682,
+    "char_start": 12670,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 37,
+    "kind": "text",
+    "label": "section_header",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     79.58265259999985,
+     504.0033873999995,
+     60.07177439292025
+    ],
+    "char_end": 12878,
+    "char_start": 12684,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 38,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     706.6616526,
+     504.00338739999967,
+     643.3147743929206
+    ],
+    "char_end": 13472,
+    "char_start": 12879,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 38,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     624.2128352000003,
+     218.48226819999996,
+     613.9505126796463
+    ],
+    "char_end": 13489,
+    "char_start": 13474,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 39,
+    "kind": "text",
+    "label": "section_header",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     599.2186526000003,
+     504.0033873999997,
+     568.7497743929207
+    ],
+    "char_end": 13722,
+    "char_start": 13491,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 40,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     549.6478352000004,
+     175.25492309999998,
+     539.3855126796464
+    ],
+    "char_end": 13734,
+    "char_start": 13724,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 41,
+    "kind": "text",
+    "label": "section_header",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     532.5241054000003,
+     504.00378739999945,
+     500.1617743929207
+    ],
+    "char_end": 13930,
+    "char_start": 13736,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 42,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     489.67965260000034,
+     504.0037873999994,
+     459.2097743929207
+    ],
+    "char_end": 14178,
+    "char_start": 13932,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 43,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     448.7266526000003,
+     504.00378739999934,
+     418.2577743929206
+    ],
+    "char_end": 14406,
+    "char_start": 14180,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 44,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     407.77465260000025,
+     504.00378739999996,
+     289.63377439292054
+    ],
+    "char_end": 15396,
+    "char_start": 14408,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 45,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     279.15165260000026,
+     504.0037873999997,
+     248.6817743929206
+    ],
+    "char_end": 15602,
+    "char_start": 15398,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 46,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     238.19965260000026,
+     504.0045925999997,
+     174.85277439292054
+    ],
+    "char_end": 16111,
+    "char_start": 15604,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 47,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000004,
+     164.3706526000002,
+     504.0037873999996,
+     122.94177439292059
+    ],
+    "char_end": 16400,
+    "char_start": 16113,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 48,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000004,
+     112.45965260000025,
+     504.00378739999957,
+     60.07177439292059
+    ],
+    "char_end": 16841,
+    "char_start": 16402,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 49,
+    "kind": "text",
+    "label": "list_item",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     117.963,
+     706.6616526,
+     504.00378739999957,
+     676.1917743929205
+    ],
+    "char_end": 17063,
+    "char_start": 16843,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 50,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     665.8146526000002,
+     504.00378739999957,
+     624.3857743929207
+    ],
+    "char_end": 17352,
+    "char_start": 17065,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 51,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     614.0086526000003,
+     504.00378739999957,
+     572.5797743929209
+    ],
+    "char_end": 17692,
+    "char_start": 17354,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 52,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     562.2026526000005,
+     504.0037873999994,
+     531.732774392921
+    ],
+    "char_end": 17884,
+    "char_start": 17694,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 53,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     521.3556526000007,
+     504.0037873999994,
+     490.886774392921
+    ],
+    "char_end": 18102,
+    "char_start": 17886,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 54,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     480.50965260000066,
+     504.0037873999997,
+     439.080774392921
+    ],
+    "char_end": 18369,
+    "char_start": 18104,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 55,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     429.0224558000007,
+     504.0037873999995,
+     387.274774392921
+    ],
+    "char_end": 18638,
+    "char_start": 18371,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 56,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     376.8976526000007,
+     504.0037873999995,
+     335.46877439292103
+    ],
+    "char_end": 18921,
+    "char_start": 18640,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 57,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     325.0916526000007,
+     504.00378739999917,
+     294.62277439292103
+    ],
+    "char_end": 19149,
+    "char_start": 18923,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 58,
+    "kind": "text",
+    "label": "list_item",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     709.9575783,
+     251.36112379999992,
+     697.696512679646
+    ],
+    "char_end": 19174,
+    "char_start": 19151,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 59,
+    "kind": "text",
+    "label": "section_header",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     683.8646526,
+     504.0033873999995,
+     642.4357743929205
+    ],
+    "char_end": 19494,
+    "char_start": 19176,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 60,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     634.0506526000001,
+     504.0033873999997,
+     592.6227743929206
+    ],
+    "char_end": 19842,
+    "char_start": 19496,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 61,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     584.2376526000003,
+     504.0033873999997,
+     488.01477439292086
+    ],
+    "char_end": 20715,
+    "char_start": 19844,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 62,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000001,
+     481.52310540000053,
+     504.00338739999927,
+     449.16077439292087
+    ],
+    "char_end": 20955,
+    "char_start": 20717,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 63,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     286.473,
+     357.7353474,
+     314.6970457999999,
+     366.2872256070797
+    ],
+    "char_end": 20964,
+    "char_start": 20957,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     326.6521657999999,
+     357.7353474,
+     350.45281719999986,
+     366.2872256070797
+    ],
+    "char_end": 20973,
+    "char_start": 20967,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     362.4079371999999,
+     357.7353474,
+     396.5696925999998,
+     366.2872256070797
+    ],
+    "char_end": 20983,
+    "char_start": 20976,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     408.524,
+     357.7353474,
+     438.25239839999995,
+     366.2872256070797
+    ],
+    "char_end": 20993,
+    "char_start": 20986,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     173.747,
+     378.786806,
+     228.25238460000006,
+     387.7431834
+    ],
+    "char_end": 21006,
+    "char_start": 20994,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     240.207,
+     373.69634740000004,
+     274.5181943999999,
+     393.2072256070797
+    ],
+    "char_end": 21021,
+    "char_start": 21009,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     291.8630809999999,
+     373.69634740000004,
+     309.29763099999997,
+     393.22318340000004
+    ],
+    "char_end": 21033,
+    "char_start": 21024,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     329.83054959999987,
+     373.69634740000004,
+     347.2650995999999,
+     393.22318340000004
+    ],
+    "char_end": 21045,
+    "char_start": 21036,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     370.7668729999998,
+     373.307806,
+     388.20142299999986,
+     393.2072256070797
+    ],
+    "char_end": 21057,
+    "char_start": 21048,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     414.671,
+     373.69634740000004,
+     432.10554999999994,
+     393.22318340000004
+    ],
+    "char_end": 21069,
+    "char_start": 21060,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     173.747,
+     405.70680600000003,
+     200.31725420000004,
+     414.66318340000004
+    ],
+    "char_end": 21076,
+    "char_start": 21070,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     240.207,
+     400.61634740000005,
+     274.5181943999999,
+     420.12722560707965
+    ],
+    "char_end": 21091,
+    "char_start": 21079,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     291.8630809999999,
+     400.61634740000005,
+     309.29763099999997,
+     420.1431834
+    ],
+    "char_end": 21103,
+    "char_start": 21094,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     329.83054959999987,
+     400.61634740000005,
+     347.2650995999999,
+     420.1431834
+    ],
+    "char_end": 21115,
+    "char_start": 21106,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     370.7668729999998,
+     400.22780600000004,
+     388.20142299999975,
+     420.12722560707965
+    ],
+    "char_end": 21126,
+    "char_start": 21118,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     414.671,
+     400.227806,
+     432.10554999999994,
+     420.1431834
+    ],
+    "char_end": 21138,
+    "char_start": 21129,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     173.747,
+     432.626806,
+     206.26492640000004,
+     441.5831834
+    ],
+    "char_end": 21145,
+    "char_start": 21139,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     240.207,
+     438.4953474,
+     259.0263514,
+     447.04722560707967
+    ],
+    "char_end": 21151,
+    "char_start": 21148,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     329.83054959999987,
+     427.147806,
+     347.2650995999998,
+     436.1041834
+    ],
+    "char_end": 21158,
+    "char_start": 21154,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     370.7668729999998,
+     427.5363474,
+     388.20142299999975,
+     436.08822560707966
+    ],
+    "char_end": 21165,
+    "char_start": 21161,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     414.671,
+     427.147806,
+     432.10554999999994,
+     436.1041834
+    ],
+    "char_end": 21172,
+    "char_start": 21168,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     240.207,
+     427.5363474,
+     274.5181943999999,
+     436.08822560707966
+    ],
+    "char_end": 21181,
+    "char_start": 21173,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     291.8630809999999,
+     427.147806,
+     309.29763099999997,
+     447.04722560707967
+    ],
+    "char_end": 21193,
+    "char_start": 21184,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     329.8305496,
+     438.4953474,
+     347.2650995999999,
+     447.04722560707967
+    ],
+    "char_end": 21198,
+    "char_start": 21194,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     370.7668729999999,
+     438.106806,
+     388.20142299999986,
+     447.0631834
+    ],
+    "char_end": 21205,
+    "char_start": 21201,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     414.671,
+     438.4953474,
+     432.10554999999994,
+     447.04722560707967
+    ],
+    "char_end": 21212,
+    "char_start": 21208,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 64,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 7,
+    "table_index": 1
+   },
+   {
+    "bbox": [
+     108.0,
+     331.52510540000003,
+     504.00338739999967,
+     299.14681659999997
+    ],
+    "char_end": 21449,
+    "char_start": 21214,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 65,
+    "kind": "text",
+    "label": "caption",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.29900000000004,
+     275.79683520000003,
+     266.2718549,
+     265.534512679646
+    ],
+    "char_end": 21475,
+    "char_start": 21451,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 66,
+    "kind": "text",
+    "label": "section_header",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     251.70265259999996,
+     504.0033873999998,
+     210.27377439292036
+    ],
+    "char_end": 21856,
+    "char_start": 21477,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 67,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     201.88965259999998,
+     504.00338739999967,
+     171.41977439292032
+    ],
+    "char_end": 22082,
+    "char_start": 21858,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 68,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     157.56319399999995,
+     504.0033873999996,
+     93.82777439292033
+    ],
+    "char_end": 22589,
+    "char_start": 22084,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 69,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000003,
+     79.97119399999997,
+     504.0033873999998,
+     60.07177439292036
+    ],
+    "char_end": 22781,
+    "char_start": 22591,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 70,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     582.9066526,
+     504.00338739999967,
+     552.4367743929205
+    ],
+    "char_end": 23070,
+    "char_start": 22782,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 70,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     213.279,
+     88.544806,
+     232.64629440000002,
+     97.50118339999995
+    ],
+    "char_end": 23076,
+    "char_start": 23072,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     306.2997962,
+     88.544806,
+     328.994599,
+     97.50118339999995
+    ],
+    "char_end": 23082,
+    "char_start": 23079,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     213.279,
+     108.18234740000003,
+     237.62759440000002,
+     116.73422560707968
+    ],
+    "char_end": 23088,
+    "char_start": 23083,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     306.2997962,
+     108.18234740000003,
+     398.72283639999966,
+     116.73422560707968
+    ],
+    "char_end": 23112,
+    "char_start": 23091,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     213.279,
+     122.42934739999998,
+     282.4592943999999,
+     130.98122560707964
+    ],
+    "char_end": 23126,
+    "char_start": 23113,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     306.29979619999995,
+     122.42934739999998,
+     398.7228363999996,
+     130.98122560707964
+    ],
+    "char_end": 23150,
+    "char_start": 23129,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     213.279,
+     136.67534739999996,
+     294.3446761999999,
+     145.22722560707962
+    ],
+    "char_end": 23171,
+    "char_start": 23151,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     306.29979619999995,
+     136.67534739999996,
+     398.7228363999996,
+     145.22722560707962
+    ],
+    "char_end": 23195,
+    "char_start": 23174,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     213.279,
+     150.92234739999992,
+     284.98979479999997,
+     159.47422560707957
+    ],
+    "char_end": 23215,
+    "char_start": 23196,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     306.29979619999995,
+     150.92234739999992,
+     384.60583219999967,
+     159.47422560707957
+    ],
+    "char_end": 23236,
+    "char_start": 23218,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 71,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 8,
+    "table_index": 2
+   },
+   {
+    "bbox": [
+     245.224,
+     616.6566526,
+     366.77768259999976,
+     608.1047743929204
+    ],
+    "char_end": 23265,
+    "char_start": 23238,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 72,
+    "kind": "text",
+    "label": "caption",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     532.7478352000002,
+     270.4082868999999,
+     522.4855126796461
+    ],
+    "char_end": 23291,
+    "char_start": 23267,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 73,
+    "kind": "text",
+    "label": "section_header",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.24900000000001,
+     507.40165260000015,
+     393.7338997999999,
+     498.8497743929205
+    ],
+    "char_end": 23346,
+    "char_start": 23293,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 74,
+    "kind": "text",
+    "label": "section_header",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.00000000000001,
+     486.62065260000014,
+     504.0033873999998,
+     401.35577439292047
+    ],
+    "char_end": 24120,
+    "char_start": 23348,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 75,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     110.146,
+     223.76065259999996,
+     501.8555067999996,
+     215.2087743929203
+    ],
+    "char_end": 24220,
+    "char_start": 24122,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 77,
+    "kind": "text",
+    "label": "caption",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.249,
+     190.42565260000003,
+     230.93465959999983,
+     181.87377439292038
+    ],
+    "char_end": 24245,
+    "char_start": 24222,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 78,
+    "kind": "text",
+    "label": "section_header",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     169.96245580000004,
+     504.0033873999998,
+     106.29777439292036
+    ],
+    "char_end": 24729,
+    "char_start": 24247,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 79,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     90.93019400000003,
+     504.00338739999944,
+     60.07177439292036
+    ],
+    "char_end": 25024,
+    "char_start": 24731,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 80,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     706.6616526,
+     504.0033873999996,
+     676.1917743929205
+    ],
+    "char_end": 25308,
+    "char_start": 25025,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 80,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     661.1551940000002,
+     504.00338739999967,
+     597.4207743929207
+    ],
+    "char_end": 25824,
+    "char_start": 25310,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 81,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     582.3841940000004,
+     504.00338739999967,
+     507.690774392921
+    ],
+    "char_end": 26507,
+    "char_start": 25826,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 82,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     177.201,
+     301.017806,
+     250.79472620000004,
+     309.9741834
+    ],
+    "char_end": 26525,
+    "char_start": 26509,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.583,
+     316.8485442,
+     136.76952956,
+     325.55511012276656
+    ],
+    "char_end": 26527,
+    "char_start": 26526,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     153.49673496,
+     317.16734740000004,
+     193.74563896000004,
+     325.7192256070797
+    ],
+    "char_end": 26539,
+    "char_start": 26530,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     205.70075896000003,
+     317.16734740000004,
+     232.80899356000006,
+     325.7192256070797
+    ],
+    "char_end": 26548,
+    "char_start": 26542,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     244.768,
+     317.16734740000004,
+     274.4963984,
+     325.7192256070797
+    ],
+    "char_end": 26558,
+    "char_start": 26551,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.583,
+     333.1283474,
+     136.5643,
+     341.68022560707965
+    ],
+    "char_end": 26560,
+    "char_start": 26559,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     333.1283474,
+     182.342447,
+     341.68022560707965
+    ],
+    "char_end": 26567,
+    "char_start": 26563,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     332.739806,
+     227.971155,
+     341.6961834
+    ],
+    "char_end": 26574,
+    "char_start": 26570,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     333.1283474,
+     268.34855,
+     341.68022560707965
+    ],
+    "char_end": 26581,
+    "char_start": 26577,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.58299999999997,
+     344.0873474,
+     136.56429999999997,
+     352.63922560707965
+    ],
+    "char_end": 26583,
+    "char_start": 26582,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     344.0873474,
+     182.342447,
+     352.63922560707965
+    ],
+    "char_end": 26590,
+    "char_start": 26586,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     344.0873474,
+     227.971155,
+     352.63922560707965
+    ],
+    "char_end": 26597,
+    "char_start": 26593,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     344.0873474,
+     268.34855,
+     352.63922560707965
+    ],
+    "char_end": 26604,
+    "char_start": 26600,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.58299999999997,
+     355.0463474,
+     136.56429999999997,
+     363.59822560707966
+    ],
+    "char_end": 26606,
+    "char_start": 26605,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     355.0463474,
+     182.342447,
+     363.59822560707966
+    ],
+    "char_end": 26613,
+    "char_start": 26609,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     354.657806,
+     227.971155,
+     363.6141834
+    ],
+    "char_end": 26620,
+    "char_start": 26616,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     355.0463474,
+     268.34855,
+     363.59822560707966
+    ],
+    "char_end": 26627,
+    "char_start": 26623,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.58299999999997,
+     366.0053474,
+     136.56429999999997,
+     374.55722560707966
+    ],
+    "char_end": 26629,
+    "char_start": 26628,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     366.0053474,
+     182.342447,
+     374.55722560707966
+    ],
+    "char_end": 26636,
+    "char_start": 26632,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     366.0053474,
+     227.971155,
+     374.55722560707966
+    ],
+    "char_end": 26643,
+    "char_start": 26639,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     366.0053474,
+     268.34855,
+     374.55722560707966
+    ],
+    "char_end": 26650,
+    "char_start": 26646,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.583,
+     376.9643474,
+     136.5643,
+     385.51622560707966
+    ],
+    "char_end": 26652,
+    "char_start": 26651,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     376.575806,
+     182.342447,
+     385.5321834
+    ],
+    "char_end": 26659,
+    "char_start": 26655,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     376.9643474,
+     227.971155,
+     385.51622560707966
+    ],
+    "char_end": 26666,
+    "char_start": 26662,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     376.9643474,
+     268.34855,
+     385.51622560707966
+    ],
+    "char_end": 26673,
+    "char_start": 26669,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.58299999999997,
+     387.9233474,
+     141.54559999999998,
+     396.47522560707966
+    ],
+    "char_end": 26676,
+    "char_start": 26674,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     387.9233474,
+     182.342447,
+     396.47522560707966
+    ],
+    "char_end": 26683,
+    "char_start": 26679,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     387.9233474,
+     227.971155,
+     396.47522560707966
+    ],
+    "char_end": 26690,
+    "char_start": 26686,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     387.9233474,
+     268.34855,
+     396.47522560707966
+    ],
+    "char_end": 26697,
+    "char_start": 26693,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.58299999999997,
+     398.8823474,
+     141.54559999999998,
+     407.43422560707967
+    ],
+    "char_end": 26700,
+    "char_start": 26698,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     398.8823474,
+     182.342447,
+     407.43422560707967
+    ],
+    "char_end": 26707,
+    "char_start": 26703,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.536605,
+     398.8823474,
+     227.971155,
+     407.43422560707967
+    ],
+    "char_end": 26714,
+    "char_start": 26710,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     398.8823474,
+     268.34855,
+     407.43422560707967
+    ],
+    "char_end": 26721,
+    "char_start": 26717,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     131.58299999999997,
+     409.8413474,
+     141.54559999999998,
+     418.39322560707967
+    ],
+    "char_end": 26724,
+    "char_start": 26722,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     164.907897,
+     409.8413474,
+     182.342447,
+     418.39322560707967
+    ],
+    "char_end": 26731,
+    "char_start": 26727,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     210.541,
+     409.8413474,
+     227.97555,
+     418.39322560707967
+    ],
+    "char_end": 26738,
+    "char_start": 26734,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     250.914,
+     409.452806,
+     268.34855,
+     418.4091834
+    ],
+    "char_end": 26745,
+    "char_start": 26741,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 83,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 3
+   },
+   {
+    "bbox": [
+     115.263,
+     362.7591264,
+     290.81614560000025,
+     355.06238450973456
+    ],
+    "char_end": 26789,
+    "char_start": 26747,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 84,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     383.123,
+     458.106194,
+     456.7167262,
+     449.1498166
+    ],
+    "char_end": 26807,
+    "char_start": 26791,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 85,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.504,
+     442.27445580000006,
+     480.41739839999997,
+     433.40377439292035
+    ],
+    "char_end": 26835,
+    "char_start": 26809,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 86,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.504,
+     425.9946526,
+     342.4853,
+     417.44277439292034
+    ],
+    "char_end": 26838,
+    "char_start": 26837,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 87,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     370.828897,
+     425.9946526,
+     388.2634469999999,
+     417.44277439292034
+    ],
+    "char_end": 26844,
+    "char_start": 26840,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 88,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     416.46756759999994,
+     425.9946526,
+     433.9021175999999,
+     417.44277439292034
+    ],
+    "char_end": 26850,
+    "char_start": 26846,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 89,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     456.836,
+     425.9946526,
+     474.27054999999996,
+     417.44277439292034
+    ],
+    "char_end": 26856,
+    "char_start": 26852,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 90,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.504,
+     415.0356526,
+     342.4853,
+     406.48377439292034
+    ],
+    "char_end": 26859,
+    "char_start": 26858,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 91,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     370.828897,
+     415.0356526,
+     388.2634469999999,
+     406.48377439292034
+    ],
+    "char_end": 26865,
+    "char_start": 26861,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 92,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     416.46756759999994,
+     415.0356526,
+     433.9021175999999,
+     406.48377439292034
+    ],
+    "char_end": 26871,
+    "char_start": 26867,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 93,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     456.836,
+     415.0356526,
+     474.27054999999996,
+     406.48377439292034
+    ],
+    "char_end": 26877,
+    "char_start": 26873,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 94,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.504,
+     404.0766526,
+     342.4853,
+     395.52477439292034
+    ],
+    "char_end": 26880,
+    "char_start": 26879,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 95,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     370.828897,
+     404.0766526,
+     388.2634469999999,
+     395.52477439292034
+    ],
+    "char_end": 26886,
+    "char_start": 26882,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 96,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     416.463,
+     404.0766526,
+     433.89754999999997,
+     395.52477439292034
+    ],
+    "char_end": 26892,
+    "char_start": 26888,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 97,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     456.836,
+     404.0766526,
+     474.27054999999996,
+     395.52477439292034
+    ],
+    "char_end": 26898,
+    "char_start": 26894,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 98,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.504,
+     393.1176526,
+     347.46659999999997,
+     384.56577439292033
+    ],
+    "char_end": 26902,
+    "char_start": 26900,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 99,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     370.828897,
+     393.506194,
+     388.2634469999999,
+     384.5498166
+    ],
+    "char_end": 26908,
+    "char_start": 26904,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 100,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     416.46756759999994,
+     393.1176526,
+     433.9021175999999,
+     384.56577439292033
+    ],
+    "char_end": 26914,
+    "char_start": 26910,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 101,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     456.836,
+     393.1176526,
+     474.27054999999996,
+     384.56577439292033
+    ],
+    "char_end": 26920,
+    "char_start": 26916,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 102,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.504,
+     382.1586526,
+     347.46659999999997,
+     373.60677439292033
+    ],
+    "char_end": 26924,
+    "char_start": 26922,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 103,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     370.828897,
+     382.547194,
+     388.2634469999999,
+     373.5908166
+    ],
+    "char_end": 26930,
+    "char_start": 26926,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 104,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     416.46756759999994,
+     382.547194,
+     433.9021175999999,
+     373.5908166
+    ],
+    "char_end": 26936,
+    "char_start": 26932,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 105,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     456.836,
+     382.547194,
+     474.27054999999996,
+     373.5908166
+    ],
+    "char_end": 26942,
+    "char_start": 26938,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 106,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     362.188,
+     362.7591264,
+     455.7344511999999,
+     355.06238450973456
+    ],
+    "char_end": 26967,
+    "char_start": 26944,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 107,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     343.173194,
+     504.0043537999999,
+     323.2737743929203
+    ],
+    "char_end": 27075,
+    "char_start": 26969,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 108,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     290.5498352,
+     313.3702198999999,
+     280.287512679646
+    ],
+    "char_end": 27108,
+    "char_start": 27077,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 109,
+    "kind": "text",
+    "label": "section_header",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     311.541,
+     533.900184,
+     355.2073679999999,
+     541.9609776
+    ],
+    "char_end": 27120,
+    "char_start": 27110,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     133.987,
+     548.665184,
+     187.7943664000001,
+     556.7259776
+    ],
+    "char_end": 27134,
+    "char_start": 27121,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     199.74657760000008,
+     548.665184,
+     216.6841072000001,
+     556.7259776
+    ],
+    "char_end": 27141,
+    "char_start": 27137,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     284.6673520000001,
+     548.665184,
+     342.2283058,
+     556.7259776
+    ],
+    "char_end": 27159,
+    "char_start": 27144,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     354.180517,
+     548.665184,
+     382.08395379999996,
+     556.7259776
+    ],
+    "char_end": 27168,
+    "char_start": 27162,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     394.036165,
+     548.665184,
+     424.16326899999996,
+     556.7259776
+    ],
+    "char_end": 27179,
+    "char_start": 27171,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     436.12444659999994,
+     548.665184,
+     478.01546739999986,
+     556.7259776
+    ],
+    "char_end": 27192,
+    "char_start": 27182,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     133.987,
+     563.9798736,
+     164.8672816,
+     571.6766154902655
+    ],
+    "char_end": 27201,
+    "char_start": 27193,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     199.74657760000002,
+     563.9798736,
+     257.2750000000001,
+     571.6766154902655
+    ],
+    "char_end": 27220,
+    "char_start": 27204,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     302.3849584000001,
+     563.9798736,
+     342.22547440000017,
+     571.6766154902655
+    ],
+    "char_end": 27234,
+    "char_start": 27223,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     370.87312240000017,
+     563.9798736,
+     382.0811224000002,
+     571.6766154902655
+    ],
+    "char_end": 27240,
+    "char_start": 27237,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     403.9950040000002,
+     563.9798736,
+     424.16940400000027,
+     571.6766154902655
+    ],
+    "char_end": 27248,
+    "char_start": 27243,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     462.3214360000003,
+     563.9798736,
+     478.0126360000003,
+     571.6766154902655
+    ],
+    "char_end": 27255,
+    "char_start": 27251,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     133.987,
+     593.8888736,
+     150.92452959999997,
+     601.5856154902655
+    ],
+    "char_end": 27259,
+    "char_start": 27256,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     199.749,
+     578.9448736,
+     272.70859680000007,
+     606.5666154902655
+    ],
+    "char_end": 27319,
+    "char_start": 27262,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     302.3873808000001,
+     578.9448736,
+     342.22789680000017,
+     606.5666154902655
+    ],
+    "char_end": 27352,
+    "char_start": 27322,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     370.8735570000001,
+     578.9448736,
+     382.0835448000002,
+     606.5666154902655
+    ],
+    "char_end": 27366,
+    "char_start": 27355,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     403.9884600000002,
+     578.9448736,
+     424.16983860000016,
+     606.5666154902655
+    ],
+    "char_end": 27384,
+    "char_start": 27369,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     462.321,
+     593.8888736,
+     478.01220000000006,
+     601.5856154902655
+    ],
+    "char_end": 27391,
+    "char_start": 27387,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     199.749,
+     613.4734784,
+     217.861128,
+     621.2025152
+    ],
+    "char_end": 27397,
+    "char_start": 27392,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     302.3873808,
+     613.4734784,
+     342.2278968000001,
+     621.2025152
+    ],
+    "char_end": 27409,
+    "char_start": 27398,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     370.8755448000001,
+     613.4734784,
+     382.08354480000014,
+     621.2025152
+    ],
+    "char_end": 27415,
+    "char_start": 27412,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     403.98846000000015,
+     613.4734784,
+     424.1628600000002,
+     621.2025152
+    ],
+    "char_end": 27423,
+    "char_start": 27418,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 110,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 9,
+    "table_index": 4
+   },
+   {
+    "bbox": [
+     108.0,
+     155.87765260000003,
+     504.0033873999994,
+     136.36677439292032
+    ],
+    "char_end": 27615,
+    "char_start": 27425,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 111,
+    "kind": "text",
+    "label": "caption",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     112.45965260000003,
+     504.0033873999996,
+     60.07177439292036
+    ],
+    "char_end": 28098,
+    "char_start": 27617,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 112,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     706.6616526,
+     504.0033873999995,
+     665.2327743929205
+    ],
+    "char_end": 28464,
+    "char_start": 28099,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 112,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     656.8476526000002,
+     504.00338739999955,
+     626.3787743929206
+    ],
+    "char_end": 28742,
+    "char_start": 28466,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 113,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     604.2848352000003,
+     209.9035375,
+     594.0225126796463
+    ],
+    "char_end": 28759,
+    "char_start": 28744,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 114,
+    "kind": "text",
+    "label": "section_header",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     577.4956526000003,
+     504.00338739999984,
+     492.2317743929209
+    ],
+    "char_end": 29472,
+    "char_start": 28761,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 115,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     207.0,
+     329.260806,
+     315.343275,
+     338.2171834
+    ],
+    "char_end": 29499,
+    "char_start": 29474,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     345.6198736,
+     218.95485920000002,
+     353.31661549026546
+    ],
+    "char_end": 29502,
+    "char_start": 29500,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     223.93615920000002,
+     344.582806,
+     396.61391995999986,
+     353.5391834
+    ],
+    "char_end": 29548,
+    "char_start": 29505,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     356.57787360000003,
+     218.95485920000002,
+     364.2746154902655
+    ],
+    "char_end": 29551,
+    "char_start": 29549,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     223.93615920000002,
+     355.54080600000003,
+     297.60360864,
+     364.49718340000004
+    ],
+    "char_end": 29569,
+    "char_start": 29554,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     367.53687360000004,
+     218.95485920000002,
+     375.2336154902655
+    ],
+    "char_end": 29572,
+    "char_start": 29570,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     223.93615920000002,
+     366.49980600000004,
+     295.98368987999993,
+     375.45618340000004
+    ],
+    "char_end": 29592,
+    "char_start": 29575,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     378.49587360000004,
+     218.95485920000002,
+     386.1926154902655
+    ],
+    "char_end": 29595,
+    "char_start": 29593,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     233.89875920000003,
+     377.5285442,
+     299.70880996,
+     387.1594732674352
+    ],
+    "char_end": 29613,
+    "char_start": 29598,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.97899999999998,
+     389.45487360000004,
+     218.9548592,
+     397.1516154902655
+    ],
+    "char_end": 29616,
+    "char_start": 29614,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     233.89875919999997,
+     388.41780600000004,
+     311.4625056,
+     398.1184732674352
+    ],
+    "char_end": 29637,
+    "char_start": 29619,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     400.41387360000004,
+     218.95485920000002,
+     408.1106154902655
+    ],
+    "char_end": 29640,
+    "char_start": 29638,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     243.8613592,
+     399.4465442,
+     346.52604418000004,
+     408.3172256070797
+    ],
+    "char_end": 29664,
+    "char_start": 29643,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     411.37287360000005,
+     218.95485920000002,
+     419.0696154902655
+    ],
+    "char_end": 29667,
+    "char_start": 29665,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     243.8613592,
+     410.4055442,
+     331.5143928,
+     419.2762256070797
+    ],
+    "char_end": 29687,
+    "char_start": 29670,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     422.33187360000005,
+     218.95485920000002,
+     430.0286154902655
+    ],
+    "char_end": 29690,
+    "char_start": 29688,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     243.8613592,
+     421.3645442,
+     315.21557002,
+     430.2352256070797
+    ],
+    "char_end": 29707,
+    "char_start": 29693,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     211.979,
+     433.29087360000005,
+     218.95485920000002,
+     440.9876154902655
+    ],
+    "char_end": 29710,
+    "char_start": 29708,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     243.8613592,
+     432.3235442,
+     338.5330429,
+     441.1942256070797
+    ],
+    "char_end": 29733,
+    "char_start": 29713,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     207.496,
+     444.24987360000006,
+     218.95505920000002,
+     451.9466154902655
+    ],
+    "char_end": 29737,
+    "char_start": 29734,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     243.86155920000002,
+     443.2825442,
+     328.1471477199999,
+     451.9891101227666
+    ],
+    "char_end": 29758,
+    "char_start": 29740,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     207.496,
+     455.20887360000006,
+     218.95505920000002,
+     462.9056154902655
+    ],
+    "char_end": 29762,
+    "char_start": 29759,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     233.89895920000004,
+     454.17180600000006,
+     264.36459,
+     463.12818340000007
+    ],
+    "char_end": 29772,
+    "char_start": 29765,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     207.496,
+     466.16787360000006,
+     218.95505920000002,
+     473.8646154902655
+    ],
+    "char_end": 29776,
+    "char_start": 29773,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     223.93635920000003,
+     465.13080600000006,
+     254.40199000000004,
+     474.0871834000001
+    ],
+    "char_end": 29786,
+    "char_start": 29779,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     207.496,
+     477.1258736000001,
+     218.95505920000002,
+     484.82261549026555
+    ],
+    "char_end": 29790,
+    "char_start": 29787,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     223.93635920000003,
+     476.0888060000001,
+     267.55859956000006,
+     485.0451834000001
+    ],
+    "char_end": 29802,
+    "char_start": 29793,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 116,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 5
+   },
+   {
+    "bbox": [
+     264.745,
+     515.224806,
+     339.4744626,
+     524.1811834
+    ],
+    "char_end": 29820,
+    "char_start": 29804,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     380.759477,
+     515.224806,
+     443.6832586,
+     524.1811834
+    ],
+    "char_end": 29837,
+    "char_start": 29823,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     143.262,
+     530.986806,
+     176.46734580000003,
+     539.9431834
+    ],
+    "char_end": 29844,
+    "char_start": 29838,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     264.44706640000004,
+     531.3753474,
+     304.6959703999999,
+     539.9272256070797
+    ],
+    "char_end": 29856,
+    "char_start": 29847,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     312.6660503999999,
+     531.3753474,
+     339.7742849999999,
+     539.9272256070797
+    ],
+    "char_end": 29865,
+    "char_start": 29859,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     355.7144449999999,
+     531.3753474,
+     395.96334899999977,
+     539.9272256070797
+    ],
+    "char_end": 29877,
+    "char_start": 29868,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     403.93342899999976,
+     531.3753474,
+     431.04166359999977,
+     539.9272256070797
+    ],
+    "char_end": 29886,
+    "char_start": 29880,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     439.01,
+     531.3753474,
+     468.73839839999994,
+     539.9272256070797
+    ],
+    "char_end": 29896,
+    "char_start": 29889,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     143.262,
+     547.3363474,
+     177.57319440000003,
+     555.8882256070797
+    ],
+    "char_end": 29905,
+    "char_start": 29897,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     279.5902184,
+     547.3363474,
+     289.55281840000004,
+     555.8882256070797
+    ],
+    "char_end": 29909,
+    "char_start": 29908,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     321.2338864,
+     547.3363474,
+     331.1964864,
+     555.8882256070797
+    ],
+    "char_end": 29913,
+    "char_start": 29912,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     367.121622,
+     547.3363474,
+     384.55617199999995,
+     555.8882256070797
+    ],
+    "char_end": 29920,
+    "char_start": 29916,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     408.76528999999994,
+     547.3363474,
+     426.1998399999999,
+     555.8882256070797
+    ],
+    "char_end": 29927,
+    "char_start": 29923,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     445.157,
+     547.3363474,
+     462.5915499999999,
+     555.8882256070797
+    ],
+    "char_end": 29934,
+    "char_start": 29930,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     143.262,
+     563.2973474,
+     162.08135140000002,
+     571.8492256070797
+    ],
+    "char_end": 29938,
+    "char_start": 29935,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     275.85424340000003,
+     563.2973474,
+     293.2887934,
+     571.8492256070797
+    ],
+    "char_end": 29945,
+    "char_start": 29941,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     317.49791139999996,
+     563.2973474,
+     334.9324613999999,
+     571.8492256070797
+    ],
+    "char_end": 29952,
+    "char_start": 29948,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     367.1216219999999,
+     562.908806,
+     384.55617199999983,
+     571.8651834
+    ],
+    "char_end": 29959,
+    "char_start": 29955,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     408.7652899999998,
+     562.908806,
+     426.19983999999977,
+     571.8651834
+    ],
+    "char_end": 29966,
+    "char_start": 29962,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     445.157,
+     562.908806,
+     462.5915499999999,
+     571.8651834
+    ],
+    "char_end": 29973,
+    "char_start": 29969,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     143.262,
+     574.2563474,
+     197.36888060000004,
+     582.8082256070796
+    ],
+    "char_end": 29987,
+    "char_start": 29974,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     275.85424340000003,
+     573.867806,
+     293.2887934,
+     582.8241834
+    ],
+    "char_end": 29994,
+    "char_start": 29990,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     317.49791139999996,
+     573.867806,
+     334.9324613999999,
+     582.8241834
+    ],
+    "char_end": 30001,
+    "char_start": 29997,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     367.1216219999999,
+     574.2563474,
+     384.55617199999983,
+     582.8082256070796
+    ],
+    "char_end": 30008,
+    "char_start": 30004,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     408.7652899999998,
+     574.2563474,
+     426.19983999999977,
+     582.8082256070796
+    ],
+    "char_end": 30015,
+    "char_start": 30011,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     445.157,
+     574.2563474,
+     462.5915499999999,
+     582.8082256070796
+    ],
+    "char_end": 30022,
+    "char_start": 30018,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     143.262,
+     585.2143474,
+     256.47698640000004,
+     593.7662256070796
+    ],
+    "char_end": 30052,
+    "char_start": 30023,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     275.853,
+     585.5133473999999,
+     293.28754999999995,
+     594.0652256070796
+    ],
+    "char_end": 30059,
+    "char_start": 30055,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     317.49666799999994,
+     585.5133473999999,
+     334.9312179999999,
+     594.0652256070796
+    ],
+    "char_end": 30066,
+    "char_start": 30062,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     367.12037859999987,
+     585.5133473999999,
+     384.5549285999998,
+     594.0652256070796
+    ],
+    "char_end": 30073,
+    "char_start": 30069,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     408.769,
+     585.124806,
+     426.20354999999995,
+     594.0811834
+    ],
+    "char_end": 30080,
+    "char_start": 30076,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     445.157,
+     585.5133473999999,
+     462.5915499999999,
+     594.0652256070796
+    ],
+    "char_end": 30087,
+    "char_start": 30083,
+    "coord_origin": "CoordOrigin.TOPLEFT",
+    "item_index": 117,
+    "kind": "table_cell",
+    "label": "table_cell",
+    "page": 10,
+    "table_index": 6
+   },
+   {
+    "bbox": [
+     108.0,
+     183.0516526,
+     504.0033873999998,
+     163.5248166
+    ],
+    "char_end": 30275,
+    "char_start": 30089,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 118,
+    "kind": "text",
+    "label": "caption",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     145.33665259999998,
+     504.0033873999998,
+     60.07177439292036
+    ],
+    "char_end": 30982,
+    "char_start": 30277,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 119,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     707.9588352000001,
+     330.8653456999999,
+     697.696512679646
+    ],
+    "char_end": 31018,
+    "char_start": 30984,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 120,
+    "kind": "text",
+    "label": "section_header",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     682.9996526,
+     504.00338739999944,
+     641.5717743929205
+    ],
+    "char_end": 31358,
+    "char_start": 31020,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 121,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     633.1866526000001,
+     504.00338739999984,
+     569.8407743929207
+    ],
+    "char_end": 31944,
+    "char_start": 31360,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 122,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.299,
+     550.7978352000003,
+     391.25786759999994,
+     540.5355126796463
+    ],
+    "char_end": 31990,
+    "char_start": 31946,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 123,
+    "kind": "text",
+    "label": "section_header",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     525.8396526000002,
+     504.0033873999997,
+     484.4107743929206
+    ],
+    "char_end": 32343,
+    "char_start": 31992,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 124,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     108.0,
+     476.02665260000026,
+     504.00338739999944,
+     423.6387743929206
+    ],
+    "char_end": 32807,
+    "char_start": 32345,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 125,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     399.4781264,
+     271.0896928,
+     391.78138450973455
+    ],
+    "char_end": 32849,
+    "char_start": 32809,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 126,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     386.876816,
+     483.2362256,
+     348.9423845097345
+    ],
+    "char_end": 33225,
+    "char_start": 32851,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 127,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     344.03781599999996,
+     179.29319840000005,
+     335.97702239999995
+    ],
+    "char_end": 33242,
+    "char_start": 33227,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 128,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     125.855816,
+     474.0815311999999,
+     107.84638450973455
+    ],
+    "char_end": 33426,
+    "char_start": 33244,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 138,
+    "kind": "text",
+    "label": "text",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     250.021,
+     84.77965259999996,
+     361.9806987999998,
+     76.22777439292031
+    ],
+    "char_end": 33455,
+    "char_start": 33428,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 139,
+    "kind": "text",
+    "label": "caption",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     176.841,
+     176.9846526,
+     435.1612553999996,
+     168.43277439292035
+    ],
+    "char_end": 33523,
+    "char_start": 33457,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 141,
+    "kind": "text",
+    "label": "caption",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     549.3791264,
+     492.16675999999967,
+     521.7573845097346
+    ],
+    "char_end": 33811,
+    "char_start": 33525,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 142,
+    "kind": "text",
+    "label": "text",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     516.5021264000001,
+     479.9993551999997,
+     488.8803845097346
+    ],
+    "char_end": 34065,
+    "char_start": 33813,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 143,
+    "kind": "text",
+    "label": "text",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     483.97581600000007,
+     153.20097440000004,
+     475.91502240000005
+    ],
+    "char_end": 34075,
+    "char_start": 34067,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 144,
+    "kind": "text",
+    "label": "section_header",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     441.13581600000003,
+     352.4523152000001,
+     433.0750224
+    ],
+    "char_end": 34137,
+    "char_start": 34077,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 148,
+    "kind": "text",
+    "label": "text",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     428.184816,
+     173.57263519999998,
+     420.1240224
+    ],
+    "char_end": 34150,
+    "char_start": 34139,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 149,
+    "kind": "text",
+    "label": "section_header",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     365.419816,
+     174.38857760000005,
+     357.3590224
+    ],
+    "char_end": 34163,
+    "char_start": 34152,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 154,
+    "kind": "text",
+    "label": "section_header",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     312.617816,
+     413.4238352000002,
+     304.5570224
+    ],
+    "char_end": 34241,
+    "char_start": 34165,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 158,
+    "kind": "text",
+    "label": "text",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     249.50312639999993,
+     165.18905120000002,
+     241.80638450973447
+    ],
+    "char_end": 34255,
+    "char_start": 34243,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 163,
+    "kind": "text",
+    "label": "section_header",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     230.16,
+     220.5566526,
+     381.8405849999997,
+     212.00477439292035
+    ],
+    "char_end": 34294,
+    "char_start": 34257,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 164,
+    "kind": "text",
+    "label": "caption",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     120.086,
+     643.1646526,
+     143.34871269999996,
+     634.6127743929203
+    ],
+    "char_end": 34300,
+    "char_start": 34296,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 165,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     629.3261263999999,
+     479.5600015999998,
+     601.7043845097345
+    ],
+    "char_end": 34600,
+    "char_start": 34302,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 166,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     120.086,
+     591.8276526,
+     144.86900789999999,
+     583.2757743929203
+    ],
+    "char_end": 34606,
+    "char_start": 34602,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 167,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     577.9881263999999,
+     470.8536272,
+     560.3293845097345
+    ],
+    "char_end": 34788,
+    "char_start": 34608,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 168,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     120.086,
+     550.4526526,
+     146.18209159999995,
+     541.9007743929203
+    ],
+    "char_end": 34795,
+    "char_start": 34790,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 169,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     536.6141263999999,
+     215.84921120000007,
+     528.9173845097345
+    ],
+    "char_end": 34823,
+    "char_start": 34797,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 170,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     120.08599999999998,
+     456.2756525999999,
+     155.4214202999999,
+     447.72377439292023
+    ],
+    "char_end": 34831,
+    "char_start": 34825,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 177,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     442.7240511999999,
+     482.07955999999996,
+     414.81538450973443
+    ],
+    "char_end": 35114,
+    "char_start": 34833,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 178,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     120.08599999999998,
+     404.9386525999999,
+     218.50474039999978,
+     396.38677439292024
+    ],
+    "char_end": 35135,
+    "char_start": 35116,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 179,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     391.09912639999993,
+     390.6043471999999,
+     383.4023845097345
+    ],
+    "char_end": 35214,
+    "char_start": 35137,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 180,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     120.086,
+     310.7616525999999,
+     194.3055242999999,
+     302.2097743929202
+    ],
+    "char_end": 35229,
+    "char_start": 35216,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 184,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     297.2100511999999,
+     488.0224899199999,
+     279.26338450973435
+    ],
+    "char_end": 35403,
+    "char_start": 35231,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 185,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     134.209,
+     263.8490512000001,
+     333.26308000000006,
+     206.3279120896001
+    ],
+    "char_end": 35521,
+    "char_start": 35405,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 186,
+    "kind": "text",
+    "label": "code",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     191.19881599999997,
+     215.49952160000004,
+     183.13802239999995
+    ],
+    "char_end": 35542,
+    "char_start": 35523,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 187,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.837,
+     181.17305120000003,
+     207.59719296,
+     173.46491208960003
+    ],
+    "char_end": 35561,
+    "char_start": 35544,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 188,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     168.28481599999998,
+     215.02430239999998,
+     160.22402239999997
+    ],
+    "char_end": 35580,
+    "char_start": 35563,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 189,
+    "kind": "text",
+    "label": "section_header",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     119.83699999999999,
+     158.25905120000004,
+     150.57202592,
+     150.55091208960005
+    ],
+    "char_end": 35588,
+    "char_start": 35582,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 190,
+    "kind": "text",
+    "label": "text",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     234.838,
+     126.90865259999998,
+     377.1637035999998,
+     118.35677439292033
+    ],
+    "char_end": 35626,
+    "char_start": 35590,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 191,
+    "kind": "text",
+    "label": "caption",
+    "page": 14,
+    "table_index": -1
+   }
+  ],
+  "tables": [
+   {
+    "bbox": [
+     296.40850830078125,
+     253.39599609375,
+     504.7601318359375,
+     98.5506591796875
+    ],
+    "cells": [
+     {
+      "char_end": 9691,
+      "char_start": 9675,
+      "col": 1,
+      "col_span": 3,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 9698,
+      "char_start": 9692,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 9706,
+      "char_start": 9701,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 9715,
+      "char_start": 9709,
+      "col": 2,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 9725,
+      "char_start": 9718,
+      "col": 3,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 9734,
+      "char_start": 9726,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 9741,
+      "char_start": 9737,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 9748,
+      "char_start": 9744,
+      "col": 2,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 9755,
+      "char_start": 9751,
+      "col": 3,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 9764,
+      "char_start": 9756,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 9771,
+      "char_start": 9767,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 9778,
+      "char_start": 9774,
+      "col": 2,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 9785,
+      "char_start": 9781,
+      "col": 3,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 9791,
+      "char_start": 9786,
+      "col": 0,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 9798,
+      "char_start": 9794,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 9805,
+      "char_start": 9801,
+      "col": 2,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 9812,
+      "char_start": 9808,
+      "col": 3,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 9822,
+      "char_start": 9813,
+      "col": 0,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 9829,
+      "char_start": 9825,
+      "col": 1,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 9836,
+      "char_start": 9832,
+      "col": 2,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 9843,
+      "char_start": 9839,
+      "col": 3,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 9854,
+      "char_start": 9844,
+      "col": 0,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 9861,
+      "char_start": 9857,
+      "col": 1,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 9868,
+      "char_start": 9864,
+      "col": 2,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 9875,
+      "char_start": 9871,
+      "col": 3,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 9886,
+      "char_start": 9876,
+      "col": 0,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 9899,
+      "char_start": 9887,
+      "col": 0,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 9906,
+      "char_start": 9902,
+      "col": 1,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 9913,
+      "char_start": 9909,
+      "col": 2,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 9920,
+      "char_start": 9916,
+      "col": 3,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 9940,
+      "char_start": 9921,
+      "col": 0,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 9947,
+      "char_start": 9943,
+      "col": 1,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 9954,
+      "char_start": 9950,
+      "col": 2,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 9961,
+      "char_start": 9957,
+      "col": 3,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 9975,
+      "char_start": 9962,
+      "col": 0,
+      "col_span": 1,
+      "row": 10,
+      "row_span": 1
+     },
+     {
+      "char_end": 9982,
+      "char_start": 9978,
+      "col": 1,
+      "col_span": 1,
+      "row": 10,
+      "row_span": 1
+     },
+     {
+      "char_end": 9989,
+      "char_start": 9985,
+      "col": 2,
+      "col_span": 1,
+      "row": 10,
+      "row_span": 1
+     },
+     {
+      "char_end": 9996,
+      "char_start": 9992,
+      "col": 3,
+      "col_span": 1,
+      "row": 10,
+      "row_span": 1
+     },
+     {
+      "char_end": 10011,
+      "char_start": 9997,
+      "col": 0,
+      "col_span": 1,
+      "row": 11,
+      "row_span": 1
+     },
+     {
+      "char_end": 10018,
+      "char_start": 10014,
+      "col": 1,
+      "col_span": 1,
+      "row": 11,
+      "row_span": 1
+     },
+     {
+      "char_end": 10025,
+      "char_start": 10021,
+      "col": 2,
+      "col_span": 1,
+      "row": 11,
+      "row_span": 1
+     },
+     {
+      "char_end": 10032,
+      "char_start": 10028,
+      "col": 3,
+      "col_span": 1,
+      "row": 11,
+      "row_span": 1
+     }
+    ],
+    "cols": 4,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 0,
+    "item_index": 27,
+    "page": 3,
+    "rows": 12
+   },
+   {
+    "bbox": [
+     166.4443817138672,
+     439.8891906738281,
+     444.96429443359375,
+     340.5005798339844
+    ],
+    "cells": [
+     {
+      "char_end": 20964,
+      "char_start": 20957,
+      "col": 2,
+      "col_span": 1,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 20973,
+      "char_start": 20967,
+      "col": 3,
+      "col_span": 1,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 20983,
+      "char_start": 20976,
+      "col": 4,
+      "col_span": 1,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 20993,
+      "char_start": 20986,
+      "col": 5,
+      "col_span": 1,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 21006,
+      "char_start": 20994,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 21021,
+      "char_start": 21009,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 21033,
+      "char_start": 21024,
+      "col": 2,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 21045,
+      "char_start": 21036,
+      "col": 3,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 21057,
+      "char_start": 21048,
+      "col": 4,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 21069,
+      "char_start": 21060,
+      "col": 5,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 21076,
+      "char_start": 21070,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 21091,
+      "char_start": 21079,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 21103,
+      "char_start": 21094,
+      "col": 2,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 21115,
+      "char_start": 21106,
+      "col": 3,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 21126,
+      "char_start": 21118,
+      "col": 4,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 21138,
+      "char_start": 21129,
+      "col": 5,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 21145,
+      "char_start": 21139,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 21151,
+      "char_start": 21148,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 21158,
+      "char_start": 21154,
+      "col": 3,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 21165,
+      "char_start": 21161,
+      "col": 4,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 21172,
+      "char_start": 21168,
+      "col": 5,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 21181,
+      "char_start": 21173,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 21193,
+      "char_start": 21184,
+      "col": 2,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 21198,
+      "char_start": 21194,
+      "col": 3,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 21205,
+      "char_start": 21201,
+      "col": 4,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 21212,
+      "char_start": 21208,
+      "col": 5,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     }
+    ],
+    "cols": 6,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 1,
+    "item_index": 64,
+    "page": 7,
+    "rows": 6
+   },
+   {
+    "bbox": [
+     206.6183319091797,
+     711.1495361328125,
+     405.1438293457031,
+     627.950927734375
+    ],
+    "cells": [
+     {
+      "char_end": 23076,
+      "char_start": 23072,
+      "col": 0,
+      "col_span": 1,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 23082,
+      "char_start": 23079,
+      "col": 1,
+      "col_span": 1,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 23088,
+      "char_start": 23083,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 23112,
+      "char_start": 23091,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 23126,
+      "char_start": 23113,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 23150,
+      "char_start": 23129,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 23171,
+      "char_start": 23151,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 23195,
+      "char_start": 23174,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 23215,
+      "char_start": 23196,
+      "col": 0,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 23236,
+      "char_start": 23218,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     }
+    ],
+    "cols": 2,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 2,
+    "item_index": 71,
+    "page": 8,
+    "rows": 5
+   },
+   {
+    "bbox": [
+     123.9700698852539,
+     495.39215087890625,
+     280.7440490722656,
+     370.5401916503906
+    ],
+    "cells": [
+     {
+      "char_end": 26525,
+      "char_start": 26509,
+      "col": 1,
+      "col_span": 3,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 26527,
+      "char_start": 26526,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 26539,
+      "char_start": 26530,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 26548,
+      "char_start": 26542,
+      "col": 2,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 26558,
+      "char_start": 26551,
+      "col": 3,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 26560,
+      "char_start": 26559,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 26567,
+      "char_start": 26563,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 26574,
+      "char_start": 26570,
+      "col": 2,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 26581,
+      "char_start": 26577,
+      "col": 3,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 26583,
+      "char_start": 26582,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 26590,
+      "char_start": 26586,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 26597,
+      "char_start": 26593,
+      "col": 2,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 26604,
+      "char_start": 26600,
+      "col": 3,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 26606,
+      "char_start": 26605,
+      "col": 0,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 26613,
+      "char_start": 26609,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 26620,
+      "char_start": 26616,
+      "col": 2,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 26627,
+      "char_start": 26623,
+      "col": 3,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 26629,
+      "char_start": 26628,
+      "col": 0,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 26636,
+      "char_start": 26632,
+      "col": 1,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 26643,
+      "char_start": 26639,
+      "col": 2,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 26650,
+      "char_start": 26646,
+      "col": 3,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 26652,
+      "char_start": 26651,
+      "col": 0,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 26659,
+      "char_start": 26655,
+      "col": 1,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 26666,
+      "char_start": 26662,
+      "col": 2,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 26673,
+      "char_start": 26669,
+      "col": 3,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 26676,
+      "char_start": 26674,
+      "col": 0,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 26683,
+      "char_start": 26679,
+      "col": 1,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 26690,
+      "char_start": 26686,
+      "col": 2,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 26697,
+      "char_start": 26693,
+      "col": 3,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 26700,
+      "char_start": 26698,
+      "col": 0,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 26707,
+      "char_start": 26703,
+      "col": 1,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 26714,
+      "char_start": 26710,
+      "col": 2,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 26721,
+      "char_start": 26717,
+      "col": 3,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 26724,
+      "char_start": 26722,
+      "col": 0,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 26731,
+      "char_start": 26727,
+      "col": 1,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 26738,
+      "char_start": 26734,
+      "col": 2,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 26745,
+      "char_start": 26741,
+      "col": 3,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     }
+    ],
+    "cols": 4,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 3,
+    "item_index": 83,
+    "page": 9,
+    "rows": 10
+   },
+   {
+    "bbox": [
+     127.31413269042969,
+     263.34661865234375,
+     484.5816955566406,
+     166.78265380859375
+    ],
+    "cells": [
+     {
+      "char_end": 27120,
+      "char_start": 27110,
+      "col": 2,
+      "col_span": 2,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 27134,
+      "char_start": 27121,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 27141,
+      "char_start": 27137,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 27159,
+      "char_start": 27144,
+      "col": 2,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 27168,
+      "char_start": 27162,
+      "col": 3,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 27179,
+      "char_start": 27171,
+      "col": 4,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 27192,
+      "char_start": 27182,
+      "col": 5,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 27201,
+      "char_start": 27193,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 27220,
+      "char_start": 27204,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 27234,
+      "char_start": 27223,
+      "col": 2,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 27240,
+      "char_start": 27237,
+      "col": 3,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 27248,
+      "char_start": 27243,
+      "col": 4,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 27255,
+      "char_start": 27251,
+      "col": 5,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 27259,
+      "char_start": 27256,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 3
+     },
+     {
+      "char_end": 27319,
+      "char_start": 27262,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 27352,
+      "char_start": 27322,
+      "col": 2,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 27366,
+      "char_start": 27355,
+      "col": 3,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 27384,
+      "char_start": 27369,
+      "col": 4,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 27391,
+      "char_start": 27387,
+      "col": 5,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 3
+     },
+     {
+      "char_end": 27397,
+      "char_start": 27392,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 27409,
+      "char_start": 27398,
+      "col": 2,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 27415,
+      "char_start": 27412,
+      "col": 3,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 27423,
+      "char_start": 27418,
+      "col": 4,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     }
+    ],
+    "cols": 6,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 4,
+    "item_index": 110,
+    "page": 9,
+    "rows": 6
+   },
+   {
+    "bbox": [
+     205.93170166015625,
+     466.3477478027344,
+     405.663330078125,
+     304.1767272949219
+    ],
+    "cells": [
+     {
+      "char_end": 29499,
+      "char_start": 29474,
+      "col": 0,
+      "col_span": 2,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 29502,
+      "char_start": 29500,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29548,
+      "char_start": 29505,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29551,
+      "char_start": 29549,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29569,
+      "char_start": 29554,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29572,
+      "char_start": 29570,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29592,
+      "char_start": 29575,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29595,
+      "char_start": 29593,
+      "col": 0,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 29613,
+      "char_start": 29598,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 29616,
+      "char_start": 29614,
+      "col": 0,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 29637,
+      "char_start": 29619,
+      "col": 1,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 29640,
+      "char_start": 29638,
+      "col": 0,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 29664,
+      "char_start": 29643,
+      "col": 1,
+      "col_span": 1,
+      "row": 6,
+      "row_span": 1
+     },
+     {
+      "char_end": 29667,
+      "char_start": 29665,
+      "col": 0,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 29687,
+      "char_start": 29670,
+      "col": 1,
+      "col_span": 1,
+      "row": 7,
+      "row_span": 1
+     },
+     {
+      "char_end": 29690,
+      "char_start": 29688,
+      "col": 0,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 29707,
+      "char_start": 29693,
+      "col": 1,
+      "col_span": 1,
+      "row": 8,
+      "row_span": 1
+     },
+     {
+      "char_end": 29710,
+      "char_start": 29708,
+      "col": 0,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 29733,
+      "char_start": 29713,
+      "col": 1,
+      "col_span": 1,
+      "row": 9,
+      "row_span": 1
+     },
+     {
+      "char_end": 29737,
+      "char_start": 29734,
+      "col": 0,
+      "col_span": 1,
+      "row": 10,
+      "row_span": 1
+     },
+     {
+      "char_end": 29758,
+      "char_start": 29740,
+      "col": 1,
+      "col_span": 1,
+      "row": 10,
+      "row_span": 1
+     },
+     {
+      "char_end": 29762,
+      "char_start": 29759,
+      "col": 0,
+      "col_span": 1,
+      "row": 11,
+      "row_span": 1
+     },
+     {
+      "char_end": 29772,
+      "char_start": 29765,
+      "col": 1,
+      "col_span": 1,
+      "row": 11,
+      "row_span": 1
+     },
+     {
+      "char_end": 29776,
+      "char_start": 29773,
+      "col": 0,
+      "col_span": 1,
+      "row": 12,
+      "row_span": 1
+     },
+     {
+      "char_end": 29786,
+      "char_start": 29779,
+      "col": 1,
+      "col_span": 1,
+      "row": 12,
+      "row_span": 1
+     },
+     {
+      "char_end": 29790,
+      "char_start": 29787,
+      "col": 0,
+      "col_span": 1,
+      "row": 13,
+      "row_span": 1
+     },
+     {
+      "char_end": 29802,
+      "char_start": 29793,
+      "col": 1,
+      "col_span": 1,
+      "row": 13,
+      "row_span": 1
+     }
+    ],
+    "cols": 2,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 5,
+    "item_index": 116,
+    "page": 10,
+    "rows": 14
+   },
+   {
+    "bbox": [
+     138.24053955078125,
+     282.0909423828125,
+     473.1764831542969,
+     193.77471923828125
+    ],
+    "cells": [
+     {
+      "char_end": 29820,
+      "char_start": 29804,
+      "col": 1,
+      "col_span": 2,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 29837,
+      "char_start": 29823,
+      "col": 3,
+      "col_span": 3,
+      "row": 0,
+      "row_span": 1
+     },
+     {
+      "char_end": 29844,
+      "char_start": 29838,
+      "col": 0,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29856,
+      "char_start": 29847,
+      "col": 1,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29865,
+      "char_start": 29859,
+      "col": 2,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29877,
+      "char_start": 29868,
+      "col": 3,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29886,
+      "char_start": 29880,
+      "col": 4,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29896,
+      "char_start": 29889,
+      "col": 5,
+      "col_span": 1,
+      "row": 1,
+      "row_span": 1
+     },
+     {
+      "char_end": 29905,
+      "char_start": 29897,
+      "col": 0,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29909,
+      "char_start": 29908,
+      "col": 1,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29913,
+      "char_start": 29912,
+      "col": 2,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29920,
+      "char_start": 29916,
+      "col": 3,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29927,
+      "char_start": 29923,
+      "col": 4,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29934,
+      "char_start": 29930,
+      "col": 5,
+      "col_span": 1,
+      "row": 2,
+      "row_span": 1
+     },
+     {
+      "char_end": 29938,
+      "char_start": 29935,
+      "col": 0,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29945,
+      "char_start": 29941,
+      "col": 1,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29952,
+      "char_start": 29948,
+      "col": 2,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29959,
+      "char_start": 29955,
+      "col": 3,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29966,
+      "char_start": 29962,
+      "col": 4,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29973,
+      "char_start": 29969,
+      "col": 5,
+      "col_span": 1,
+      "row": 3,
+      "row_span": 1
+     },
+     {
+      "char_end": 29987,
+      "char_start": 29974,
+      "col": 0,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 29994,
+      "char_start": 29990,
+      "col": 1,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 30001,
+      "char_start": 29997,
+      "col": 2,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 30008,
+      "char_start": 30004,
+      "col": 3,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 30015,
+      "char_start": 30011,
+      "col": 4,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 30022,
+      "char_start": 30018,
+      "col": 5,
+      "col_span": 1,
+      "row": 4,
+      "row_span": 1
+     },
+     {
+      "char_end": 30052,
+      "char_start": 30023,
+      "col": 0,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 30059,
+      "char_start": 30055,
+      "col": 1,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 30066,
+      "char_start": 30062,
+      "col": 2,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 30073,
+      "char_start": 30069,
+      "col": 3,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 30080,
+      "char_start": 30076,
+      "col": 4,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     },
+     {
+      "char_end": 30087,
+      "char_start": 30083,
+      "col": 5,
+      "col_span": 1,
+      "row": 5,
+      "row_span": 1
+     }
+    ],
+    "cols": 6,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "index": 6,
+    "item_index": 117,
+    "page": 10,
+    "rows": 6
+   }
+  ]
+ },
+ "runs": {
+  "digest_a": "1b44ef47d7d27b7be3633d2a6d208e839cd7e676a60abec210fd7dce6becc533",
+  "digest_b": "1b44ef47d7d27b7be3633d2a6d208e839cd7e676a60abec210fd7dce6becc533",
+  "payload_chars": 35626,
+  "payload_sha256_a": "51b7a41b10b662dff4d9ab01850a8ab151bd4609665f056bcfffc28ee8b568f1",
+  "payload_sha256_b": "51b7a41b10b662dff4d9ab01850a8ab151bd4609665f056bcfffc28ee8b568f1",
+  "raw_difference_count": 0,
+  "raw_difference_note": "structure_digest quantizes coordinates to 0.001 pt (docling model-level float variance observed in S1); raw docling floats are kept in record",
+  "raw_differences": [],
+  "raw_record_equal": true,
+  "rerun_identical": true,
+  "spans": 348,
+  "tables": 7
+ }
+}

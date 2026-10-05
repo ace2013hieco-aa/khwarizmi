@@ -1,0 +1,16 @@
+nodes (10966 total)
+  function: 3244
+  module: 2614
+  section: 2006
+  heading: 1945
+  class: 547
+  file: 323
+  config_entry: 287
+
+edges (35258 total)
+  CALLS: 20266
+  CONTAINS: 5970
+  DEFINES: 5970
+  IMPORTS: 2610
+  REFERENCES: 320
+  EXTENDS: 122

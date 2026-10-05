@@ -1,0 +1,23 @@
+=== ix command report ===
+command: ix rank --by dependents --kind module --top 15
+cwd:     /d/New folder/research-agent
+time:    2026-08-14 15:03:12
+===================================================
+Top 15 modules by dependents:
+   1. frozen_clock          16
+   2. Intent                14
+   3. Path                  13
+   4. Intent                11
+   5. Intent                10
+   6. Intent                6
+   7. NodeContract          6
+   8. compute_content_hash  6
+   9. frozen_clock          5
+  10. Intent                5
+  11. Path                  4
+  12. connect               4
+  13. NodeContract          4
+  14. Path                  4
+  15. Intent                3
+===================================================
+exit_code: 0

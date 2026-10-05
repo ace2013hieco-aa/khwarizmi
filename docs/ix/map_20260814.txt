@@ -1,0 +1,59 @@
+=== ix command report ===
+command: ix map .
+cwd:     /d/New folder/research-agent
+time:    2026-08-14 14:57:23
+===================================================
+  Ingested in 19.1s
+  Warning: 2 of 93 file patches failed to commit; the graph is missing those files. Re-run 'ix map' to retry, or --verbose to see why.
+  Mapped in 1.3s
+
+Architectural Map — 106 files · 30 regions
+System: Hermes
+Scope: 11 systems · 0 subsystems · 19 modules
+Clarity: 2 well-defined · 9 moderate · 19 fuzzy · 1 cross-cutting
+Showing up to 10 branches per level. Use --all-items to show everything.
+
+Architecture Graph
+  System → subsystem → module
+
+●  SYSTEM  Hermes  56 files  Well-defined 76%  calls · imports
+   ├─  MODULE  Providers  14  Well-defined 90%  calls · imports
+   ├─  MODULE  Persistence  14  Moderate 60%  calls · imports
+   ├─  MODULE  Research / Core  13  Moderate 66%  calls · imports
+   ├─  MODULE  Persistence (2)  3  Fuzzy 46%  calls · imports
+   ├─  MODULE  Research (3)  3  Fuzzy 46%  calls · imports
+   ├─  MODULE  Hermes  3  Fuzzy 35%  calls · imports
+   ├─  MODULE  Core (3)  2  Fuzzy 42%  calls · imports
+   ├─  MODULE  Research (5)  2  Fuzzy 41%  calls · imports
+   └─  MODULE  Conftest  2  Fuzzy 14%  path
+
+●  SYSTEM  Research  11 files  Fuzzy 42%  path · calls
+   ├─  MODULE  Research (2)  7  Fuzzy 33%  path
+   ├─  MODULE  Research (4)  2  Fuzzy 43%  calls · imports
+   └─  MODULE  Research (6)  2  Fuzzy 41%  calls · imports
+
+●  SYSTEM  Core  6 files  Moderate 51%  calls · imports
+   ├─  MODULE  Core (2)  2  Fuzzy 43%  calls · imports
+   ├─  MODULE  Core (4)  2  Fuzzy 41%  calls · imports
+   └─  MODULE  Core  2  Fuzzy 40%  calls · imports
+
+●  SYSTEM  Tools  6 files  Fuzzy 26%  path
+
+●  SYSTEM  Agents  5 files  Moderate 63%  path
+
+●  SYSTEM  Engineering  4 files  Moderate 60%  path
+
+●  SYSTEM  Hazard Specs  4 files  Moderate 60%  path
+
+●  SYSTEM  Recovery  4 files  Moderate 54%  path
+
+●  SYSTEM  Artifacts  4 files  Fuzzy 40%  path
+
+●  SYSTEM  Security  2 files  Moderate 53%  path
+
+  ... 5 more top-level branches. Use --all-items to show all.
+
+Legend: cross-cutting = spans multiple subsystems.
+Run 'ix map --verbose' for confidence scores and raw metrics. Use --list for the ranked view.
+===================================================
+exit_code: 1

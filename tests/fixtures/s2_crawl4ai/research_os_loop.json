@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 9367,
+  "filename": "research_os_loop.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "b01212d9ca151529940c48552bfda3793da465d3df4b19f5cb128b487ae93706",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/research_os_loop.html",
+  "source_ref": "source_payload:s2-crawl4ai/research_os_loop.html",
+  "url": "https://fixtures.test/research_os_loop.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/research_os_loop.html",
+   "text": "# The Research Operating System loop\nSemantic pattern: **reinforcing loop with shared state** -> visual type: **loop** * every station **IMPLEMENTED** per the loop note * verified at HEAD `ac770f7`\nTask graph + event journal shared record — every pass writes writes writes ResearchProgram scope + hypothesis graph Controller execution lease-fenced dispatch Evidence source outcomes, artifacts SUPPORT / REFUTED evidence ladder (REFUTED terminal) Q-05 — WHY? failure classification + actions Q-04 — WHAT ELSE? failure cone + blast radius Q-02 — WHAT NEXT? ActionEvaluation → eligible ordering Controller dispatch Q-02 order → task graph again tasks evidence rungs falsification fact classification impact view eligible order new/updated tasks Solid ring = the closed feedback loop * dashed spokes = every station writes to the shared record * NO loop driver, NO second scheduler — the controller tick is the only execution engine\n## Provenance manifest — diagram source  \n| Item | Value |  \n| --- | --- |  \n| Repository commit | Hermes `ac770f7` (clean tree) |  \n| Semantic pattern → type | Reinforcing loop with shared state → Loop (harvested from cathrynlavery/diagram-design v2.4 @ `09df49d8`, MIT; loop rule: 5–8 stations + exactly one hub) |  \n| Files inspected | `hermes_research_operating_system_loop.md` (the 10-link loop, every EXISTS link grep-verified at writing), `src/hermes/research/controller.py` (tick/dispatch/recovery), `src/hermes/research/evidence_ladder.py` (rungs), `src/hermes/research/evaluation.py` (Q-02 ordering), `src/hermes/persistence/repositories.py` |  \n| Architecture documents | `hermes_current_epistemic_architecture_review.md` §L, IDR-038 (Q-02), IDR-039/040 (Q-04), IDR-041 (ladder) |  \n| Tests | Q-02 ordering suite, Q-04 cone suite, ladder APPLY suite, operator-loop suite (the tests that pin each station's behavior) |  \n| Node status | All 8 stations + hub **IMPLEMENTED** ; the hub is the existing task/event store — nothing new is proposed by this figure |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/research_os_loop.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/research_os_loop.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "9c008c5fa36364fe2682aa9f4abec5307cd08a2841356c95bba9062d33f9eef7",
+   "raw_markdown_sha256": "9c008c5fa36364fe2682aa9f4abec5307cd08a2841356c95bba9062d33f9eef7",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/research_os_loop.html",
+   "source_bytes": 9367,
+   "source_ref": "source_payload:s2-crawl4ai/research_os_loop.html",
+   "source_sha256": "b01212d9ca151529940c48552bfda3793da465d3df4b19f5cb128b487ae93706",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "9c008c5fa36364fe2682aa9f4abec5307cd08a2841356c95bba9062d33f9eef7",
+  "markdown_sha256_b": "9c008c5fa36364fe2682aa9f4abec5307cd08a2841356c95bba9062d33f9eef7",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "deb70cf76b6af699ced5731b63742341d223dac50bfacee40d6568a4c301cda2",
+  "record_sha256_b": "deb70cf76b6af699ced5731b63742341d223dac50bfacee40d6568a4c301cda2",
+  "rerun_identical": true
+ }
+}

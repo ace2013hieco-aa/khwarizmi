@@ -1,0 +1,53 @@
+  Ingested in 1.1s
+  Mapped in 0.8s
+
+Architectural Map ΓÇö 170 files ┬╖ 41 regions
+System: Core
+Scope: 12 systems ┬╖ 0 subsystems ┬╖ 29 modules
+Clarity: 0 well-defined ┬╖ 15 moderate ┬╖ 26 fuzzy ┬╖ 2 cross-cutting
+Showing up to 10 branches per level. Use --all-items to show everything.
+
+Architecture Graph
+  System ΓåÆ subsystem ΓåÆ module
+
+ΓùÅ  SYSTEM  Core  63 files  Moderate 68%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Scripts  25  Moderate 57%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Core / Research  13  Fuzzy 49%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Persistence  10  Moderate 56%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Core (2)  4  Moderate 51%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Persistence / Research  4  Fuzzy 48%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Persistence (3)  3  Fuzzy 43%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Persistence (4)  2  Fuzzy 41%  calls ┬╖ imports
+   ΓööΓöÇ  MODULE  Controller  2  Fuzzy 39%  calls ┬╖ imports
+
+ΓùÅ  SYSTEM  Providers  38 files  Moderate 68%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Tools  25  Moderate 69%  calls ┬╖ imports
+   ΓööΓöÇ  MODULE  Adapters  13  Moderate 60%  path ┬╖ imports
+
+ΓùÅ  SYSTEM  Research  25 files  Fuzzy 46%  calls ┬╖ path
+   Γö£ΓöÇ  MODULE  Research  9  Fuzzy 34%  path
+   Γö£ΓöÇ  MODULE  Research (2)  4  Moderate 51%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Research (3)  4  Fuzzy 45%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Research (5)  2  Fuzzy 41%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Research (6)  2  Fuzzy 41%  calls ┬╖ imports
+   Γö£ΓöÇ  MODULE  Research (4)  2  Fuzzy 41%  calls ┬╖ imports
+   ΓööΓöÇ  MODULE  Research (7)  2  Fuzzy 39%  calls ┬╖ imports
+
+ΓùÅ  SYSTEM  Tools  6 files  Fuzzy 25%  path
+
+ΓùÅ  SYSTEM  Agents  5 files  Moderate 63%  path
+
+ΓùÅ  SYSTEM  Engineering  4 files  Moderate 60%  path
+
+ΓùÅ  SYSTEM  Hazard Specs  4 files  Moderate 60%  path
+
+ΓùÅ  SYSTEM  Recovery  4 files  Moderate 54%  path
+
+ΓùÅ  SYSTEM  Artifacts  4 files  Fuzzy 21%  path
+
+ΓùÅ  SYSTEM  Pyrightconfig  3 files  Moderate 57%  path
+
+  ... 14 more top-level branches. Use --all-items to show all.
+
+Legend: cross-cutting = spans multiple subsystems.
+Run 'ix map --verbose' for confidence scores and raw metrics. Use --list for the ranked view.

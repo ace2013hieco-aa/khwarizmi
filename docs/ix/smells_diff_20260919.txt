@@ -1,0 +1,85 @@
+=== ix smells diff (manual run, ix-smells-diff script failed; see docs/ix/README) ===
+prev: rev 56 (200 candidates)  C:\Users\Ali Zoghi\.ix\reports\smells\20260815_202131_research_agent_rev56.json
+new:  rev 136 (269 candidates)  C:\Users\Ali Zoghi\.ix\reports\smells\20260919_181914_research_agent_rev136.json
+added: 70   removed: 3   confidence-changed: 2
+
+ADDED:
+  + FRESH_REDTEAM_AUDIT.md  [has_smell.orphan_file] conf=0.85
+  + P-BAYESIAN-PROTOCOL-01_reconciliation_record.md  [has_smell.orphan_file] conf=0.85
+  + __init__.py  [has_smell.god_module] conf=0.65
+  + adversarial_probe_s5.py  [has_smell.god_module] conf=0.65
+  + authority_trust_boundary.html  [has_smell.orphan_file] conf=0.85
+  + base.py  [has_smell.god_module] conf=0.65
+  + base_adapter.py  [has_smell.god_module] conf=0.65
+  + contradiction_classification_wiring_audit.md  [has_smell.orphan_file] conf=0.85
+  + core.py  [has_smell.god_module] conf=0.65
+  + digest_fold_adversarial.html  [has_smell.orphan_file] conf=0.85
+  + hermes_architecture_harvest_report.md  [has_smell.orphan_file] conf=0.85
+  + hermes_architecture_harvest_v2_addendum.md  [has_smell.orphan_file] conf=0.85
+  + hermes_architecture_ratification.md  [has_smell.orphan_file] conf=0.85
+  + hermes_architecture_team_handoff.md  [has_smell.orphan_file] conf=0.85
+  + hermes_c1_slot_ref_design_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_c1_step3_adversarial_closure.md  [has_smell.orphan_file] conf=0.85
+  + hermes_c1_step3_schema_version_spec_conflict.md  [has_smell.orphan_file] conf=0.85
+  + hermes_c4_exploration_floor_design_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_c5_director_priority_design_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_c6_convergence_diagnostic_design_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_current_epistemic_architecture_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_diagram_design_integration.md  [has_smell.orphan_file] conf=0.85
+  + hermes_diagram_design_skill.md  [has_smell.orphan_file] conf=0.85
+  + hermes_final_ratification_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_five_fundamentals_blueprint.md  [has_smell.orphan_file] conf=0.85
+  + hermes_five_fundamentals_blueprint_adversarial_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_five_fundamentals_blueprint_review_prompt.md  [has_smell.orphan_file] conf=0.85
+  + hermes_five_fundamentals_ratification_readiness.md  [has_smell.orphan_file] conf=0.85
+  + hermes_gr4_annealed_bridge_sampling_proposal.md  [has_smell.orphan_file] conf=0.85
+  + hermes_operator_control_plane_adversarial_review.md  [has_smell.orphan_file] conf=0.85
+  + hermes_p2_residuals_governance.md  [has_smell.orphan_file] conf=0.85
+  + hermes_redteam_operator_loop_audit.md  [has_smell.orphan_file] conf=0.85
+  + hermes_redteam_reconciliation.md  [has_smell.orphan_file] conf=0.85
+  + hermes_research_operating_system_loop.md  [has_smell.orphan_file] conf=0.85
+  + hermes_step4_s5_s7_decision_gate.md  [has_smell.orphan_file] conf=0.85
+  + hermes_step4_s5_s7_decision_gate_hashes.md  [has_smell.orphan_file] conf=0.85
+  + hermes_step6_reconcile_design_gate.md  [has_smell.orphan_file] conf=0.85
+  + horizon_cliff_late_handler.html  [has_smell.orphan_file] conf=0.85
+  + hr04_source_identifier_capture.md  [has_smell.orphan_file] conf=0.85
+  + hr07_decisive_refuted_contract.md  [has_smell.orphan_file] conf=0.85
+  + hr08_completion_invariant.md  [has_smell.orphan_file] conf=0.85
+  + inspect_notes.md  [has_smell.orphan_file] conf=0.85
+  + ir_digest.json  [has_smell.orphan_file] conf=0.85
+  + ladder_refuted_drivers.html  [has_smell.orphan_file] conf=0.85
+  + node.py  [has_smell.god_module] conf=0.65
+  + one_verdict_gate_adversarial.html  [has_smell.orphan_file] conf=0.85
+  + provider_search_fetch_recovery.html  [has_smell.orphan_file] conf=0.85
+  + puppeteer-config.json  [has_smell.orphan_file] conf=0.85
+  + redteam_reconciliation.html  [has_smell.orphan_file] conf=0.85
+  + replay.py  [has_smell.god_module] conf=0.65
+  + research_os_loop.html  [has_smell.orphan_file] conf=0.85
+  + research_sources.py  [has_smell.god_module] conf=0.65
+  + run_tests.py  [has_smell.orphan_file] conf=0.85
+  + test_c1_slot_ref.py  [has_smell.god_module] conf=0.65
+  + test_c4_exploration_floor.py  [has_smell.god_module] conf=0.65
+  + test_chg1_contradictions.py  [has_smell.god_module] conf=0.65
+  + test_chg2_providers.py  [has_smell.god_module] conf=0.65
+  + test_claims.py  [has_smell.god_module] conf=0.65
+  + test_cli.py  [has_smell.god_module] conf=0.65
+  + test_controller_c4.py  [has_smell.god_module] conf=0.65
+  + test_hr04_source_identifier_capture.py  [has_smell.god_module] conf=0.65
+  + test_hr07_decisive_refuted_contract.py  [has_smell.god_module] conf=0.65
+  + test_hr08_completion_invariant.py  [has_smell.god_module] conf=0.65
+  + test_p4_wiring.py  [has_smell.god_module] conf=0.65
+  + test_p6_classification.py  [has_smell.god_module] conf=0.65
+  + test_s5_l2_resolution.py  [has_smell.god_module] conf=0.65
+  + test_s5_retraction.py  [has_smell.god_module] conf=0.65
+  + test_s6_event_capacity.py  [has_smell.god_module] conf=0.65
+  + test_s6a_retraction_ingestion.py  [has_smell.god_module] conf=0.65
+  + test_step7_curated_registry.py  [has_smell.god_module] conf=0.65
+REMOVED:
+  - boundaries.py  [has_smell.orphan_file] conf=0.85
+  - test_evaluation.py  [has_smell.god_module] conf=0.65
+  - test_thesis_ar03.py  [has_smell.god_module] conf=0.65
+CONFIDENCE CHANGED:
+  ~ controller.py  [has_smell.god_module] 0.65 -> 0.8
+  ~ gateway.py  [has_smell.god_module] 0.65 -> 0.8
+
+by-smell: god_module=71, orphan_file=197, weak_component_member=1   (prev: {'orphan_file': 151, 'god_module': 48, 'weak_component_member': 1})

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes adversarial review — the heartbeat-refresh horizon cliff</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f5f5f5; color:#2d3142; margin:0; padding:40px; }
+  .wrap { max-width: 1120px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#6b7280; margin-bottom:24px; }
+  .svgbox { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
+  .manifest { margin-top:28px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; font-size:13px; line-height:1.6; }
+  .manifest h2 { font-size:15px; margin:0 0 10px; }
+  .manifest table { border-collapse:collapse; width:100%; }
+  .manifest td, .manifest th { border:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+  .manifest th { background:#f9fafb; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body><div class="wrap">
+<h1>Adversarial review — the heartbeat-refresh horizon cliff</h1>
+<div class="sub">Semantic pattern: <b>sequential recovery with stale-write rejection</b> &rarr; visual type: <b>flowchart</b> &middot; a handler longer than the refresh horizon &middot; verified at HEAD <code>ac770f7</code> + F15-audit composition follow-up</div>
+<div class="svgbox">
+<svg viewBox="0 0 1080 660" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <!-- timeline lane -->
+  <rect x="30" y="90" width="300" height="470" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="48" y="72" width="120" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="108" y="87" text-anchor="middle" font-size="12" fill="#4b5563">CONTROLLER A</text>
+
+  <rect x="60" y="120" width="240" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="180" y="143" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">A claims the task</text>
+  <text x="180" y="162" text-anchor="middle" font-size="9.5" fill="#6b7280">lease + heartbeat, generation N</text>
+
+  <rect x="60" y="230" width="240" height="76" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="180" y="253" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">A's handler runs past the horizon</text>
+  <text x="180" y="272" text-anchor="middle" font-size="9.5" fill="#6b7280">heartbeat refresher exits PERMANENTLY</text>
+  <text x="180" y="288" text-anchor="middle" font-size="9.5" fill="#6b7280">(lease refresh + heartbeat, owner-guarded)</text>
+
+  <rect x="60" y="360" width="240" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="180" y="383" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">lease goes stale</text>
+  <text x="180" y="402" text-anchor="middle" font-size="9.5" fill="#6b7280">task becomes reclaimable</text>
+
+  <rect x="60" y="470" width="240" height="58" rx="8" fill="#ffffff" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="180" y="493" text-anchor="middle" font-size="12.5" fill="#991b1b" font-weight="bold">A's handler finally returns</text>
+  <text x="180" y="512" text-anchor="middle" font-size="9.5" fill="#7f1d1d">late commit attempt</text>
+
+  <path d="M 180,178 V 222" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 180,306 V 352" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 180,418 V 462" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- recovery lane -->
+  <rect x="390" y="90" width="650" height="470" rx="12" fill="none" stroke="#2d3142" stroke-width="1.2"/>
+  <rect x="408" y="72" width="150" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="483" y="87" text-anchor="middle" font-size="12" fill="#2d3142">CONTROLLER B (RECOVERY)</text>
+
+  <rect x="420" y="120" width="290" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="565" y="143" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">B reclaims the lease</text>
+  <text x="565" y="162" text-anchor="middle" font-size="9.5" fill="#6b7280">generation++ — new owner (fence)</text>
+
+  <rect x="420" y="230" width="290" height="76" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="565" y="253" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">NO_SIGNAL → FAILED → requeue</text>
+  <text x="565" y="272" text-anchor="middle" font-size="9.5" fill="#6b7280">recovery ladder (IDR-029 Decision 4)</text>
+  <text x="565" y="288" text-anchor="middle" font-size="9.5" fill="#6b7280">exactly one claim row</text>
+
+  <rect x="420" y="360" width="290" height="58" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.6"/>
+  <text x="565" y="383" text-anchor="middle" font-size="12.5" fill="#047857" font-weight="bold">B re-executes → SUCCEEDED</text>
+  <text x="565" y="402" text-anchor="middle" font-size="9.5" fill="#065f46">attempt 2 · exactly-once via the ladder</text>
+
+  <path d="M 710,149 H 790" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 565,178 V 222" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+  <path d="M 565,306 V 352" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+  <!-- the discard moment -->
+  <rect x="750" y="230" width="270" height="76" rx="8" fill="#ffffff" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="885" y="253" text-anchor="middle" font-size="12.5" fill="#991b1b" font-weight="bold">A's late commit is DISCARDED</text>
+  <text x="885" y="272" text-anchor="middle" font-size="9.5" fill="#7f1d1d">IDR29-02 binding guard fires</text>
+  <text x="885" y="288" text-anchor="middle" font-size="9.5" fill="#7f1d1d">"task already SUCCEEDED; recovery owns it"</text>
+
+  <path d="M 180,499 H 742" fill="none" stroke="#b91c1c" stroke-width="1.4" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+  <text x="440" y="492" text-anchor="middle" font-size="10.5" fill="#7f1d1d">late write attempt</text>
+
+  <path d="M 885,306 V 352" fill="none" stroke="#b91c1c" stroke-width="1.2" stroke-dasharray="6,4" marker-end="url(#arrowRed)"/>
+  <text x="896" y="335" font-size="10" fill="#7f1d1d">fence is the backstop</text>
+
+  <rect x="750" y="360" width="270" height="58" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="885" y="383" text-anchor="middle" font-size="12" fill="#2d3142" font-weight="bold">Tick ends: no succeeded / retried /</text>
+  <text x="885" y="400" text-anchor="middle" font-size="12" fill="#2d3142" font-weight="bold">failed outcome; claims stay 1</text>
+
+  <text x="390" y="600" font-size="11" fill="#6b7280">The binding guard fires BEFORE the generation fence: the acceptance path's status read sees B's terminal SUCCEEDED and refuses — the fence is the backstop if the read ever saw RUNNING (verified: test_15_f15_horizon_cliff_late_handler_discarded).</text>
+</svg>
+</div>
+<div class="manifest">
+<h2>Provenance manifest — diagram source</h2>
+<table>
+<tr><th>Item</th><th>Value</th></tr>
+<tr><td>Repository commit</td><td>Hermes <code>ac770f7</code> (clean tree)</td></tr>
+<tr><td>Semantic pattern → type</td><td>Sequential recovery with stale-write rejection → Flowchart (harvested from cathrynlavery/diagram-design v2.4 @ <code>09df49d8</code>, MIT)</td></tr>
+<tr><td>Files inspected</td><td><code>src/hermes/research/controller.py</code> (<code>_refresh_liveness</code> — lease + heartbeat owner-guarded, horizon-exhaustion permanent exit, NO_SIGNAL ladder, IDR29-02 binding guard, generation fence, F15-audit: the NO_SIGNAL&rarr;FAILED second-miss hop is ACTIVE-mode-gated so a worker that dies while parked/stopped is requeued after the verdict, and the dispatch claim fails closed on a raced task instead of crashing), <code>src/hermes/research/controller.py</code> (<code>DEFAULT_HEARTBEAT_REFRESH_HORIZON = 300.0</code>)</td></tr>
+<tr><td>Architecture documents</td><td><code>hermes_p2_residuals_governance.md</code> (P2 #4 accepted design), IDR-029 (Decision 4 recovery), verdict record (sharp probe at post-F15 HEAD)</td></tr>
+<tr><td>Tests</td><td><code>test_15_f15_horizon_cliff_late_handler_discarded</code> (A-side: late return discarded, claims stay 1), <code>test_15_f15_hung_worker_recovered_after_horizon</code> (B-side: attempt 2, exactly one claim), <code>test_14_f15_live_worker_lease_protected</code> &middot; F15-audit composition (post-fix): <code>test_21_f15_heartbeat_cliff_operator_during_transition</code> (operator resolves the gate mid-transition: one verdict + one completion, attempt 2), <code>test_21_f15_paused_recovery_stays_no_signal_completes_after_resume</code> (PAUSED keeps the worker NO_SIGNAL; chain completes exactly once after resume), <code>test_21_f15_rejected_gate_wave_stops_recovery_still_completes</code> (REJECTED gate: wave stops once, recovery still completes), <code>test_21_f15_paused_revert_fresh_heartbeat_no_requeue</code> (mode-independent liveness revert: NO_SIGNAL + fresh heartbeat returns to RUNNING even while paused), <code>test_21_f15_rejected_gate_wave_redispatch_downstream</code> (the wave re-dispatches an independent task past the FAILED gate), <code>test_21_f15_operator_resolve_racing_recovery_first_miss</code> (the operator verdict races B's mid-recovery tick loop: exactly one verdict, no FAILED hop precedes the HumanGateResolved event, recovery completes once at attempt 2), <code>test_21_f15_recovery_before_dispatch_same_tick</code> (recovery-before-dispatch pinned by journal order in one tick: every ext-1 hop precedes every ext-2 hop, ext-1 carries the RETRYING hop, ext-2 never does), <code>test_21_f15_second_gate_reparks_wave</code> (gate-1 REJECTED returns ACTIVE, gate-2 re-parks AWAITING_HUMAN in the same tick as the recovery; each gate exactly one verdict, zero cross-talk), <code>test_21_f15_recovery_before_dispatch_dep_edge</code> (dep-edge same-tick ordering: ext-2 F-10-gated on ext-1, every ext-1 hop precedes every ext-2 hop in journal order), <code>test_21_f15_rejected_verdict_race_retryable_task</code> (REJECTED verdict races the mid-recovery tick loop on a retryable worker: one GateFailed, retry re-executes once at attempt 2, no FAILED hop before the verdict), <code>test_21_f15_resolve_race_outcome_invariant_across_schedules</code> (property-style: six seeded random schedules all yield one verdict + one completion, no FAILED before verdict), <code>test_21_f15_recovery_before_dispatch_gate_dep</code> (dep-edge gate ordering: the requeued worker is a HUMAN_GATE's dependency, so the gate parks WAITING_HUMAN only after recovery — every ext-1 hop precedes every gate hop, one HumanApprovalRequested), <code>test_21_f15_rejected_verdict_race_retries_exhausted</code> (REJECTED races the mid-recovery tick loop on an exhausted worker: worker lands FAILED at attempt 1, zero RETRYING hops, wave stops), <code>test_21_f15_second_gate_property_schedules</code> (property-style re-park: five seeded schedules all yield two HumanGateResolved, one GateFailed + one GatePassed, one completion at attempt 2), <code>test_21_f15_recovery_before_dispatch_chained_gates</code> (chained-gate dep ordering: gate-1 depends on the requeued worker, gate-2 depends on gate-1 — gate-2's park is transitively gated on the recovery; every ext-1 hop precedes every gate-1 hop, every gate-1 hop precedes every gate-2 hop, two HumanApprovalRequested, two GatePassed, zero GateFailed), <code>test_21_f15_exhausted_retry_race_property_schedules</code> (property-style exhausted-retry race: five seeded schedules all yield worker FAILED at attempt 1, one HumanGateResolved + one GateFailed, zero GatePassed), <code>test_21_f15_resolve_race_stall_is_surfaced_not_masked</code> (bounded-completion liveness: a lease holder confirmed at the verdict leaves the worker NO_SIGNAL, and the completion budget FAILS LOUDLY — STALLED — never masking a stalled chain), <code>test_21_f15_recovery_before_dispatch_chained_gates_rejected</code> (chained-gate REJECTED re-park: gate-1 APPROVED, gate-2 REJECTED returns ACTIVE, gate-3 re-parks — every ext-1 hop precedes every gate-1 hop, every gate-1 hop precedes every gate-2 hop, every gate-2 hop precedes every gate-3 hop, three HumanApprovalRequested, two GatePassed + one GateFailed), <code>test_21_f15_resolve_race_partial_lease_stall_surfaced</code> (partial-lease stall surfacing: worker recovers, a downstream claim stays blocked by a holder armed after the recovery, and the bounded budget surfaces the DOWNSTREAM stall — STALLED naming ext-2), <code>test_21_f15_chained_gates_property_schedules</code> (property-style chained gates: five seeded schedules all yield two verdicts, two gate parks, one recovery at attempt 2), <code>test_21_f15_chained_gates_rejected_property_schedules</code> (property-style REJECTED re-park: five seeded schedules all yield gate-1 APPROVED, gate-2 REJECTED returning ACTIVE, gate-3 re-parked and APPROVED, three verdicts, three parks, one recovery), <code>test_21_f15_resolve_race_third_gate_partial_lease_stall_surfaced</code> (third-gate partial-lease stall: worker recovers, the second downstream hop AND the third gate stay blocked, and the budget names ext-mid + ext-3 in the STALLED message), <code>test_21_f15_completion_budget_deep_wide_graph_not_a_false_stall</code> (completion-budget dependency-graph DoS lens: a fixed 30-tick budget is exhausted by a legitimately deep/wide graph — false STALLED with the byte-identical held-lease clause; the graph-scaled default budget completes the same graphs), <code>test_21_f15_completion_budget_mixed_mesh_depth_x_width</code> (mixed depth-x-width mesh lens: 5x8 and 8x5 meshes both need 40 ticks at cap 1 — the requirement is the PRODUCT, not the shape; a fixed 35-tick budget false-STALLs both naming the healthy deepest level, the graph-scaled budget completes both), <code>test_21_f15_third_gate_partial_lease_stall_property_schedules</code> (property-style third-gate stall: five schedules, varied resolve pacing AND completion budgets, all surface STALLED naming ext-mid + ext-3, never the recovered worker), <code>test_21_f15_completion_budget_huge_fan_scaled_never_exhausted</code> (huge dependency-fan lens: 300 independent extracts need 38 ticks at cap 8 — fixed 30 false-STALLs naming wide-300; the graph-scaled budget is sized to the fan and is un-exhaustable by width; the STALLED message cannot distinguish the false positive from a genuine lease), <code>test_21_f15_completion_budget_mesh_exact_product_boundary</code> (product-boundary pin: (5,8) / (8,5) both 40 and (6,6) = 36 complete at budget EXACTLY depth*width with ticks-used == product and false-STALL at product-1 — the requirement is EXACTLY the product, neither under- nor over-sized), <code>test_21_f15_completion_budget_deep_fan_chain_total_nodes</code> (widening fan tree, fan-out at every level: a (4,3) tree of 40 nodes and a (3,4) tree of 21 nodes each need THEIR OWN total — the requirement is the TOTAL NODE COUNT of the specific tree; false-STALL at total-1, complete under the node-scaled budget), <code>test_21_f15_completion_budget_huge_fan_headroom_measured</code> (headroom measurement: the 300-task fan completes in EXACTLY 38 ticks at cap 8 (ceil(300/8)) against the graph-scaled budget 10 + check-set(2) + 300 = 312 — headroom 274 ticks (~7x) documented; only a genuine lease can trip the scaled budget), <code>test_21_f15_completion_budget_mixed_shape_mesh_sum_of_depths</code> (non-uniform mesh pin: per-chain depths differ - (2,5,7) / (1,3,5,7) / (3,6,9) each need SUM(depths) ticks at cap 1 (14/16/18); false-STALL at sum-1, complete at EXACTLY sum; the uniform max x width product is NOT the requirement for a mixed shape), <code>test_21_f15_stalled_message_names_blocking_owner_row</code> (STALLED blocking-owner discriminator: the raise snapshots scheduler_lock - a genuine held-lease stall names the holder (controller-*, with locked_at) while a healthy deep/wide false STALL reports the lock FREE; the causal clause stays byte-identical, the owner snapshot is the discriminator), <code>test_21_f15_completion_budget_headroom_cap_sweep</code> (cap sweep: the 300-task fan needs ceil(300/cap) ticks at EVERY cap (1..300), the scaled budget stays 312, headroom is positive at every cap - only a genuine stall can trip it; fixed needed-1 false-STALLs and exact-needed completes at caps 1 and 8), <code>test_21_f15_completion_budget_mixed_mesh_gate2_rejected</code> (mixed-mesh x REJECTED-gate-2 interleave: gate-2 parks WAITING_HUMAN on gate-1 SUCCEEDED and stops the wave, the operator REJECTS it -> ACTIVE, then the mesh chains dispatch one hop/tick - ticks used == 1 + sum(depths), a sum(depths) budget false-STALLs naming the deepest mesh level, journal order pins ext-1 hops < gate-2 hops < mesh hops), <code>test_21_f15_stalled_owner_snapshot_lease_handoff</code> (lease-handoff probe: the STALLED snapshot is a single atomic SELECT of the live scheduler_lock row - every pre-handoff snapshot names the same holder, a mid-stall handoff is named by every post-handoff snapshot AND the final message; the newest locked_at owner is authoritative, the causal clause stays identical), <code>test_21_f15_completion_budget_unified_closed_form</code> (UNIFIED closed form: T = depth + wide + md*mw + sum(depths) + fan_total ticks at cap 1, scaled budget = max(30, 10 + len(check_tasks) + T) for EVERY shape and any COMBINED graph; shape table pins ticks==T, budget==the closed form, T-1 false-STALLs, T completes), <code>test_21_f15_mixed_mesh_gate2_rejected_races_lease_holder</code> (gate-2 verdict racing a HELD lease: the holder is armed the instant gate-2 parks, the REJECTED resolve is refused LOCK every attempt, gate-2 stays WAITING_HUMAN and the mesh never dispatches - the budget surfaces BOTH the downstream stall (gate-2 + mesh tails, never the recovered worker) AND the lease via the owner snapshot; the same graph without the holder completes - the lease is what turns it into a surfaced stall, never a mask), <code>test_21_f15_stalled_owner_snapshot_double_handoff</code> (DOUBLE lease handoff: two owner changes mid-stall - snapshots name holder then handoff-1 then handoff-2, and the final STALLED message names ONLY the newest owner (handoff-2, newest locked_at), never the holder or the intermediate - the atomic SELECT reads the live row, the newest locked_at owner is authoritative even across two successive handoffs)</td></tr>
+<tr><td>Node status</td><td>All nodes <b>IMPLEMENTED</b>; the discard path is the tested real order (binding guard before fence)</td></tr>
+</table>
+</div>
+</div></body></html>

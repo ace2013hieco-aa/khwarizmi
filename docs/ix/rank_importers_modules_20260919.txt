@@ -1,0 +1,11 @@
+Top 10 modules by importers:
+   1. contradiction_id_of           1
+   2. OperatorCredentialRepository  1
+   3. PROPOSAL                      1
+   4. STALE                         1
+   5. apply_intent                  1
+   6. ContradictionRepository       1
+   7. FailureClass                  1
+   8. unittest                      1
+   9. ACTION_MAP                    1
+  10. can_complete_research         1

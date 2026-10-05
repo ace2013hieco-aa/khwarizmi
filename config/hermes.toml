@@ -1,0 +1,60 @@
+# Hermes Autonomous Quantitative Research Laboratory — Configuration
+#
+# Foundation decision §8: human-editable, schema-validated (see hermes/config.py).
+# Secrets must NEVER go here — use environment variables for credentials/API keys.
+
+[sqlite]
+database_path = "hermes.db"
+wal_mode = true
+backup_dir = "backups"
+retain_last_n = 5
+
+[artifacts]
+artifact_root = "artifacts"
+cache_enabled = true
+cache_max_entries = 1000
+
+[workspace]
+workspace_root = "workspace"
+per_experiment_isolation = true
+
+[heartbeat]
+interval_seconds = 30
+lease_multiplier = 3
+
+[gate_ttls]
+hypothesis_days = 7
+pre_compute_days = 7
+pre_live_days = 7
+
+[retry]
+max_retries = 3
+backoff_base_seconds = 2.0
+backoff_max_seconds = 300.0
+
+[budgets]
+s = 100
+m = 50
+c = 20
+
+[model_tiers]
+# Model ref strings, or empty = not configured.
+# When configured, format: "provider:model_name"
+s = ""
+m = ""
+c = ""
+
+[sandbox]
+# Phase 0: disabled — sandbox is OPTIONAL/NOT CONFIGURED by default.
+# P-AUTO-3 note: the live-fetch egress allowlist is CODE-OWNED
+# (hermes.research.live_fetch.ALLOWLIST_HOSTS — the two keyless providers,
+# D5) and enforced by the in-process transport with no config required.
+# This sandbox key may only NARROW that surface, never widen it: an entry
+# outside the D5 provider surface is refused loudly at wiring time.
+enabled = false
+runner = ""
+cpu_limit_seconds = 600
+memory_limit_mb = 2048
+network_egress_allowlist = []
+
+provider_config_dir = "providers"

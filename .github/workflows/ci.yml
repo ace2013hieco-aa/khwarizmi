@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  # ADV-07 — the engineering plane (v6 §20 / §29: worktree → PR → human
+  # merge → CI+test pass) requires the quality gates to run BEFORE merge.
+  # The full suite + typecheck now run on every pull request as well as on
+  # pushes to main, so an adversarial regression cannot reach main unchecked.
+  pull_request:
+
+jobs:
+  test:
+    name: Tests (Python 3.14, isolated runner)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      - name: "Sync environment (installs dev group: pytest, pytest-cov)"
+        run: uv sync
+
+      # Mirrors the local verification command exactly (README "Operate").
+      # scripts/run_tests.py scrubs any foreign site-packages from sys.path
+      # so the suite reproduces identically inside or outside the Hermes app.
+      # pytest-cov (dev group) adds the coverage report; htmlcov/ is
+      # gitignored so the artifact is the only output.
+      - name: Run the full test suite with coverage
+        run: .venv/Scripts/python.exe scripts/run_tests.py -v --cov=hermes --cov-report=html:htmlcov --cov-report=term
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-report
+          path: htmlcov/
+          if-no-files-found: error
+          retention-days: 14
+
+  typecheck:
+    name: Typecheck (pyright — src strict, tests profiled; C3)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      # pytest must resolve for the tests profile — the synced venv is the
+      # interpreter pyright uses via --pythonpath.
+      - name: "Sync environment"
+        run: uv sync
+
+      # C3 — pyright now covers src AND tests. src stays strict (the
+      # verified-clean baseline; root pyrightconfig.json); tests run under
+      # pyrightconfig.tests.json, which silences the untyped-fixture noise
+      # categories (reportArgumentType / reportAttributeAccessIssue /
+      # reportOptionalMemberAccess) while keeping every other rule active —
+      # a test regression that introduces a NEW error category fails here.
+      - name: "Run pyright on src (strict, zero errors)"
+        run: uvx pyright src
+
+      - name: "Run pyright on src + tests (profiled, zero errors)"
+        run: uvx pyright --pythonpath .venv/Scripts/python.exe --project pyrightconfig.tests.json
+
+  local-gate:
+    name: Local runner smoke (scripts/test_py314.sh)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      # The README's local suite commands must stay functional on every
+      # commit: this job executes BOTH documented paths over the
+      # walking-skeleton slice — the dedicated runner (full venv creation +
+      # install + pytest) and the standard project-.venv flow — so a drift
+      # in either breaks CI before it reaches a developer machine. The full
+      # suite on 3.14 is the `test` job above.
+      - name: "Smoke A: scripts/test_py314.sh (dedicated .venv-py314)"
+        shell: bash
+        run: ./scripts/test_py314.sh -q tests/test_walking_skeleton.py
+
+      - name: "Smoke B: documented uv sync flow (rebuilt .venv)"
+        shell: bash
+        run: |
+          uv venv --python 3.14
+          uv sync
+          .venv/Scripts/python.exe scripts/run_tests.py -q tests/test_walking_skeleton.py
+
+      # C3 — the smoke path must never pass while src regresses: this job
+      # ALSO enforces the strict type + lint gates, mirroring the exact
+      # invocations of the dedicated `typecheck` / `lint` jobs (uvx pyright
+      # src; uvx ruff check src tests) WITHOUT duplicating them — the
+      # profiled tests pyright config stays the typecheck job's exclusive
+      # scope, and the full suite stays the `test` job's. Drift in either
+      # gate therefore breaks the two smoke runs first, on the cheapest
+      # path a developer actually runs.
+      - name: "Pyright gate: src strict (mirrors typecheck job)"
+        run: uvx pyright src
+
+      - name: "Ruff gate: src + tests (mirrors lint job)"
+        run: uvx ruff check src tests
+
+  profiled-gate:
+    name: Profiled typecheck + smoke (scripts/profiled_gate.sh)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      # pyright resolves the tests profile through the synced venv
+      # (--pythonpath), so the environment must exist before the script runs.
+      - name: "Sync environment"
+        run: uv sync
+
+      # C3 — the profiled typecheck gate (pyright over src + tests with
+      # pyrightconfig.tests.json, untyped-fixture noise silenced) plus the
+      # walking-skeleton smoke, in ONE command. The script is the source of
+      # truth (mirrors the `typecheck` + `local-gate` jobs' invocations), so
+      # a drift in either breaks THIS job first, and developers can run the
+      # identical gate locally before pushing.
+      - name: "Run scripts/profiled_gate.sh (tests-profile pyright + smoke)"
+        shell: bash
+        run: ./scripts/profiled_gate.sh
+
+  lint:
+    name: Lint (ruff; C3)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      # C3 — the style/lint gate: ruff check over src AND tests with the
+      # ratified rule set (pyproject [tool.ruff.lint]). The format gate
+      # (`ruff format --check`) is deliberately NOT enforced: the tree is
+      # not ruff-format-clean and reformatting would churn history; lint is
+      # the enforced bar.
+      - name: "ruff check (src + tests)"
+        run: uvx ruff check src tests
+
+  audit:
+    name: Security (uv audit; C3)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      # C3 — the dependency-security gate: any known-vulnerable or
+      # disallowed package in the lockfile fails the build.
+      - name: "uv audit (known vulnerabilities / adverse statuses)"
+        run: uv audit --preview-features audit-command

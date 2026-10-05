@@ -1,0 +1,68 @@
+{
+ "papers": [
+  {
+   "bytes": 799685,
+   "claims": 5,
+   "digest": "2983e7f0329d4a3aaa4085c1e7f0feb53246e26fd8ab854b2bd69566375a021d",
+   "fixture": "2305.10601v2.json",
+   "negative_claims": 2,
+   "pages": 14,
+   "paper": "2305.10601v2.pdf",
+   "raw_difference_count": 0,
+   "raw_record_equal": true,
+   "rerun_identical": true,
+   "sha256": "79c5237e3f63953a73f2b0d6894327702ee1f7e981450c251bb1b5cb4f8d7b8f",
+   "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers\\2305.10601v2.pdf",
+   "spans": 224,
+   "tables": 7
+  },
+  {
+   "bytes": 495778,
+   "claims": 4,
+   "digest": "e01154a81f4e1f06e96421ea902dab4227a7560d0eea9a2163542c763f0a4bb2",
+   "fixture": "2506.05109v1.json",
+   "negative_claims": 2,
+   "pages": 14,
+   "paper": "2506.05109v1.pdf",
+   "raw_difference_count": 0,
+   "raw_record_equal": true,
+   "rerun_identical": true,
+   "sha256": "5b07f2c903d293934b36ef43a0029a6de63da528f8237d0c8642070165717815",
+   "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers\\2506.05109v1.pdf",
+   "spans": 194,
+   "tables": 0
+  },
+  {
+   "bytes": 1127700,
+   "claims": 5,
+   "digest": "b81defe93cc50bdb140983893cc8db5291a30cbf928d16690c00e87cc288b518",
+   "fixture": "2510.02557v1.json",
+   "negative_claims": 2,
+   "pages": 17,
+   "paper": "2510.02557v1.pdf",
+   "raw_difference_count": 0,
+   "raw_record_equal": true,
+   "rerun_identical": true,
+   "sha256": "0986ffe438986e89274b4eab5055fba27a817c73993ff11d18710d6bd6d6d781",
+   "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers2\\2510.02557v1.pdf",
+   "spans": 584,
+   "tables": 5
+  },
+  {
+   "bytes": 387448,
+   "claims": 4,
+   "digest": "1b44ef47d7d27b7be3633d2a6d208e839cd7e676a60abec210fd7dce6becc533",
+   "fixture": "2603.24639v2.json",
+   "negative_claims": 2,
+   "pages": 14,
+   "paper": "2603.24639v2.pdf",
+   "raw_difference_count": 0,
+   "raw_record_equal": true,
+   "rerun_identical": true,
+   "sha256": "5da7e0a446bde09fd27cd5d4bdb8846f0a7369995f128e9d18f180d39defc575",
+   "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers\\2603.24639v2.pdf",
+   "spans": 348,
+   "tables": 7
+  }
+ ]
+}

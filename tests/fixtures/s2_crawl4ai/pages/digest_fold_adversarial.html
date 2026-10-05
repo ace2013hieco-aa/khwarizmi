@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hermes adversarial review — the reconcile digest fold under failure injection</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background:#f5f5f5; color:#2d3142; margin:0; padding:40px; }
+  .wrap { max-width: 1120px; margin:0 auto; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:#6b7280; margin-bottom:24px; }
+  .svgbox { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px; }
+  .manifest { margin-top:28px; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:16px 20px; font-size:13px; line-height:1.6; }
+  .manifest h2 { font-size:15px; margin:0 0 10px; }
+  .manifest table { border-collapse:collapse; width:100%; }
+  .manifest td, .manifest th { border:1px solid #e5e7eb; padding:6px 8px; text-align:left; vertical-align:top; }
+  .manifest th { background:#f9fafb; }
+  svg text { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body><div class="wrap">
+<h1>Adversarial review — the reconcile digest fold under failure injection</h1>
+<div class="sub">Semantic pattern: <b>policy evaluation under injected corruption</b> &rarr; visual type: <b>flowchart (attack lanes)</b> &middot; verified at HEAD <code>156b7ee</code> &middot; 1334 tests</div>
+<div class="svgbox">
+<svg viewBox="0 0 1080 800" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <!-- legend -->
+  <rect x="30" y="48" width="1020" height="34" rx="6" fill="#f9fafb" stroke="#e5e7eb"/>
+  <text x="50" y="69" font-size="12" fill="#4b5563">&#9654; injected corruption</text>
+  <line x1="210" y1="65" x2="250" y2="65" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <text x="260" y="69" font-size="12" fill="#4b5563">digest fold</text>
+  <text x="440" y="69" font-size="12" fill="#4b5563">&#10060; stop point (fail-closed)</text>
+  <text x="660" y="69" font-size="12" fill="#4b5563">&#9670; observable outcome</text>
+
+  <!-- ============ lane 1: forged classification identity ============ -->
+  <rect x="30" y="100" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="84" width="170" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="131" y="99" text-anchor="middle" font-size="12" fill="#4b5563">forged classification identity</text>
+
+  <rect x="50" y="118" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="138" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">classification_id</text>
+  <text x="150" y="156" text-anchor="middle" font-size="12" fill="#4b5563">rewritten to FORGED in stored metadata</text>
+
+  <line x1="250" y1="144" x2="296" y2="144" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="118" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="398" y="138" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">classifications_digest</text>
+  <text x="398" y="156" text-anchor="middle" font-size="12" fill="#4b5563">D8 re-derivation of the identity</text>
+
+  <line x1="498" y1="144" x2="534" y2="144" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="536" y="112" width="240" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="656" y="133" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; silent recommendation</text>
+  <text x="656" y="151" text-anchor="middle" font-size="11.5" fill="#7f1d1d">BLOCKED — row surfaces as FORGED_IDENTITY</text>
+  <text x="656" y="166" text-anchor="middle" font-size="11.5" fill="#7f1d1d">error; integrity_status DEGRADED</text>
+
+  <rect x="798" y="118" width="240" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="918" y="138" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">never a silent "no data"</text>
+  <text x="918" y="156" text-anchor="middle" font-size="12" fill="#4b5563">errors carry the code + artifact id</text>
+
+  <text x="50" y="210" font-size="12" fill="#4b5563">&#9670; FAIL-CLOSED &middot; corrupt row is dropped from recommendations but explicitly represented in errors</text>
+
+  <!-- ============ lane 2: stored PENDING, gate False ============ -->
+  <rect x="30" y="230" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="214" width="170" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="131" y="229" text-anchor="middle" font-size="12" fill="#4b5563">tamper: stored PENDING, gate False</text>
+
+  <rect x="50" y="248" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="268" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">proposal stored PENDING</text>
+  <text x="150" y="286" text-anchor="middle" font-size="12" fill="#4b5563">non-authority action (gate False)</text>
+
+  <line x1="250" y1="274" x2="296" y2="274" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="248" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="398" y="268" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">gate RECOMPUTED from</text>
+  <text x="398" y="286" text-anchor="middle" font-size="12" fill="#4b5563">classification class + action shape (F2)</text>
+
+  <line x1="498" y1="274" x2="534" y2="274" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="536" y="242" width="240" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="656" y="263" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; fabricated pending item</text>
+  <text x="656" y="281" text-anchor="middle" font-size="11.5" fill="#7f1d1d">BLOCKED — tamper-signal note fires,</text>
+  <text x="656" y="296" text-anchor="middle" font-size="11.5" fill="#7f1d1d">proposal NOT replayed</text>
+
+  <rect x="798" y="248" width="240" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="918" y="268" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">stored state never trusted</text>
+  <text x="918" y="286" text-anchor="middle" font-size="12" fill="#4b5563">the class wins in both directions</text>
+
+  <text x="50" y="340" font-size="12" fill="#4b5563">&#9670; FAIL-CLOSED &middot; recomputation wins; the note makes the tamper observable</text>
+
+  <!-- ============ lane 3: stored EFFECTIVE, gate True ============ -->
+  <rect x="30" y="360" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="344" width="170" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="131" y="359" text-anchor="middle" font-size="12" fill="#4b5563">tamper: stored EFFECTIVE, gate True</text>
+
+  <rect x="50" y="378" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">proposal tampered to EFFECTIVE</text>
+  <text x="150" y="416" text-anchor="middle" font-size="12" fill="#4b5563">authority-shaped action (gate True)</text>
+
+  <line x1="250" y1="404" x2="296" y2="404" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="378" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="398" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">gate RECOMPUTED (F2)</text>
+  <text x="398" y="416" text-anchor="middle" font-size="12" fill="#4b5563">class + action still require confirmation</text>
+
+  <line x1="498" y1="404" x2="544" y2="404" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="546" y="378" width="230" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="661" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">&#10060; authority by stored state</text>
+  <text x="661" y="416" text-anchor="middle" font-size="12" fill="#4b5563">BLOCKED — replayed as PENDING anyway</text>
+
+  <rect x="798" y="378" width="240" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="918" y="398" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">decision still required</text>
+  <text x="918" y="416" text-anchor="middle" font-size="12" fill="#4b5563">one verdict via the gateway, never here</text>
+
+  <text x="50" y="470" font-size="12" fill="#4b5563">&#9670; FAIL-CLOSED &middot; a tampered EFFECTIVE stamp cannot fabricate authority — the replay keeps the proposal pending</text>
+
+  <!-- ============ lane 4: duplicate decision ============ -->
+  <rect x="30" y="490" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="474" width="170" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="131" y="489" text-anchor="middle" font-size="12" fill="#4b5563">duplicate decision event</text>
+
+  <rect x="50" y="508" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="528" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">second ClassificationActionDecision</text>
+  <text x="150" y="546" text-anchor="middle" font-size="12" fill="#4b5563">same correlation_id, hand-forged</text>
+
+  <line x1="250" y1="534" x2="296" y2="534" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="508" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="398" y="528" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">idx_events_one_verdict</text>
+  <text x="398" y="546" text-anchor="middle" font-size="12" fill="#4b5563">F9 partial unique index (schema v12)</text>
+
+  <line x1="498" y1="534" x2="534" y2="534" stroke="#b91c1c" marker-end="url(#arrowRed)"/>
+  <rect x="536" y="502" width="240" height="64" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.4"/>
+  <text x="656" y="523" text-anchor="middle" font-size="12.5" fill="#b91c1c" font-weight="bold">&#10060; second verdict on the journal</text>
+  <text x="656" y="541" text-anchor="middle" font-size="11.5" fill="#7f1d1d">REFUSED at the DB — UNIQUE constraint,</text>
+  <text x="656" y="556" text-anchor="middle" font-size="11.5" fill="#7f1d1d">even for a hand-forged INSERT</text>
+
+  <rect x="798" y="508" width="240" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="918" y="528" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">one proposal, one verdict</text>
+  <text x="918" y="546" text-anchor="middle" font-size="12" fill="#4b5563">schema-level, not app-level</text>
+
+  <text x="50" y="600" font-size="12" fill="#4b5563">&#9670; FAIL-CLOSED &middot; the F9 migration enforces one-verdict at the schema; the digest never sees a phantom decision</text>
+
+  <!-- ============ lane 5: duplicate proposal ============ -->
+  <rect x="30" y="620" width="1020" height="122" rx="12" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <rect x="46" y="604" width="170" height="22" rx="11" fill="#f5f5f5"/>
+  <text x="131" y="619" text-anchor="middle" font-size="12" fill="#4b5563">duplicate proposal event</text>
+
+  <rect x="50" y="638" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="150" y="658" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">duplicate ClassificationActionProposed</text>
+  <text x="150" y="676" text-anchor="middle" font-size="12" fill="#4b5563">same correlation, hand-forged</text>
+
+  <line x1="250" y1="664" x2="296" y2="664" stroke="#6b7280" marker-end="url(#arrow)"/>
+  <rect x="298" y="638" width="200" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="398" y="658" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">pending replay (journal-faithful)</text>
+  <text x="398" y="676" text-anchor="middle" font-size="12" fill="#4b5563">skips anything with a ratified decision</text>
+
+  <rect x="520" y="632" width="240" height="64" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="640" y="653" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">&#10060; resurrecting a decided proposal</text>
+  <text x="640" y="671" text-anchor="middle" font-size="11.5" fill="#4b5563">BLOCKED — after one decision the replay</text>
+  <text x="640" y="686" text-anchor="middle" font-size="11.5" fill="#4b5563">yields nothing, duplicate or not</text>
+
+  <rect x="782" y="638" width="256" height="52" rx="8" fill="#ffffff" stroke="#2d3142" stroke-width="1.2"/>
+  <text x="910" y="658" text-anchor="middle" font-size="12.5" fill="#2d3142" font-weight="bold">digest deterministic</text>
+  <text x="910" y="676" text-anchor="middle" font-size="12" fill="#4b5563">identical content_hash across runs</text>
+
+  <text x="50" y="730" font-size="12" fill="#4b5563">&#9670; FAIL-CLOSED &middot; duplicates cannot resurrect pending work; the fold hash is stable under all injections</text>
+
+  <!-- verdict band -->
+  <rect x="30" y="744" width="1020" height="44" rx="8" fill="#f0fdf4" stroke="#15803d" stroke-width="1.4"/>
+  <text x="540" y="763" text-anchor="middle" font-size="13" fill="#166534" font-weight="bold">VERDICT: all five injections fail closed — corruption observable, gate recomputed, one-verdict schema-enforced, fold deterministic &middot; 0 defects</text>
+  <text x="540" y="781" text-anchor="middle" font-size="11.5" fill="#166534">pinned by test_digest_fold_fail_closed_deterministic (commit 156b7ee)</text>
+</svg>
+</div>
+<div class="manifest">
+<h2>Provenance manifest</h2>
+<table>
+<tr><th>diagram source</th><td>commit <code>156b7ee</code>; probe evidence in <code>hermes_redteam_reconciliation.md</code> (second-audit section)</td></tr>
+<tr><th>files inspected</th><td><code>src/hermes/research/controller.py</code> (reconcile_digest, pending_classification_proposals, _classification_gate), <code>src/hermes/persistence/failure_classifications.py</code> (classifications_digest), <code>src/hermes/persistence/migrations.py</code> (idx_events_one_verdict, v11&rarr;12)</td></tr>
+<tr><th>tests pinning each lane</th><td>lane 1: classifications_digest FORGED_IDENTITY/DEGRADED assertions in test_digest_fold_fail_closed_deterministic &middot; lanes 2-3: tamper-signal + recomputed-gate assertions (same test) &middot; lane 4: duplicate-decision IntegrityError asse
+rtion (same test) &middot; lane 5: duplicate-proposal + deterministic-hash assertions (same test)</td></tr>
+<tr><th>probe evidence</th><td>FORGED_IDENTITY error + DEGRADED status; tamper note fired for stored-PENDING/non-authority; stored-EFFECTIVE replayed as pending; second decision refused by the schema index; duplicate proposal could not resurrect a decided proposal; content_hash identical across repeated runs</td></tr>
+<tr><th>projection rule</th><td>diagrams are never authority; executable code and ratified IDRs win on any conflict (hermes_diagram_design_skill.md)</td></tr>
+</table>
+</div>
+</div></body>
+</html>

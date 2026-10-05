@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "khwarizmi-research"
+version = "0.1.0"
+description = "Autonomous Quantitative Research Laboratory — reconciliation loop over a typed research state machine"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "Ali Zoghi" }]
+dependencies = [
+    # Minimal core: stdlib-first policy (v3 §2 principle 7; foundation decision §4).
+    # tomllib (stdlib) covers TOML parsing. Nothing here yet by design.
+]
+
+[project.optional-dependencies]
+# External provider SDKs are isolated behind Hermes ports (foundation §5).
+# None are core. They land here as extras only when a concrete adapter needs one.
+docling = ["docling==2.131.0"]
+crawl4ai = ["crawl4ai==0.9.4"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+]
+
+[project.scripts]
+hermes = "hermes.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hermes"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:hypothesis -p no:anyio"
+markers = [
+    "live_fetch: makes real (keyless) egress to the two allowlisted APIs; skipped offline or with HERMES_SKIP_LIVE_FETCH=1",
+]
+# Plugin isolation: the parent Hermes desktop app ships a broken `hypothesis`
+# in its own venv, which leaks onto sys.path when pytest runs inside the app.
+# `-p no:hypothesis -p no:anyio` disables those plugins by name. If pytest
+# still discovers them via entry points, use `python -m pytest` from the
+# project venv directly (see Makefile/README).
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+# The enforced rule set (red-team C3): pyflakes core + import sorting +
+# ruff's high-signal subset + safe simplifications + bugbear's raise-from
+# discipline. BLE001 (broad except) is deliberately IN the set — this
+# codebase's boundary handlers carry `# noqa: BLE001` with a reason, and
+# anything new must justify itself.
+select = [
+    # pyflakes core — real bugs (unused imports/vars, undefined names,
+    # f-strings without placeholders)
+    "E4", "E7", "E9", "F",
+    # import sorting
+    "I",
+    # ruff's own high-signal subset (RUF100 removes stale noqa comments;
+    # RUF022 sorts __all__; RUF059 flags unused loop variables)
+    "RUF100", "RUF022", "RUF059",
+    # safe simplifications + comprehension style
+    "SIM", "ISC", "C4",
+    # bandit's silent bare-except
+    "S110",
+    # bugbear subset: raise-from chains (B904), assert False (B011), loop
+    # closures (B023), assertRaises(Exception) (B017), broad except
+    # (BLE001 — already noqa-justified at the boundaries)
+    "B904", "B011", "B023", "B017", "BLE001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests deliberately import fixtures for side effects and probe internals.
+"tests/**" = ["S110"]

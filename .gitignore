@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+.venv-py314/
+venv/
+env/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Local audit workspace (operator tooling, never versioned)
+.freebuff/
+
+# Hermes worktrees (desktop app feature)
+.worktrees/
+
+# SQLite databases (runtime artifacts, not committed)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Backups (runtime)
+backups/
+
+# Artifacts (runtime, repo root only — /anchor keeps the source package
+# src/hermes/artifacts/ tracked)
+/artifacts/
+
+# Workspace (runtime)
+workspace/
+
+# IDE
+.vscode/
+.idea/
+*.swp

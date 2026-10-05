@@ -1,0 +1,8 @@
+# S2 fixtures are BYTE-CONTENT-ADDRESSED: every page's sha256 is recorded in
+# MANIFEST.json and every rendered record's source_sha256 binds to those bytes.
+# Any end-of-line conversion (core.autocrlf normalises on checkout) would change
+# the bytes and silently invalidate every fixture on a fresh clone. These files
+# are therefore explicitly NON-TEXT: git stores and checks them out byte-for-
+# byte, on every platform — same convention as the B4 fixtures.
+pages/*.html -text
+*.json -text

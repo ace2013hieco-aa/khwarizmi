@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 23854,
+  "filename": "redteam_reconciliation.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "20a3e5389022a7a118c0d939456ca9409ae7608e189ba3b535383e2484407cb0",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/redteam_reconciliation.html",
+  "source_ref": "source_payload:s2-crawl4ai/redteam_reconciliation.html",
+  "url": "https://fixtures.test/redteam_reconciliation.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/redteam_reconciliation.html",
+   "text": "# Red-team reconciliation — the five attack paths and where each is stopped\nSemantic pattern: **adversarial policy evaluation** -> visual type: **flowchart (attack lanes)** * external report RT-01-RT-05 + F14 journal-tamper + directive-#2 probe + F2 constant-work probe closures * reconciled at HEAD `28ff259` + follow-ups * 1424 tests\n▶ attack input attempted path ❌ stop point (fail-closed) ◆ verdict residual -> FUTURE DESIGN (recorded, not built) RT-01 retraction cascade foundational source later retracted REMOVED_OR_RETRACTED hazard value-semantics marker -> SourceRetracted audit event re-review candidates advisory only -> digest -> human ❌ ladder auto-downgrade BLOCKED — no automatic invalidation; APPLY derives from ratified facts only ◆ CONFIRMED AS DESIGN (ratified posture, review §20) * residual: ratifiable quarantine action — FUTURE DESIGN RT-02 classifier bypass misclassified IMPLEMENTATION_FAILURE (EFFECTIVE by class) PROPOSE_MECHANISM_SUBSTITUTION scope-route proposal intent ❌ human-gate bypass BLOCKED — gate is action-shape-driven, recomputed at proposal time: PENDING_HUMAN_APPROVAL test_scope_routes_are_pending + TestDirective2ClassifierTruthGap (4) ◆ REFUTED (TEST-VERIFIED, 4-surface probe) * a wrong class mis-routes advisory content only — it can never convert a proposal into authority; zero state mutation on any gateway surface RT-03 obligation padding 50 trivial obligations satisfied / always-outstanding count->level mapping NONE < LOW (all satisfied) < MED < HIGH (≥2 outstanding) ❌ priority inversion BLOCKED — satisfied padding LOWERS priority; outstanding padding caps at HIGH (parity) -> created_at 2 regression tests satisfied-loses + outstanding-parity ◆ REFUTED (live probe + regression-locked) * the mapping is anti-Goodhart by ratified contract RT-04 SUCCEEDED masking A FAILED -> B fallback SUCCEEDED C executes on B's fallback outputs cone = hard-blocking predicate SUCCEEDED intermediate breaks propagation (by contract) provenance truthfulness B's artifacts link to B (real producer) masking is visibility-only A's cone + re-review candidates surface in the SAME digest as B's outputs ◆ PARTIALLY VALID, BY DESIGN * residual: edge-propagation policy / soft-dependency kind — FUTURE DESIGN (review §19) RT-05 hazard drift structurally-valid \"unavailable\" page provider API drift, 200 OK deterministic hazard specs drift sentinel * required_fields * value-semantics markers structured hazard only no semantic authority at the ingestion boundary defense-in-depth downstream garbage-but-valid content still lands as an artifact -> provenance + review + human gate ◆ CONFIRMED AS DESIGN * any drift detector would reintroduce the forbidden LLM dependency — FUTURE DESIGN if ever built F14 forged journal events forged event rows direct SQL into the journal one-verdict journal check keyed on gate task_id (F6/F9) ❌ tamper can only deny forged GatePassed -> one-verdict key, forged resolve -> ALREADY_RESOLVED test_11_forged_gate_events _can_refuse_but_never_authorize ◆ REFUTED (TEST-VERIFIED) * journal tampering can only DENY a verdict — it can never grant one (second resolve refused: NOT_WAITING) VERDICT: 3 refuted + test-verified * 1 test-pinned impossible * 2 accepted design with recorded residuals * 0 defects * no BLOCKER, no MUST FIX external closure attacks the refined directives (forge SourceRetracted -> ladder must not move; wrong class -> never state mutation; count-mapping extremes; forged journal events -> refuse, never authorize)\n## Provenance manifest  \n| diagram source | commit `48cf67d` + follow-ups; reconciliation record `hermes_redteam_reconciliation.md`; external report RT-01-RT-05; F14 journal-tamper closure (`test_11_forged_gate_events_can_refuse_but_never_authorize`); directive #2 probe (`TestDirective2ClassifierTruthGap`); F2/F4 constant-work probe family (register / gate-surface / LOCK / CLI / ingestion / tick-loop / hash-shape-parse / diagnostics / token-fuzz / legacy / register-refusal / brute-force — 19 probes; fuzz caught the legacy non-ASCII compare_digest crash, fixed fail-closed); F15-audit composition + Q-05 crossover (2 probes, 2 product fixes: mode-gated recovery second-miss + fail-closed dispatch claim) |  \n| --- | --- |  \n| files inspected | `src/hermes/research/controller.py` (record_source_retraction, retracted_source_review_candidates), `src/hermes/persistence/source_outcomes.py (PS-08 / HZ-02), `docs/idr/IDR-040.md` (authority boundary), `hermes_current_epistemic_architecture_review.md` (§19, §20), `tests/test_controller.py` (resolve_human_gate one-verdict F14) |  \n| tests pinning each lane | RT-01: test_two_observers_same_retraction_two_audit_events_one_seed, test_forged_retraction_events_never_touch_ladder_state, test_identical_retry_does_not_duplicate_the_event, test_fetch_without_retraction_hazard_emits_no_event * RT-02: test_scope_routes_are_pending, test_non_authority_actions_stay_effective, TestDirective2ClassifierTruthGap (4 surfaces), test_21_q05_operator_gate_resolution_never_touches_epistemic_state * RT-03: test_goodhart_padding_satisfied_obligations_never_wins, test_goodhart_padding_outstanding_caps_at_high * RT-04: test_succeeded_intermediate_breaks_the_blocking_chain * RT-05: tests/test_provider_hazards.py * F14: test_11_forged_gate_events_can_refuse_but_never_authorize, test_11_journal_one_verdict_under_status_tamper * F2 (new): test_12_f2_register_surface_pays_one_kdf_each, test_operator_register_cli_pays_one_kdf_per_attempt, test_12_f2_tick_loop_never_runs_pbkdf2_or_reads_credentials * F2 (latest): test_12_f2_hash_shape_parse_is_bounded, test_diagnostic_cli_surfaces_never_run_pbkdf2, test_12_f2_verify_token_fuzz_one_kdf_bounded, test_12_f2_register_verify_interleaved_controllers_one_kdf_each, test_12_f2_register_repeated_no_token_oracle, test_12_f2_verify_is_pure_function_of_hash_and_token, test_12_f2_register_refusal_reveals_no_token_shape, test_12_f2_wrong_token_brute_force_pays_linear_kdf_cost, test_register_cli_refusal_output_leaks_nothing_beyond_message, test_12_f2_operator_round_trip_latency_documented, test_status_audit_json_shape_operator_state_invisible, test_backup_restore_cost_is_size_proportional_not_content_dependent, test_cold_start_import_cost_is_state_independent, test_doctor_json_config_echo_leaks_only_operator_written_values, test_audit_json_output_size_is_visible_rows_only_not_an_oracle, test_audit_human_table_same_rows_null_project_unfiltered_only, test_status_human_table_hidden_state_invariant_and_bounded, test_doctor_sandbox_resolved_path_env_derived_only_in_checks, test_20_error_precedence_matrix_deterministic, test_20_cross_project_gate_resolution_refused, test_20_journal_coherence_each_outcome_exact_events, test_20_replay_after_restore_one_verdict_survives, test_events_cli_untruncated_fields_but_strict_subset, test_gate_resolve_output_echoes_only_attacker_input, test_verdict_requires_credential_operational_surfaces_do_not, test_cli_cross_project_gate_resolution, test_canary_token_never_leaks_any_surface * F2 (family): test_12_f2_unknown_operator_burn_runs_one_pbkdf2_not_skippable, test_12_f2_gate_surface_constant_work_one_kdf_each, test_12_f2_lock_path_pays_one_kdf_not_a_cheap_oracle, test_12_f2_lock_path_bounded_work_size_independent, test_gate_resolve_cli_pays_one_pbkdf2_per_outcome, test_12_f2_operator_decision_refusals_pay_one_kdf_each, test_12_f2_scope_decision_refusals_pay_one_kdf_each, test_12_f2_register_surface_pays_one_kdf_each, test_operator_register_cli_pays_one_kdf_per_attempt * F4 (corpus fuzz + legacy): test_12_f4_malformed_stored_hash_corpus_never_runs_pbkdf2, test_12_f4_legacy_64hex_credential_verifies_end_to_end, test_legacy_64hex_credential_gate_resolve_cli * F15-audit/Q-05 (composition): test_21_f15_heartbeat_cliff_operator_during_transition, test_21_q05_operator_gate_resolution_never_touches_epistemic_state, test_21_f15_paused_recovery_stays_no_signal_completes_after_resume, test_21_f15_rejected_gate_wave_stops_recovery_still_completes, test_21_f15_paused_revert_fresh_heartbeat_no_requeue, test_21_f15_rejected_gate_wave_redispatch_downstream, test_21_f15_chained_gates_rejected_property_schedules, test_21_f15_resolve_race_third_gate_partial_lease_stall_surfaced, test_21_f15_completion_budget_deep_wide_graph_not_a_false_stall, test_21_f15_completion_budget_mixed_mesh_depth_x_width, test_21_f15_third_gate_partial_lease_stall_property_schedules, test_21_f15_completion_budget_huge_fan_scaled_never_exhausted, test_21_f15_completion_budget_mesh_exact_product_boundary, test_21_f15_completion_budget_deep_fan_chain_total_nodes, test_21_f15_completion_budget_huge_fan_headroom_measured, test_21_f15_completion_budget_mixed_shape_mesh_sum_of_depths, test_21_f15_stalled_message_names_blocking_owner_row, test_21_f15_completion_budget_headroom_cap_sweep, test_21_f15_completion_budget_mixed_mesh_gate2_rejected, test_21_f15_stalled_owner_snapshot_lease_handoff, test_21_f15_completion_budget_unified_closed_form, test_21_f15_mixed_mesh_gate2_rejected_races_lease_holder, test_21_f15_stalled_owner_snapshot_double_handoff |  \n| probe evidence | two cross-task observers -> 2 audit events (distinct observed_by_task), advisory deduped to one seed; forged + corrupt + foreign events -> ladder identical, APPLY wrote nothing, 2 fail-closed notes |  \n| projection rule | diagrams are never authority; executable code and ratified IDRs win on any conflict (hermes_diagram_design_skill.md) |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/redteam_reconciliation.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/redteam_reconciliation.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "16279b44d4f88b78ee6c3f7ffc088d70429f60bcc09c12baf73b48b670faabf9",
+   "raw_markdown_sha256": "16279b44d4f88b78ee6c3f7ffc088d70429f60bcc09c12baf73b48b670faabf9",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/redteam_reconciliation.html",
+   "source_bytes": 23854,
+   "source_ref": "source_payload:s2-crawl4ai/redteam_reconciliation.html",
+   "source_sha256": "20a3e5389022a7a118c0d939456ca9409ae7608e189ba3b535383e2484407cb0",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "16279b44d4f88b78ee6c3f7ffc088d70429f60bcc09c12baf73b48b670faabf9",
+  "markdown_sha256_b": "16279b44d4f88b78ee6c3f7ffc088d70429f60bcc09c12baf73b48b670faabf9",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "6d3285c0c349a66dafc541ee54d9b5a686969a868975ebaea2ac17e74af69926",
+  "record_sha256_b": "6d3285c0c349a66dafc541ee54d9b5a686969a868975ebaea2ac17e74af69926",
+  "rerun_identical": true
+ }
+}

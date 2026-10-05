@@ -1,0 +1,53 @@
+  Ingested in 14.6s
+  Warning: 2 of 12 file patches failed to commit; the graph is missing those files. Re-run 'ix map' to retry, or --verbose to see why.
+  Mapped in 0.9s
+
+Architectural Map — 110 files · 30 regions
+System: Core
+Scope: 10 systems · 0 subsystems · 20 modules
+Clarity: 1 well-defined · 11 moderate · 18 fuzzy · 2 cross-cutting
+Showing up to 10 branches per level. Use --all-items to show everything.
+
+Architecture Graph
+  System → subsystem → module
+
+●  SYSTEM  Core  42 files  Moderate 69%  calls · imports
+   ├─  MODULE  Persistence  16  Moderate 60%  calls · imports
+   ├─  MODULE  Artifacts  7  Moderate 51%  calls · imports shared
+   ├─  MODULE  Research / Persistence  5  Moderate 55%  calls · imports
+   ├─  MODULE  Persistence (2)  3  Fuzzy 46%  calls · imports
+   ├─  MODULE  Hermes  3  Fuzzy 35%  calls · imports
+   ├─  MODULE  Core (2)  2  Fuzzy 43%  calls · imports
+   ├─  MODULE  Core (3)  2  Fuzzy 42%  calls · imports
+   ├─  MODULE  Core (4)  2  Fuzzy 41%  calls · imports
+   └─  MODULE  Core  2  Fuzzy 40%  calls · imports
+
+●  SYSTEM  Research  35 files  Moderate 58%  calls · path
+   ├─  MODULE  Providers  14  Well-defined 84%  calls · imports
+   ├─  MODULE  Research  7  Fuzzy 32%  path
+   ├─  MODULE  Research (2)  5  Fuzzy 50%  calls · imports
+   ├─  MODULE  Research (4)  3  Fuzzy 46%  calls · imports
+   ├─  MODULE  Research (5)  2  Fuzzy 43%  calls · imports
+   ├─  MODULE  Research (6)  2  Fuzzy 41%  calls · imports
+   └─  MODULE  Conftest  2  Fuzzy 14%  path
+
+●  SYSTEM  Tools  6 files  Fuzzy 26%  path
+
+●  SYSTEM  Agents  5 files  Moderate 63%  path
+
+●  SYSTEM  Engineering  4 files  Moderate 60%  path
+
+●  SYSTEM  Hazard Specs  4 files  Moderate 60%  path
+
+●  SYSTEM  Recovery  4 files  Moderate 54%  path
+
+●  SYSTEM  Artifacts  4 files  Fuzzy 34%  path
+
+●  SYSTEM  Security  2 files  Moderate 53%  path
+
+●  SYSTEM  Vault  2 files  Moderate 53%  path
+
+  ... 4 more top-level branches. Use --all-items to show all.
+
+Legend: cross-cutting = spans multiple subsystems.
+Run 'ix map --verbose' for confidence scores and raw metrics. Use --list for the ranked view.

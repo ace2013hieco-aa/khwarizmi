@@ -1,0 +1,7 @@
+{
+  "name": "redirect-to-evil",
+  "description": "A1 (P-AUTO-3 redteam MUST-FIX) regression fixture: a 3xx whose Location leaves the request's own https origin. The transport must refuse the hop — the 302 status is returned to the evaluator (and journaled), never chased.",
+  "initial_url": "https://api.openalex.org/works",
+  "evil_location": "https://evil.example.com/steal",
+  "refusal": "cross-origin redirect refused (same-origin https-only follow)"
+}

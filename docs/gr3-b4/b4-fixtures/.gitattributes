@@ -1,0 +1,7 @@
+# B4 fixtures are CONTENT-ADDRESSED: the file name IS the sha256 of the
+# file's own bytes. Any end-of-line conversion (core.autocrlf normalises
+# LF→CRLF on checkout for text files) would change those bytes and break
+# the name ⇔ digest binding, silently invalidating every fixture on a
+# fresh clone. These files are therefore explicitly NON-TEXT: git stores
+# and checks them out byte-for-byte, on every platform.
+*.json -text

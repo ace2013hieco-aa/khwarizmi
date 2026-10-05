@@ -1,0 +1,3297 @@
+{
+ "claims": [
+  {
+   "id": "first_page",
+   "quote": "Self-improving agents aim to continuously acquire new capabilities with minimal supervision.",
+   "rule": "longest text span on page 1",
+   "span": {
+    "bbox": [
+     75.007,
+     600.2526526,
+     271.1731520972,
+     233.0457743929203
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 1
+   }
+  },
+  {
+   "id": "middle_page",
+   "quote": "Learning. One form of self-improvement occurs in-weight, where an agent refines its weights through finetuning on self-generated problem-solving traces. This approach has demonstrated significant gains in reasoning performance (Zelikman et ",
+   "rule": "longest text span on page 8",
+   "span": {
+    "bbox": [
+     55.082,
+     703.7089794,
+     291.18346299999996,
+     348.2777743929203
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 8
+   }
+  },
+  {
+   "id": "last_page",
+   "quote": "Xie, T., Zhang, D., Chen, J., Li, X., Zhao, S., Cao, R., Hua, T.",
+   "rule": "longest text span on page 14",
+   "span": {
+    "bbox": [
+     55.44,
+     721.4626526,
+     292.4293599999999,
+     629.2237743929203
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 14
+   }
+  },
+  {
+   "id": "document",
+   "quote": "Learning. One form of self-improvement occurs in-weight, where an agent refines its weights through finetuning on self-generated problem-solving traces. This approach has demonstrated significant gains in reasoning performance (Zelikman et al., 2022; Aksitov et al., 2023; Singh et al., 2024), improved alignment with hu",
+   "rule": "longest text span overall",
+   "span": {
+    "bbox": [
+     55.082,
+     703.7089794,
+     291.18346299999996,
+     348.2777743929203
+    ],
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "kind": "text",
+    "page": 8
+   }
+  }
+ ],
+ "fixture_version": "s1-docling-fixture/1",
+ "negative_claims": [
+  {
+   "id": "fabricated",
+   "quote": "Qelf-improving agents aim to continuously acquire new capabilities with minimal supervision.",
+   "reason": "fabricated",
+   "rule": "first character replaced"
+  },
+  {
+   "id": "block_boundary",
+   "quote": "r 1\n\nAbs",
+   "reason": "block_boundary",
+   "rule": "quote spanning two payload blocks"
+  }
+ ],
+ "paper": {
+  "bytes": 495778,
+  "filename": "2506.05109v1.pdf",
+  "sha256": "5b07f2c903d293934b36ef43a0029a6de63da528f8237d0c8642070165717815",
+  "source_note": "vendored local fixture; not for redistribution",
+  "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers\\2506.05109v1.pdf"
+ },
+ "record": {
+  "content": {
+   "origin": "docling.pdf",
+   "ref": "source_payload:s1-docling/2506.05109v1.pdf",
+   "text": "Position: Truly Self-Improving Agents Require Intrinsic Metacognitive Learning\n\nTennison Liu 1 Mihaela van der Schaar 1\n\nAbstract\n\nSelf-improving agents aim to continuously acquire new capabilities with minimal supervision. However, current approaches face two key limitations: their self-improvement processes are often rigid, fail to generalize across tasks domains, and struggle to scale with increasing agent capabilities. We argue that effective self-improvement requires intrinsic metacognitive learning, defined as an agent's intrinsic ability to actively evaluate, reflect on, and adapt its own learning processes. Drawing inspiration from human metacognition, we introduce a formal framework comprising three components: metacognitive knowledge (self-assessment of capabilities, tasks, and learning strategies), metacognitive planning (deciding what and how to learn), and metacognitive evaluation (reflecting on learning experiences to improve future learning). Analyzing existing self-improving agents, we find they rely predominantly on extrinsic metacognitive mechanisms, which are fixed, human-designed loops that limit scalability and adaptability. Examining each component, we contend that many ingredients for intrinsic metacognition are already present. Finally, we explore how to optimally distribute metacognitive responsibilities between humans and agents, and robustly evaluate and improve intrinsic metacognitive learning, key challenges that must be addressed to enable truly sustained, generalized, and aligned self-improvement.\n\n1. Introduction\n\nMetacognition, colloquially known as \"thinking about thinking\" or \"learning about learning\", is a fundamental human ability that enables us to monitor and control our learning processes (Flavell, 1979). At its essence, metacognition involves applying metacognitive knowledge: our understanding of our capabilities, the demands of learning tasks, and the relative merit of different learning strategies. Through this knowledge, we evaluate our learning experiences and refine future plans to optimize learning outcomes.\n\n1 DAMTP, University of Cambridge, Cambridge, UK. Correspondence to: Tennison Liu <tl522@cam.ac.uk>.\n\nProceedings of the 42 nd International Conference on Machine Learning, Vancouver, Canada. PMLR 267, 2025. Copyright 2025 by the author(s).\n\nMetacognition is central to human intelligence and our ability to continuously improve and adapt across diverse environments (Brown, 1987). Consider an athlete learning a new sport: they begin by assessing their current abilities (e.g., strong endurance but limited agility), analyzing the skills required (e.g., ball handling), and identifying transferable training strategies from their previous sport (e.g., mastering fundamentals before advanced techniques). Drawing on this metacognitive knowledge, they develop a structured training plan that progresses from basic to complex drills. As they practice, they monitor performance metrics (e.g., pass success rates) and recognize when to seek coaching as self-practice reaches its limits. Throughout this process, metacognition continuously finetunes learning plans to optimize progress, functioning as an intrinsic process that can operate without external supervision (Cox, 2005).\n\nLarge Language Model (LLM)-based agents have achieved impressive performance across various domains (Gur et al., 2024; Lu et al., 2024; Wu et al., 2024). These agents are autonomous systems that leverage LLMs as their core decisionmaking engine, augmented with memory systems and tools for real-world interaction. However, current agents rely on human supervision and environmental feedback that are costly to scale, creating a bottleneck that limits the diversity and depth of their capabilities. This challenge has motivated growing research in self-improvement paradigms (Tao et al., 2024), where agents autonomously acquire and learn from experiences with minimal supervision. While selfimprovement promises to transcend the limitations of static, data-bound models and mark a shift toward more adaptive learning systems, current approaches face significant constraints. They rely on fixed, human-designed meta-processes that are ill-suited for sustained self-improvement (Zelikman et al., 2022; Song et al., 2024), or constrain learning to narrow domains (Park et al., 2023; Wang et al., 2023a).\n\nIn this position paper, we argue that sustainable, generalized self-improvement requires agents to develop intrinsic metacognitive learning abilities. This intrinsic capacity allows agents to autonomously and adaptively refine their learning strategies in response to shifting tasks and domains, reducing dependence on human-programmed meta-processes. Drawing from models of human metacognition, we formally introduce a framework for metacognitive learning (Section 3), defined as a meta-level process that monitors, evaluates, and regulates a lower-level learning process. Our framework consists of three core components: (1) metacognitive knowledge: the ability to assess one's capabilities, understand task demands, and evaluate learning strategies; (2) metacognitive planning: the strategic planning of what and how to learn; and (3) metacognitive evaluation: ongoing monitoring and reflection on learning progress. Intrinsic metacognitive learning, then, occurs when agents independently assess their learning, update metacognitive knowledge, and adapt learning plans to optimize long-term performance without relying on external mechanisms.\n\nThrough this framework, we reinterpret current selfimprovement methods as metacognitive processes, where human supervisors assume various metacognitive responsibilities (which we term extrinsic metacognition). These responsibilities include determining what to learn (by designing task spaces and acquisition metrics), how to learn (by specifying mechanisms for exploration and experiential learning), and metrics for evaluating self-improvement progress. We identify two scenarios where this fixed, extrinsic design can hamper sustained self-improvement: domain/- task distribution shift, where prescribed self-improvement processes may fall short in efficacy, requiring recurring human intervention for continual self-improvement in shifting tasks and domains; capability-mechanism mismatch, where fixed metacognitive mechanisms can become increasingly ineffective and misaligned as agent's capabilities evolve.\n\nThrough case studies, we explore diverse forms of intrinsic and extrinsic metacognitive learning, observing that selfimprovement potential increases when metacognitive functions are more intrinsic yet thoughtfully shared between humans and agents. By analyzing the intrinsic capabilities required for each metacognitive learning component in detail, we show that many essential ingredients are already present in today's LLM agents (Section 5). We conclude by identifying key gaps and open questions for advancing intrinsic metacognitive learning (Section 6). One challenge is developing models of shared metacognition, shifting from human-driven extrinsic approaches toward paradigms where metacognitive functions are optimally distributed. Another is evaluating and finetuning intrinsic metacognitive abilities to improve the efficiency and effectiveness of agent self-improvement. Finally, we underscore the need for scalable oversight: as agents autonomously develop capabilities, emergent risks such as unsafe behaviors, misaligned values, and reward hacking increase, demanding oversight mechanisms that evolve alongside agent capabilities.\n\n2. Preliminaries\n\n2.1. Intelligent Agents\n\nLanguage model agents (Xi et al., 2023; Yao et al., 2023; Gravitas, 2023; Wang et al., 2024; Hong et al., 2024) are compound systems that harness LLMs (Brown et al., 2020; Ouyang et al., 2022; Chowdhery et al., 2023) as their core computational engine for autonomous reasoning, planning, and action in real-world tasks. While traditional agents relied on handcrafted rules (Wilkins, 2014) or reinforcement learning (Sutton, 1988; Silver et al., 2016)-approaches that struggled to generalize across environments (Lake et al., 2017)-LLM-based agents leverage world knowledge and commonsense understanding acquired through large-scale training to adapt readily to novel tasks. This versatility has enabled applications across diverse domains, from web navigation (Nakano et al., 2021; Gur et al., 2024) and computer interaction (Wu et al., 2024; Xie et al., 2024) to scientific discovery (Lu et al., 2024) and gaming (Wang et al., 2023a).\n\nAgents. Following the cognitive architecture proposed in Sumers et al. (2024), an agent's behavior is primarily influenced by its decision-making policy, parameterized by the underlying LLM's weights and the agent's source code. The source code contains procedural instructions (commonly known as the system prompt) that are loaded into working memory at the start of each task. These instructions specify crucial operational aspects, such as using ReAct (Yao et al., 2023) for reasoning and planning, and defining instructions for interfacing with tool APIs (Schick et al., 2023) or memory retrievers (Lewis et al., 2020). The agent's working memory, practically realized through the LLM's context, maintains its current working state, effectively a concatenation of all previous states and actions.\n\nModules. Agents can be optionally equipped with two internal modules: a long-term memory store, encompassing semantic memory (facts and world knowledge) and episodic memory (the agent's own experiences); and a tool library, comprising callable APIs (e.g., a Python interpreter). These modules enhance the agent by providing persistent memory access and enabling real-world interaction through tools. At each decision point, the agent may take a grounded action, interacting with the external environment, where the next state is determined by the environment's transition function, or an internal action by interacting with its internal modules (e.g., retrieving from memory or calling an API).\n\n2.2. Agent Learning Mechanisms\n\nThere are two main pathways for learning new behaviors in LLM-based agents: training-based methods that directly optimize the weights, and training-free techniques that enhance the agent's source code or augment its internal modules. Training-based. The LLM's weights encode implicit procedural knowledge that can be refined through additional training. Prominent approaches include supervised (or imitation) learning from demonstrations (Cobbe et al., 2021; Chung et al., 2024; Zhang et al., 2024b) and reinforcement learning through online exploration (Bai et al., 2024; Havrilla et al., 2024). However, these methods face significant scaling challenges: they are constrained by costly expert annotations or limited to isolated interactive environments with narrow task distributions, typically producing specialist agents with restricted generalization capabilities.\n\nTraining-free. An alternative approach focuses on optimizing the agent's source code, tools, or memory systems. Prompt optimization techniques (Yang et al., 2024a; Guo et al., 2024) automatically refine procedural prompts to enhance performance. Notable advances by Khattab et al. (2024); Zhuge et al. (2024) conceptualize agent workflows as computational graphs, enabling both optimization of node-level prompts and improvement of overall orchestration (edge connectivity). Agents can also learn from experience by updating their long-termmemory: episodic trajectories can be stored in episodic memory (Park et al., 2023; Zhang et al., 2024a) for future retrieval, while new knowledge can be written into semantic memory, including discovered facts (Shinn et al., 2024), scientific insights (Lu et al., 2024), and enhanced tools (e.g., new Python functions) (Wang et al., 2023a; Wu et al., 2024).\n\nSelf-improvement. The challenges of obtaining human supervision and constructing rich learning environments have motivated research into self-improving agents (Tao et al., 2024). The self-improvement process involves meta-level mechanism that autonomously identify learning opportunities and enhance the agent's knowledge and capabilities through experiential learning. This approach substantially reduces the need for manual retraining interventions, while enabling rapid development of sophisticated capabilities and maintaining adaptability to real-world environments. Notable advances include methods that enhance agent reasoning by bootstrapping from self-generated traces (Zelikman et al., 2022; Aksitov et al., 2023) and improve alignment through self-instruction (Bai et al., 2022; Dong et al., 2023). While these approaches eliminate the need for ground-truth labels, they typically require predefined task pools. Recent work has expanded these boundaries by exploring LLMs' capacity to generate their own learning tasks, e.g., for alignment (Wang et al., 2023c) and robotics (Faldor et al., 2024).\n\n3. Defining Intrinsic Metacognitive Learning\n\n3.1. Formal Framework\n\nWe formally frame metacognitive learning as a lens through which to understand self-improvement. Metacognition was first investigated and formalized in developmental psychology, establishing its fundamental role in learning and education (Pintrich, 2002; Zimmerman & Schunk, 2013). Metacognition is a bi-level process in which a metacognitive layer monitors, evaluates, and regulates an underlying cognitive layer, which could generally entail reasoning, learning, or creative thinking. In our setting of self-improvement, the cognitive-level process is learning itself: engaging with tasks through sensing, acting, and learning from experience (i.e., experiential learning) (Kolb &Kolb, 2009). The metacognitive layer forms a higher-order, closed-loop mechanism that oversees and regulates the learning process to optimize long-term outcomes. More formally, we say:\n\nFigure 1. Overview of metacognitive learning.\n\nDefinition: Metacognitive Learning Metacognitive learning is a continuous learning process in which a metacognitive system leverages knowledge of learning goals, learning strategies, and agent capabilities (knowledge) to plan learning activities for the self-improving agent (planning), while continuously evaluating progress and refining future plans (evaluation).\n\nWe visualize the metacognitive learning process in Figure 1, noting that the definition is neutral to whether the metacognitive process is performed intrinsically by the agent or imposed extrinsically by a human-programmed mechanism.\n\nThe process comprises three key components: metacognitive knowledge, which includes meta-level understanding of an agent's capabilities (strengths, weaknesses, and existing skills) (Pintrich, 2002), task requirements, and available learning strategies (Serra & Metcalfe, 2009). This knowledge informs the use of metacognitive skills: planning, which guides resource allocation (what to learn) and learning approaches (how to learn); and evaluation, which closes the loop by assessing the effectiveness of the learning plan (Fleur et al., 2021). In Section 5, we examine how these components manifest in current LLM agents and assess the extent to which they demonstrate these capabilities.\n\n3.2. Intrinsic vs. Extrinsic Metacognitive Learning\n\nAt this point, we note that contemporary self-improving agents can be viewed through the lens of metacognitive learning. However, unlike human metacognition where the process is largely innate, these agents often rely on externally prescribed metacognitive mechanisms designed by human experts to control their learning process. These experts assume metacognitive responsibilities by implementing predefined mechanisms: acquisition metrics for task selection (in curriculum learning (Jiang et al., 2021) and bootstrapped self-training (Singh et al., 2024)), fixed task pools (Li et al., 2024a), static learning strategies (like finetuning (Zelikman et al., 2022) or RAG (Shinn et al., 2024)), and preprogrammed success metrics (Qi et al., 2024). The distinction between intrinsic and extrinsic metacognitive learning thus reflects the distribution of control of the metacognitive responsibilities: from self-driven adaptation or externallyimposed control of the self-improvement process. 1\n\nExtrinsic metacognitive learning faces two key challenges: limited adaptability and scalability. First, these mechanisms are typically fixed or externally updated, decoupling them from the agent's learning experiences and evolving capabilities. Second, they do not engage any meta-level reasoning from the learning agent, placing the burden of the metacognitive loop on humans. Consequently, we argue that such processes are insufficient for supporting scalable and generalized self-improvement, especially in two crucial scenarios:\n\n1 We acknowledge a philosophical tension in this definition: if a human programs or instructs an agent to reflect and plan its learning, is the process truly intrinsic? We reconcile this through a functional autonomy view, defining the process as intrinsic or extrinsic based on who exercises metacognitive control during learning: the agent or an external mechanism. While all agents are human-bootstrapped, what matters is whether the agent makes the decisions that shape its ongoing learning dynamics.\n\nThese challenges highlight the limitations of extrinsic metacognitive mechanisms. As an alternative, we advocate for intrinsic metacognitive learning, where the agent performs metacognitive functions internally. This activates the agent's meta-level reasoning to adapt its self-improvement processes as learning unfolds. By evolving alongside domain shifts and growing capabilities, such an approach could support more scalable and sustained self-improvement.\n\n3.3. Case Studies\n\nTo support our position and ground the principles of the metacognitive learning framework, we examine three selfimproving agents through detailed case studies. These agents exhibit progressively greater degrees of intrinsic metacognitive learning, illustrating how a shift toward intrinsic processes influences self-improvement dynamics.\n\nSTAR (Zelikman et al., 2022) showed how reasoning agents can bootstrap their capabilities to tackle increasingly complex tasks. Self-improvement begins with a small set of examples containing both reasoning traces and answers, alongside a larger dataset with answers only. The agent iteratively attempts new tasks and is finetuned on successful traces (those leading to correct answers). In STAR, metacognitive mechanisms are largely extrinsic: the agent lacks active metacognitive knowledge and does not assess its capabilities, understand task characteristics, or consider learning strategies. Task ordering is externally managed by finetuning on problems near the edge of the agent's competence, while learning strategies are guided through rationalization, using answer hints to generate reasoning traces. The agent also does not monitor its learning progress or adapt its self-improvement process. These extrinsic mechanisms are difficult to generalize across task domains, limiting the agent's ability to scale its learning autonomously.\n\nVoyager (Wang et al., 2023a) presented an LLM-based embodied agent for lifelong learning in Minecraft. The agent maintains a growing skill library (long-termmemory) and continually acquires new capabilities to perform increasingly complex actions. At the cognitive level, it learns new skills represented as executable Python functions. Voyager actively updates its metacognitive knowledge by tracking its capabilities and assessing candidate task characteristics. In planning its learning trajectory, it balances intrinsic goals like exploration and task learnability, and evaluates progress using metrics such as distinct skills acquired and items crafted. This marks a shift toward intrinsic metacognition: both metacognitive knowledge and planning are internalized. Voyager notably outperforms extrinsically guided baselines, including an expert-designed curriculum, underscoring the benefits of agent-directed learning. However, its learning strategy (how it acquires new skills) remains fixed and externally defined. The agent does not reflect on or adapt this strategy, applying the same exploration-learning loop across tasks. This may limit adaptability as domain complexity or agent capabilities grow (e.g., beyond tool crafting).\n\nFigure 2. Spectrum of shared metacognition. From intrinsic, to shared, and externally defined metacognitive processes.\n\nWhile not centered on acquiring problem-solving capabilities, Generative Agents (Park et al., 2023) simulate human behavior in a sandbox environment (The Sims), where agents autonomously interact, accumulate experiences, and develop distinct personas. The cognitive-level tasks involve everyday activities such as painting, socializing, or visiting caf´es. Agents maintain intrinsic metacognitive knowledge through an evolving understanding of their identities, motivations, and social relationships. They autonomously plan their daily activities, engage in spontaneous interactions, and refine their personalities over time through lived experience. A key metacognitive mechanism in the system is a reflection process. When triggered, agents perform abstract reflection (e.g., recognizing a newfound interest in academic research), updating their semantic memory in ways that shape future planning. This reflection process bears conceptual similarity to self-reflection techniques like Reflexion (Shinn et al., 2024), though with an important distinction. Reflexion operates at the cognitive level, improving performance on specific tasks via feedback on prior attempts. In contrast, Generative Agents reflect at the metacognitive level, reasoning over insights derived from cognitive-level activities to drive long-term behavioral evolution.\n\nThese preliminary observations suggest that self-improving agents with intrinsic metacognitive functions achieve more sustained progress, particularly in the diversity and novelty of their evolving capabilities. However, substantiating this hypothesis will require rigorous, systematic studies to more robustly assess the relative strengths and limitations of intrinsic versus extrinsic metacognitive learning.\n\n4. Alternative Views\n\nOne of the earliest lines of work to explore metacognition in AI systems is metareasoning, which distinguishes between object-level computation and meta-level control, motivated by the need to manage computational costs under resourcebounded rationality (Russell & Wefald, 1991). Metareasoning is viewed as a higher-level process that monitors and regulates object-level reasoning or decision-making. A prominent application is in anytime algorithms, where solution quality improves over time and computation can be interrupted at any point (notably, learning can be viewed as an anytime process). For example, Davis (1980) introduced metarules to guide inference in rule-based expert systems, and Genesereth & Smith (1983) used logic programming to reason about which computations to perform. While focused on reasoning, this line of work offers conceptual tools, e.g., resource allocation and decision-making under uncertainty, could prove relevant to learning-centric metacognition.\n\nRecent work has explored metacognition's role in the context of LLM agentic systems, though primarily focusing on its regulation of thinking and problem-solving processes rather than learning and self-improvement processes. Wei et al. (2024) investigated metacognition's potential to enhance AI capabilities across four domains: improving understanding of black-box systems, strengthening reasoning through self-reflection, increasing adaptability via error detection and correction, and refining perception through metacognitive assessment. They proposed neurosymbolic techniques to achieve these capabilities. Similarly, Johnson et al. (2024) examined how metacognition helps agents approach 'intractable' problems: those characterized by ambiguity, uncertainty, novelty, or computational complexity. Their work elucidates the relationship between cognitivelevel strategies (e.g., heuristics, analogical reasoning) and metacognitive processes, showing how the latter can regulate the former by seeking additional inputs, selecting appropriate strategies, and dynamically adjusting based on outcomes. While these contributions advance our understanding of metacognition in AI, they complement our position by focusing on task-specific problem-solving rather than the application of metacognition to enhance self-improvement.\n\nTankelevitch et al. (2024) examined metacognition in human-LLM interactions, focusing on the metacognitive demands placed on human users. Their findings show that effective use of LLMs requires considerable metacognitive effort from users to evaluate and control outputs, motivating the development of support mechanisms such as explainability and customizability to alleviate this cognitive burden. In a related position, Hughes et al. (2024) argues that open-endedness, the capacity to continually generate novel, learnable artifacts, is a core requirement for artificial superintelligence. Viewed through this lens, intrinsic metacognitive learning offers a potential pathway for learning agents to exhibit open-ended evolution.\n\n5. Towards Intrinsic Metacognitive Learning\n\nThis section analyzes the core components of intrinsic metacognitive learning: metacognitive knowledge, planning, and evaluation. While many examples focus on metacognition in reasoning, the analysis remains relevant, as the only distinction lies in the nature of the cognitive-level task. Whether the agent is reasoning or learning, metacognitive systems operates at a higher level to monitor, regulate, and adapt the underlying process. By assessing the extent to which these intrinsic abilities are present and identifying areas requiring further development, we aim to clarify the path towards realizing intrinsic metacognitive learning.\n\n5.1. Metacognitive Knowledge\n\nIntrinsic metacognitive knowledge refers to an agent's ability to assess its own capabilities, understand task demands, and evaluate potential learning strategies. Traditional machine learning agents have not required such abilities, as they operate within fixed frameworks: with predefined datasets (what to learn), algorithms and optimizers (how to learn), and objective functions (learning goals). In contrast, agentic metacognition, where agents actively construct and apply self-knowledge, represents a recent shift toward more adaptive and autonomous learning systems.\n\nThe emergence of intrinsic metacognitive knowledge has been enabled by generalist LLM-based agents, which embed world knowledge and exhibit human-esque, contextsensitive reasoning and reflection. Recent research has both supported and challenged LLM agents' metacognitive knowledge. Studies have shown that agents can classify mathematical problems based on required solution procedures (Didolkar et al., 2024), demonstrating awareness of their skills and how to apply them. Sachdeva et al. (2024) revealed that LLM agents can identify beneficial training tasks for improving their capabilities, while Wang et al. (2023a); Wu et al. (2024) demonstrated the intrinsic ability to evaluate their current competencies and select learning tasks that would help them acquire new skills.\n\nThe most significant challenge to claims of metacognitive knowledge comes from LLM hallucinations, instances where models fail to accurately represent their internal knowledge state (Bender et al., 2021). Other notable limitations include agents' inability to reliably assess their capacity to perform tasks (Kadavath et al., 2022), their confusion about their own capabilities (e.g., access to real-time tools), and their lack of goal awareness (Li et al., 2024b). However, it is worth noting that humans also exhibit systematic errors in self-assessment, such as familiarity bias (Serra &Metcalfe, 2009) and foresight bias (Koriat &Bjork, 2005). In Section 6.2, we discuss some strategies to mitigate hallucinations and enhance metacognitive knowledge.\n\n5.2. Metacognitive Skill: Evaluation\n\nIntrinsic metacognitive evaluation encompasses two key aspects: ongoing assessment of learning progress, and reflective analysis of past learning experiences to gauge the effectiveness of strategies and refine future learning approaches.\n\n5.2.1. TRACKING PROGRESS\n\nFor well-defined capabilities and goals, progress has traditionally been measured through empirical metrics on heldout datasets, using benchmarks for language understanding, mathematical problem-solving, and abstract reasoning (Chollet, 2019; Hendrycks et al., 2021). Self-improvements can then be tracked through improvements in these measurable metrics (Zelikman et al., 2022; Aksitov et al., 2023). However, conventional benchmarks, with their focus on static and narrow task distributions, struggle to evaluate increasingly complex capabilities. While human evaluation offers an alternative (Chiang et al., 2024), it proves similarly time-consuming and difficult to scale. Recent advances have shown that LLM agents can effectively serve as human proxies for intrinsic performance evaluation (Cobbe et al., 2021; Chen et al., 2024a). Notably, LLM-based evaluations excel precisely where quantifiable metrics fall short: assessing difficult-to-measure aspects such as emotional intelligence (Wang et al., 2023b), human preferences (Bai et al., 2022; Zheng et al., 2023), and making fine-grained subjective judgments about creativity (Bradley et al., 2024) and interestingness (Zhang et al., 2024c). This suggests a promising complementarity between external objective metrics and intrinsic evaluation approaches.\n\n5.2.2. METACOGNITIVE REFLECTION\n\nThis stage of evaluation completes the metacognitive feedback loop by assessing the effectiveness of learning plans and enabling dynamic adjustments to future planning. Unlike task-level reflection, which focuses on improving performance on individual tasks, metacognitive reflection evaluates the agent's overall learning process. It analyzes longterm progress to assess the quality of learning strategies and inform future adaptations. For example, an agent might evaluate how well it allocated effort across tasks with varying characteristics (Wang et al., 2023a; Zhang et al., 2024c), or compare the effectiveness of memory-based learning versus finetuning. Although cognitive- and metacognitive-level reflection operate at different levels of abstraction, they share underlying mechanisms: assessing performance (e.g., action-level rewards vs. learning progress) and making targeted adjustments (e.g., refining task execution vs. revising learning strategies) (Shinn et al., 2024; Madaan et al., 2024).\n\nGiven this, it is worthwhile to ponder the differences between cognitive- and metacognitive-level reflection. A central distinction lies in their observability: metacognitive reflection often has access to more complete information about the cognitive process: for example, evaluating a learning plan based on its long-term impact on learning progress. In contrast, cognitive-level reflection typically relies on partial or noisy signals from the environment, such as observations of future states and rewards (Russell &Wefald, 1991). Additionally, because metacognitive reflection operates over representations of the cognitive process, it can, in principle, be domain-agnostic. Whether the agent is learning to reason, navigate, or manipulate objects, the structure and function of the metacognitive loop may remain largely consistent, so long as the agent can extract suitable, domain-specific representations of learning progress and outcomes for evaluation.\n\n5.3. Metacognitive Skill: Planning\n\nMetacognitive planning is the process by which an agent dynamically refines its learning approaches based on metacognitive evaluations. This involves setting sub-goals, allocating resources, and selecting appropriate learning strategies. At its core, planning revolves around two key considerations: what to learn: determining which tasks are most effective for promoting learning (a resource allocation question), and how to learn: identifying the most efficient mechanisms for acquiring new capabilities (a strategy question).\n\n5.3.1. WHAT TO LEARN?\n\nThe question of what to learn has traditionally been addressed through curriculum learning (Bengio et al., 2009), which assumes a large-scale task pool and seeks to optimize the selection and sequencing of tasks to accelerate knowledge acquisition. In this vein, Dennis et al. (2020); Bauer et al. (2023) introduced expansive, parameterized task distributions where tasks are sequentially sampled based on estimated agent regret, demonstrating sustained skill acquisition. These self-improvement approaches were largely guided by extrinsic planning, with expert-curated task pools and -imposed acquisition methods. More recent advances, however, have shifted control toward the agent itself by leveraging intrinsic drivers such as curiosity and learnability. Approaches like those in Wang et al. (2023a); Zhang et al. (2024c); Lu et al. (2024) use internal notions of exploration, curiosity, and planning to autonomously propose new learning tasks to refine capabilities. Surprisingly, these intrinsic mechanisms often outperform traditional, human-crafted acquisition formulas, which can mischaracterize learning objectives and introduce unintended biases or inefficiencies.\n\nA major challenge lies in enabling agents to acquire tasks beyond those in pools predefined by human experts. Faldor et al. (2024); Wu et al. (2024) address this by allowing agents to autonomously generate tasks, defining them through Python functions. Another promising direction involves the development of world models that can create arbitrary task environments based on descriptions produced by learning agents (Yang et al., 2024b; Bruce et al., 2024). A separate, yet crucial, challenge lies in obtaining accurate and robust feedback for these generated tasks. Machine learning systems typically rely on well-defined rewards from reliable oracles to guide effective learning, resources that are often unavailable for synthetic tasks. To mitigate this, self-improving agents have demonstrated the ability to learn from partial or synthesized feedback, such as code execution traces (Jiang et al., 2023), or heuristics that identify high-reward actions (e.g., self-consistency (Zelikman et al., 2022)). However, the long-term effectiveness of these approaches remains an open question (Song et al., 2024).\n\nRecent evidence suggests that foundation models can serve as an alternative source of proxy feedback. Techniques such as generating test cases (Chen et al., 2024b), evolving reward functions (Ma et al., 2024), or querying foundation models for estimated rewards (Aksitov et al., 2023; Rocamonde et al., 2024; Chen et al., 2024a) have shown promise. The integration of generalized task generators with comparably general reward models could unlock the full potential of intrinsic metacognition, pushing their self-improvement beyond human-prescribed and finite task sets.\n\n5.3.2. HOW TO LEARN?\n\nAt a high level, most learning processes typically consist of two key phases: exploration, where the agent acquires new experiences, and learning, where it extracts knowledge from accumulated experiences. Exploration. Various strategies have been developed to enhance exploration. In self-training approaches, a common technique is to modify the agent's policy distribution to promote greater exploration. For instance, temperature scaling is used to encourage sampling of more diverse reasoning paths (Singh et al., 2024; Dong et al., 2023). Other methods introduce uncertainty-guided exploration, such as upper-confidence bound (UCB) techniques for tree search (Hao et al., 2023), iterative exploration driven by self- or LLM-generated feedback (Shinn et al., 2024; Zhao et al., 2024a), and prompt-based instructions designed to encourage agents to seek novel experiences (Lu et al., 2024; Wang et al., 2023a). These exploration strategies aim to increase the likelihood of acquiring experiences that are conducive to acquiring new capabilities, which can then be reinforced to improve the agent's capabilities.\n\nLearning. One form of self-improvement occurs in-weight, where an agent refines its weights through finetuning on self-generated problem-solving traces. This approach has demonstrated significant gains in reasoning performance (Zelikman et al., 2022; Aksitov et al., 2023; Singh et al., 2024), improved alignment with human principles (Wang et al., 2023c; Dong et al., 2023), and facilitated trial-anderror learning in self-generated reinforcement learning (RL) environments (Faldor et al., 2024; Qi et al., 2024). Selfimprovement can also take place through long-term memory updates, where agents store and retrieve both positive and negative episodic experiences for future tasks (Zhang et al., 2024a). Additionally, agents can encode abstract decisionmaking rules or heuristics (Yang et al., 2023; Zhao et al., 2024a) to improve future performance, or accumulate new skills as reusable functions (Wang et al., 2023a; Wu et al., 2024; Zhao et al., 2024b). A critical concern in sustained learning is addressing the risk of catastrophic forgetting. As agents continuously acquire new capabilities, they must also preserve core competencies, raising the classic stabilityplasticity dilemma: how to balance the integration of new knowledge with the retention of prior expertise (Dohare et al., 2024). This tension is particularly pronounced in longterm, open-ended self-improvement. Existing strategies, such as replay-based methods, which interleave past and present experiences, and divergence-based penalties, which constrain updates to avoid drifting too far from prior policies (Ouyang et al., 2022), offer partial solutions. However, whether such approaches can scale to support sustained self-improvement over time remains an open question.\n\nDespite a growing range of exploration and learning strategies, most self-improving agents still rely on fixed learning mechanisms, applied uniformly across tasks and over time. Few, if any, systems attempt to adapt or revise how learning occurs in response to changing conditions. This remains one of the most underdeveloped aspects of intrinsic metacognition. In practice, learning mechanisms are complementary: finetuning refines core reasoning abilities, while memory updates offers a scalable means of accumulating factual knowledge or reusable tools. To succeed in open-ended environments and shifting task distributions, agents must move beyond static learning routines. A truly self-improving agent must not only select effective strategies autonomously, but also continually reflect on and evolve its learning mechanisms to sustain long-term progress.\n\n6. Open Questions\n\n6.1. Optimal Modes of Shared Metacognition\n\nSo far, we have emphasized that some degree of intrinsic metacognitive learning is essential for self-improvement and that intelligent agents already possess many of the necessary capabilities to achieve this. However, an open question remains: how should metacognitive functions be optimally distributed between agents and humans? At one extreme, purely intrinsic metacognition grants the agent complete autonomy to define its own improvement goals and regulate its learning progress. At the other extreme, fully extrinsic metacognition relies on continuous human oversight to expand task pools, define acquisition functions, design learning mechanisms, and actively monitor the agent's evolving capabilities. Neither approach is entirely practical. Pure intrinsic metacognition risks the agent becoming trapped in unproductive learning loops, where no meaningful selfimprovement occurs. Worse, unchecked self-improvement without external guidance could lead to misalignment with human values, principles, and needs. Conversely, pure extrinsic metacognition is constrained by human limitations, continuous monitoring and control introduce bottlenecks that slow progress and hinder scalability.\n\nThis suggests that an effective approach potentially lies in shared metacognition: a balanced framework where both humans and agents share metacognitive responsibilities in evaluation and planning. In Figure 2, we illustrate several possible modes of shared metacognition. Shared responsibility: Humans and agents collaboratively oversee learning progress, with metacognitive functions distributed based on their respective strengths. Hierarchical guidance: Humans define high-level objectives and constraints, while agents autonomously manage learning and self-improvement within those boundaries. Gradual handoff : The system gradually shifts from human-dominated mechanisms to increasing agent autonomy as its intrinsic metacognitive capabilities, trustworthiness, and transparency improve.\n\n6.2. Finetuning Intrinsic Metacognition\n\nWhile much of this discussion has centered on how intrinsic metacognitive capabilities can scale and generalize self-improvement, an equally important question is how these capabilities are themselves developed and finetuned in self-improving agents. For intrinsic metacognitive learning to function effectively, the agent must possess a sufficiently robust metacognitive foundation. As discussed earlier, LLM agents are prone to hallucinations, planning and reflection failures that can undermine core metacognitive functions-such as self-assessment, evaluation, and planning-ultimately impairing their ability to improve learning strategies. Furthermore, as agents evolve, there is no guarantee that their initial metacognitive capacities will remain sufficient or aligned to continuously guide self-improvement.\n\nOne approach to this challenge is to mirror the development of metacognitive abilities in humans. Just as students progress from heavily supervised education to increasingly autonomous graduate research, agents can gradually acquire metacognitive skills. Early development of metacognitive capabilities can rely on human-labeled or curated signals to train or finetune intrinsic metacognition, for example, using reward models to evaluate task selection or learning strategies. This can be complemented by intrinsic metacognitive reflection, where the agent compares learning outcomes across different strategies and adjusts accordingly. These two approaches can be scaffolded: human supervision guides initial metacognitive developments, which the agent then continues to evolve these meta-level skills online during self-improvement. Another promising direction is evolutionary selection (Standish, 2003), where multiple parallel metacognitive learning trajectories are explored in tandem. In this framework, metacognitive capabilities can cross-pollinate and adapt, with selection pressure favoring agents that demonstrate more effective self-improvement.\n\n6.3. Evaluating Intrinsic Metacognition\n\nAnother important open question pertains to evaluating intrinsic metacognitive capabilities. Reliable evaluation is essential not only for tracking an agent's potential for sustained self-improvement over time, but also as feedback for finetuning metacognitive capabilities. Broadly, we identify three complementary evaluation approaches. The first is an outcome-based approach, which assesses the selfimprovement achieved by an intrinsic metacognitive learning process: for example, by measuring the rate at which an agent acquires new capabilities or improves on held-out tasks over time. The underlying assumption is that, ceteris paribus, stronger intrinsic metacognition should be observed in more effective self-improvement, though this connection remains indirect. A second, more direct approach is taskbased: evaluating how efficiently and effectively an agent can learn on a previously unseen probe task. Here, stronger intrinsic metacognitive abilities should enable better selfassessment, planning, and strategy adjustment, leading to faster learning and better overall performance.\n\nA third approach is component-level evaluation, which seeks to assess individual metacognitive functions. For example, whether the agent accurately estimates task difficulty (knowledge) or effectively reflects on past learning experiences (evaluation) to identify the most appropriate learning strategy (planning). This often requires counterfactual assessment to determine whether better meta-level decisions were available but not chosen, introducing practical challenges. Across all three approaches, a central difficulty is non-stationarity: as an agent's capabilities and intrinsic metacognitive functions evolve, the evaluation testbed must adapt accordingly to remain discriminative and relevant. Moreover, effective assessment depends on a high degree of transparency or explainability, allowing metacognitive decisions to be interpreted and meaningfully evaluated.\n\n6.4. Scalable and Safe Oversight\n\nAs metacognitive learning agents grow more autonomous and capable, static or conventional oversight mechanisms will no longer suffice. Left to learn in full autonomy, agents risk developing unsafe behaviors (Zhuang & HadfieldMenell, 2020), misaligned values (Russell, 2022), or reward hacking (Krakovna et al., 2020). These risks are compounded by a lack of transparency around meta-level decisions that shape the agent's learning trajectory and the capabilities it acquires over time. Addressing these challenges requires oversight that is both scalable and adaptiveevolving in tandem with the agent's growth. A key mechanism is the imposition of safety constraints: hard limits on potentially unsafe behaviors or capabilities that must be continuously evaluated and updated as the agent self-improves. Ensuring value alignment is equally essential, demanding robust monitoring and continued evaluation to confirm that the agent's learning goals remain safe and consistent with human intent. Finally, effective oversight must incorporate robust interpretability tools, enabling humans to trace and understand self-improvement decisions, evaluate emerging capabilities, and intervene when necessary (Nick, 2014).\n\nAnother critical challenge arises at the deployment stage. While current agentic systems operate in relatively narrow and controlled environments, general-purpose autonomous agents will likely be deployed in vastly more dynamic, possibly real-world, settings. This shift necessitates large-scale monitoring and rapid intervention mechanisms, not only within controlled sandbox environments but also in physical and digital domains where unintended consequences must be mitigated swiftly. A particularly delicate aspect of real-world deployment is online exploration, where an agent actively evaluates and refines its learning through trial and error. In our view, until robust and continuous monitoring and intervention mechanisms are in place, exploration-based learning should be strictly confined to contained sandboxes.\n\n7. Conclusion\n\nSelf-improvement is a promising path toward scaling LLM agents to general intelligence. However, current approaches rely on human-designed processes that struggle to adapt to shifting task distributions and increasing agent capabilities. We argue that sustained and generalized self-improvement requires intrinsic metacognition, where agents actively evaluate, plan, and refine their own learning processes. Furthermore, many of the foundational capabilities for metacognitive learning already exist in contemporary agents. Realizing this vision requires advancing shared metacognition, where humans and agents collaboratively manage selfimprovement processes, addressing challenges in evaluating and finetuning intrinsic metacognition, and developing scalable oversight mechanisms to ensure safety and alignment.\n\nImpact Statement\n\nThis paper argues that metacognitive learning, the intrinsic ability of self-improving agents to evaluate and regulate their own learning, is essential for scaling intelligence. While this approach holds great promise, it also raises critical concerns about scalable and safe oversight. In Section 6.4, we emphasized these risks and proposed mitigation strategies. However, ensuring alignment, preventing unintended behaviors, and maintaining transparency remain open challenges. Addressing these issues is crucial to realizing the potential of self-improving agents while ensuring their safe and responsible deployment.\n\nAcknowledgements\n\nWe thank the anonymous ICML reviewers, members of the van der Schaar lab, and Andrew Rashbass for many insightful comments and suggestions. TL would like to thank AstraZeneca for their sponsorship and support. This work was supported by Microsoft's Accelerate Foundation Models Academic Research initiative.\n\nReferences\n\nAksitov, R., Miryoosefi, S., Li, Z., Li, D., Babayan, S., Kopparapu, K., Fisher, Z., Guo, R., Prakash, S., Srinivasan, P., et al. Rest meets react: Self-improvement for multi-step reasoning llm agent. arXiv preprint arXiv:2312.10003, 2023.\n\nBai, H., Zhou, Y., Cemri, M., Pan, J., Suhr, A., Levine, S., and Kumar, A. Digirl: Training in-the-wild devicecontrol agents with autonomous reinforcement learning. arXiv preprint arXiv:2406.11896, 2024.\n\nBai, Y., Kadavath, S., Kundu, S., Askell, A., Kernion, J., Jones, A., Chen, A., Goldie, A., Mirhoseini, A., McKinnon, C., et al. Constitutional ai: Harmlessness from ai feedback. arXiv preprint arXiv:2212.08073, 2022.\n\nBauer, J., Baumli, K., Behbahani, F., Bhoopchand, A., Bradley-Schmieg, N., Chang, M., Clay, N., Collister, A., Dasagi, V., Gonzalez, L., et al. Human-timescale adaptation in an open-ended task space. In International Conference on Machine Learning, pp. 1887-1935. PMLR, 2023.\n\nBender, E. M., Gebru, T., McMillan-Major, A., and Shmitchell, S. On the dangers of stochastic parrots: Can language models be too big? In Proceedings of the 2021 ACM conference on fairness, accountability, and transparency, pp. 610-623, 2021.\n\nBengio, Y., Louradour, J., Collobert, R., and Weston, J. Curriculum learning. In Proceedings of the 26th annual international conference on machine learning, pp. 41-48, 2009.\n\nBradley, H., Dai, A., Teufel, H. B., Zhang, J., Oostermeijer, K., Bellagente, M., Clune, J., Stanley, K., Schott, G., and Lehman, J. Quality-diversity through AI feedback. In The Twelfth International Conference on Learning Representations, 2024. URL https://openreview. net/forum?id=owokKCrGYr.\n\nBrown, A. Metacognition, executive control, self-regulation, and other more mysterious mechanisms. Metacogniton, motivation, and understanding/Lawrence Erlbaum Associates, 1987.\n\nBrown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. Advances in neural information processing systems, 33: 1877-1901, 2020.\n\nBruce, J., Dennis, M. D., Edwards, A., Parker-Holder, J., Shi, Y., Hughes, E., Lai, M., Mavalankar, A., Steigerwald, R., Apps, C., et al. Genie: Generative interactive environments. In Forty-first International Conference on Machine Learning, 2024.\n\nChen, G., Liao, M., Li, C., and Fan, K. Alphamath almost zero: Process supervision without process. In The Thirty-eighth Annual Conference on Neural Information Processing Systems, 2024a. URL https:// openreview.net/forum?id=VaXnxQ3UKo.\n\nChen, X., Lin, M., Sch¨arli, N., and Zhou, D. Teaching large language models to self-debug. In The Twelfth International Conference on Learning Representations, 2024b. URL https://openreview.net/forum? id=KuPixIqPiq.\n\nChiang, W.-L., Zheng, L., Sheng, Y., Angelopoulos, A. N., Li, T., Li, D., Zhu, B., Zhang, H., Jordan, M., Gonzalez, J. E., and Stoica, I. Chatbot arena: An open platform for evaluating LLMs by human preference. In Fortyfirst International Conference on Machine Learning, 2024. URL https://openreview.net/forum? id=3MW8GKNyzI.\n\nChollet, F. On the measure of intelligence. arXiv preprint arXiv:1911.01547, 2019.\n\nChowdhery, A., Narang, S., Devlin, J., Bosma, M., Mishra, G., Roberts, A., Barham, P., Chung, H. W., Sutton, C., Gehrmann, S., et al. Palm: Scaling language modeling with pathways. Journal of Machine Learning Research, 24(240):1-113, 2023.\n\nChung, H. W., Hou, L., Longpre, S., Zoph, B., Tay, Y., Fedus, W., Li, Y., Wang, X., Dehghani, M., Brahma, S., et al. Scaling instruction-finetuned language models. Journal of Machine Learning Research, 25(70):1-53, 2024.\n\nCobbe, K., Kosaraju, V., Bavarian, M., Chen, M., Jun, H., Kaiser, L., Plappert, M., Tworek, J., Hilton, J., Nakano, R., et al. Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168, 2021.\n\nCox, M. T. Metacognition in computation: A selected history. In AAAI Spring Symposium: Metacognition in Computation, pp. 1-17, 2005.\n\nDavis, R. Meta-rules: Reasoning about control. Artificial intelligence, 15(3):179-222, 1980.\n\nDennis, M., Jaques, N., Vinitsky, E., Bayen, A., Russell, S., Critch, A., and Levine, S. Emergent complexity and zero-shot transfer via unsupervised environment design. Advances in neural information processing systems, 33: 13049-13061, 2020.\n\nDidolkar, A., Goyal, A., Ke, N. R., Guo, S., Valko, M., Lillicrap, T., Rezende, D., Bengio, Y., Mozer, M., and Arora, S. Metacognitive capabilities of llms: An exploration in mathematical problem solving. arXiv preprint arXiv:2405.12205, 2024.\n\nDohare, S., Hernandez-Garcia, J. F., Lan, Q., Rahman, P., Mahmood, A. R., and Sutton, R. S. Loss of plasticity in deep continual learning. Nature, 632(8026):768-774, 2024.\n\nDong, H., Xiong, W., Goyal, D., Zhang, Y., Chow, W., Pan, R., Diao, S., Zhang, J., SHUM, K., and Zhang, T. RAFT: Reward ranked finetuning for generative foundation model alignment. Transactions on Machine Learning Research, 2023. ISSN 2835-8856. URL https: //openreview.net/forum?id=m7p5O7zblY.\n\nFaldor, M., Zhang, J., Cully, A., and Clune, J. Omni-epic: Open-endedness via models of human notions of interestingness with environments programmed in code. arXiv preprint arXiv:2405.15568, 2024.\n\nFlavell, J. H. Metacognition and cognitive monitoring: A new area of cognitive-developmental inquiry. American psychologist, 34(10):906, 1979.\n\nFleur, D. S., Bredeweg, B., and van den Bos, W. Metacognition: ideas and insights from neuro-and educational sciences. npj Science of Learning, 6(1):13, 2021.\n\nGenesereth, M. R. and Smith, D. An overview of meta-level architecture. In AAAI, pp. 119-124, 1983.\n\nGravitas, S. Auto-gpt: An autonomous gpt-4 experiment, 2023. URL https://github. com/Significant-Gravitas/AutoGPT, 2(3):4, 2023.\n\nGuo, Q., Wang, R., Guo, J., Li, B., Song, K., Tan, X., Liu, G., Bian, J., and Yang, Y. Connecting large language models with evolutionary algorithms yields powerful prompt optimizers. In The Twelfth International Conference on Learning Representations, 2024. URL https: //openreview.net/forum?id=ZG3RaNIsO8.\n\nGur, I., Furuta, H., Huang, A. V., Safdari, M., Matsuo, Y., Eck, D., and Faust, A. A real-world webagent with planning, long context understanding, and program synthesis. In The Twelfth International Conference on Learning Representations, 2024. URL https://openreview. net/forum?id=9JQtrumvg8.\n\nHao, S., Gu, Y., Ma, H., Hong, J. J., Wang, Z., Wang, D. Z., and Hu, Z. Reasoning with language model is planning with world model. In The 2023 Conference on Empirical Methods in Natural Language Processing, 2023. URL https://openreview.net/forum? id=VTWWvYtF1R.\n\nHavrilla, A., Du, Y., Raparthy, S. C., Nalmpantis, C., Dwivedi-Yu, J., Zhuravinskyi, M., Hambro, E., Sukhbaatar, S., and Raileanu, R. Teaching large language models to reason with reinforcement learning. arXiv preprint arXiv:2403.04642, 2024.\n\nHendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika, M., Song, D., and Steinhardt, J. Measuring massive multitask language understanding. In International Conference on Learning Representations, 2021. URL https:// openreview.net/forum?id=d7KBjmI3GmQ.\n\nHong, S., Zhuge, M., Chen, J., Zheng, X., Cheng, Y., Wang, J., Zhang, C., Wang, Z., Yau, S. K. S., Lin, Z., Zhou, L., Ran, C., Xiao, L., Wu, C., and Schmidhuber, J. MetaGPT: Meta programming for a multi-agent collaborative framework. In The Twelfth International Conference on Learning Representations, 2024. URL https: //openreview.net/forum?id=VtmBAGCN7o.\n\nHughes, E., Dennis, M. D., Parker-Holder, J., Behbahani, F., Mavalankar, A., Shi, Y., Schaul, T., and Rockt¨aschel, T. Position: Open-endedness is essential for artificial superhuman intelligence. In Salakhutdinov, R., Kolter, Z., Heller, K., Weller, A., Oliver, N., Scarlett, J., and Berkenkamp, F. (eds.), Proceedings of the 41st International Conference on Machine Learning, volume 235 of Proceedings of Machine Learning Research, pp. 20597-20616. PMLR, 21-27 Jul 2024. URL https://proceedings.mlr.press/ v235/hughes24a.html.\n\nJiang, M., Grefenstette, E., and Rockt¨aschel, T. Prioritized level replay. In International Conference on Machine Learning, pp. 4940-4950. PMLR, 2021.\n\nJiang, S., Wang, Y., and Wang, Y. Selfevolve: A code evolution framework via large language models. arXiv preprint arXiv:2306.02907, 2023.\n\nJohnson, S. G., Karimi, A.-H., Bengio, Y., Chater, N., Gerstenberg, T., Larson, K., Levine, S., Mitchell, M., Rahwan, I., Sch¨olkopf, B., et al. Imagining and building wise machines: The centrality of ai metacognition. arXiv preprint arXiv:2411.02478, 2024.\n\nKadavath, S., Conerly, T., Askell, A., Henighan, T., Drain, D., Perez, E., Schiefer, N., Hatfield-Dodds, Z., DasSarma, N., Tran-Johnson, E., et al. Language models (mostly) know what they know. arXiv preprint arXiv:2207.05221, 2022.\n\nKhattab, O., Singhvi, A., Maheshwari, P., Zhang, Z., Santhanam, K., A, S. V., Haq, S., Sharma, A., Joshi, T. T., Moazam, H., Miller, H., Zaharia, M., and Potts, C. DSPy: Compiling declarative language model calls into state-ofthe-art pipelines. In The Twelfth International Conference on Learning Representations, 2024. URL https: //openreview.net/forum?id=sY5N0zY5Od.\n\nKolb, A. Y. and Kolb, D. A. The learning way: Metacognitive aspects of experiential learning. Simulation & gaming, 40(3):297-327, 2009.\n\nKoriat, A. and Bjork, R. A. Illusions of competence in monitoring one's knowledge during study. Journal of experimental psychology: Learning, Memory, and Cognition, 31(2):187, 2005.\n\nKrakovna, V., Uesato, J., Mikulik, V., Rahtz, M., Everitt, T., Kumar, R., Kenton, Z., Leike, J., and Legg, S. Specification gaming: the flip side of ai ingenuity. DeepMind Blog, 3, 2020.\n\nLake, B. M., Ullman, T. D., Tenenbaum, J. B., and Gershman, S. J. Building machines that learn and think like people. Behavioral and brain sciences, 40:e253, 2017.\n\nLewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., K¨uttler, H., Lewis, M., Yih, W.-t., Rockt¨aschel, T., et al. Retrieval-augmented generation for knowledgeintensive nlp tasks. Advances in Neural Information Processing Systems, 33:9459-9474, 2020.\n\nLi, M., Zhang, Y., Li, Z., Chen, J., Chen, L., Cheng, N., Wang, J., Zhou, T., and Xiao, J. From quantity to quality: Boosting llm performance with self-guided data selection for instruction tuning. In Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language\n\nTechnologies (Volume 1: Long Papers), pp. 7595-7628, 2024a.\n\nLi, Y., Huang, Y., Lin, Y., Wu, S., Wan, Y., and Sun, L. I think, therefore i am: Awareness in large language models. arXiv preprint arXiv:2401.17882, 2024b.\n\nLu, C., Lu, C., Lange, R. T., Foerster, J., Clune, J., and Ha, D. The ai scientist: Towards fully automated open-ended scientific discovery. arXiv preprint arXiv:2408.06292, 2024.\n\nMa, Y. J., Liang, W., Wang, G., Huang, D.-A., Bastani, O., Jayaraman, D., Zhu, Y., Fan, L., and Anandkumar, A. Eureka: Human-level reward design via coding large language models. In The Twelfth International Conference on Learning Representations, 2024. URL https: //openreview.net/forum?id=IEduRUO55F.\n\nMadaan, A., Tandon, N., Gupta, P., Hallinan, S., Gao, L., Wiegreffe, S., Alon, U., Dziri, N., Prabhumoye, S., Yang, Y., et al. Self-refine: Iterative refinement with selffeedback. Advances in Neural Information Processing Systems, 36, 2024.\n\nNakano, R., Hilton, J., Balaji, S., Wu, J., Ouyang, L., Kim, C., Hesse, C., Jain, S., Kosaraju, V., Saunders, W., et al. Webgpt: Browser-assisted question-answering with human feedback. arXiv preprint arXiv:2112.09332, 2021.\n\nNick, B. Superintelligence: Paths, dangers, strategies. 2014.\n\nOuyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., et al. Training language models to follow instructions with human feedback. Advances in neural information processing systems, 35:27730-27744, 2022.\n\nPark, J. S., O'Brien, J., Cai, C. J., Morris, M. R., Liang, P., and Bernstein, M. S. Generative agents: Interactive simulacra of human behavior. In Proceedings of the 36th annual acm symposium on user interface software and technology, pp. 1-22, 2023.\n\nPintrich, P. R. The role of metacognitive knowledge in learning, teaching, and assessing. Theory into practice, 41(4):219-225, 2002.\n\nQi, Z., Liu, X., Iong, I. L., Lai, H., Sun, X., Yang, X., Sun, J., Yang, Y., Yao, S., Zhang, T., et al. Webrl: Training llm web agents via self-evolving online curriculum reinforcement learning. arXiv preprint arXiv:2411.02337, 2024.\n\nRocamonde, J., Montesinos, V., Nava, E., Perez, E., and Lindner, D. Vision-language models are zero-shot reward models for reinforcement learning. In The Twelfth International Conference on Learning Representations,\n\nRussell, S. Human-compatible artificial intelligence., 2022.\n\nRussell, S. and Wefald, E. Principles of metareasoning. Artificial intelligence, 49(1-3):361-395, 1991.\n\nSachdeva, N., Coleman, B., Kang, W.-C., Ni, J., Hong, L., Chi, E. H., Caverlee, J., McAuley, J., and Cheng, D. Z. How to train data-efficient llms. arXiv preprint arXiv:2402.09668, 2024.\n\nSchick, T., Dwivedi-Yu, J., Dess`ı, R., Raileanu, R., Lomeli, M., Hambro, E., Zettlemoyer, L., Cancedda, N., and Scialom, T. Toolformer: Language models can teach themselves to use tools. Advances in Neural Information Processing Systems, 36:68539-68551, 2023.\n\nSerra, M. J. and Metcalfe, J. Effective implementation of metacognition. In Handbook of metacognition in education, pp. 278-298. Routledge, 2009.\n\nShinn, N., Cassano, F., Gopinath, A., Narasimhan, K., and Yao, S. Reflexion: Language agents with verbal reinforcement learning. Advances in Neural Information Processing Systems, 36, 2024.\n\nSilver, D., Huang, A., Maddison, C. J., Guez, A., Sifre, L., Van Den Driessche, G., Schrittwieser, J., Antonoglou, I., Panneershelvam, V., Lanctot, M., et al. Mastering the game of go with deep neural networks and tree search. nature, 529(7587):484-489, 2016.\n\nSingh, A., Co-Reyes, J. D., Agarwal, R., Anand, A., Patil, P., Garcia, X., Liu, P. J., Harrison, J., Lee, J., Xu, K., Parisi, A. T., Kumar, A., Alemi, A. A., Rizkowsky, A., Nova, A., Adlam, B., Bohnet, B., Elsayed, G. F., Sedghi, H., Mordatch, I., Simpson, I., Gur, I., Snoek, J., Pennington, J., Hron, J., Kenealy, K., Swersky, K., Mahajan, K., Culp, L. A., Xiao, L., Bileschi, M., Constant, N., Novak, R., Liu, R., Warkentin, T., Bansal, Y., Dyer, E., Neyshabur, B., Sohl-Dickstein, J., and Fiedel, N. Beyond human data: Scaling self-training for problem-solving with language models. Transactions on Machine Learning Research, 2024. ISSN 2835-8856. URL https:// openreview.net/forum?id=lNAyUngGFK. Expert Certification.\n\nSong, Y., Zhang, H., Eisenach, C., Kakade, S., Foster, D., and Ghai, U. Mind the gap: Examining the selfimprovement capabilities of large language models. arXiv preprint arXiv:2412.02674, 2024.\n\nStandish, R. K. Open-ended artificial evolution. International Journal of Computational Intelligence and Applications, 3(02):167-175, 2003.\n\nSumers, T., Yao, S., Narasimhan, K., and Griffiths, T. Cognitive architectures for language agents. Transactions on Machine Learning Research, 2024. ISSN 28358856. URL https://openreview.net/forum? id=1i6ZCvflQJ. Survey Certification.\n\nSutton, R. S. Learning to predict by the methods of temporal differences. Machine learning, 3:9-44, 1988.\n\nTankelevitch, L., Kewenig, V., Simkute, A., Scott, A. E., Sarkar, A., Sellen, A., and Rintel, S. The metacognitive demands and opportunities of generative ai. In Proceedings of the CHI Conference on Human Factors in Computing Systems, pp. 1-24, 2024.\n\nTao, Z., Lin, T.-E., Chen, X., Li, H., Wu, Y., Li, Y., Jin, Z., Huang, F., Tao, D., and Zhou, J. A survey on self-evolution of large language models. arXiv preprint arXiv:2404.14387, 2024.\n\nWang, G., Xie, Y., Jiang, Y., Mandlekar, A., Xiao, C., Zhu, Y., Fan, L., and Anandkumar, A. Voyager: An openended embodied agent with large language models. arXiv preprint arXiv:2305.16291, 2023a.\n\nWang, L., Ma, C., Feng, X., Zhang, Z., Yang, H., Zhang, J., Chen, Z., Tang, J., Chen, X., Lin, Y., et al. A survey on large language model based autonomous agents. Frontiers of Computer Science, 18(6):186345, 2024.\n\nWang, X., Li, X., Yin, Z., Wu, Y., and Liu, J. Emotional intelligence of large language models. Journal of Pacific Rim Psychology, 17:18344909231213958, 2023b.\n\nWang, Y., Kordi, Y., Mishra, S., Liu, A., Smith, N. A., Khashabi, D., and Hajishirzi, H. Self-instruct: Aligning language models with self-generated instructions. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pp. 13484-13508, 2023c.\n\nWei, H., Shakarian, P., Lebiere, C., Draper, B., Krishnaswamy, N., and Nirenburg, S. Metacognitive ai: Framework and the case for a neurosymbolic approach. In International Conference on Neural-Symbolic Learning and Reasoning, pp. 60-67. Springer, 2024.\n\nWilkins, D. E. Practical planning: extending the classical AI planning paradigm. Elsevier, 2014.\n\nWu, Z., Han, C., Ding, Z., Weng, Z., Liu, Z., Yao, S., Yu, T., and Kong, L. Os-copilot: Towards generalist computer agents with self-improvement. arXiv preprint arXiv:2402.07456, 2024.\n\nXi, Z., Chen, W., Guo, X., He, W., Ding, Y., Hong, B., Zhang, M., Wang, J., Jin, S., Zhou, E., et al. The rise and potential of large language model based agents: A survey. arXiv preprint arXiv:2309.07864, 2023.\n\nXie, T., Zhang, D., Chen, J., Li, X., Zhao, S., Cao, R., Hua, T. J., Cheng, Z., Shin, D., Lei, F., Liu, Y., Xu, Y., Zhou, S., Savarese, S., Xiong, C., Zhong, V., and Yu, T. OSWorld: Benchmarking multimodal agents for open-ended tasks in real computer environments. In The Thirty-eight Conference on Neural Information Processing Systems Datasets and Benchmarks Track, 2024. URL https: //openreview.net/forum?id=tN61DTr4Ed.\n\nYang, C., Wang, X., Lu, Y., Liu, H., Le, Q. V., Zhou, D., and Chen, X. Large language models as optimizers. In The Twelfth International Conference on Learning Representations, 2024a. URL https://openreview.net/ forum?id=Bb4VGOWELI.\n\nYang, S., Du, Y., Ghasemipour, S. K. S., Tompson, J., Kaelbling, L. P., Schuurmans, D., and Abbeel, P. Learning interactive real-world simulators. In The Twelfth International Conference on Learning Representations, 2024b. URL https://openreview.net/forum? id=sFyTZEqmUY.\n\nYang, Z., Li, P., and Liu, Y. Failures pave the way: Enhancing large language models through tuning-free rule accumulation. In The 2023 Conference on Empirical Methods in Natural Language Processing, 2023. URL https: //openreview.net/forum?id=sM9NTLjsUh.\n\nYao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K. R., and Cao, Y. React: Synergizing reasoning and acting in language models. In The Eleventh International Conference on Learning Representations, 2023. URL https://openreview.net/forum? id=WE_vluYUL-X.\n\nZelikman, E., Wu, Y., Mu, J., and Goodman, N. Star: Bootstrapping reasoning with reasoning. Advances in Neural Information Processing Systems, 35:15476-15488, 2022.\n\nZhang, D., Chen, L., Zhang, S., Xu, H., Zhao, Z., and Yu, K. Large language models are semi-parametric reinforcement learning agents. Advances in Neural Information Processing Systems, 36, 2024a.\n\nZhang, J., Lan, T., Murthy, R., Liu, Z., Yao, W., Tan, J., Hoang, T., Yang, L., Feng, Y., Liu, Z., et al. Agentohana: Design unified data and training pipeline for effective agent learning. arXiv preprint arXiv:2402.15506, 2024b.\n\nZhang, J., Lehman, J., Stanley, K., and Clune, J. OMNI: Open-endedness via models of human notions of interestingness. In The Twelfth International Conference on Learning Representations, 2024c. URL https: //openreview.net/forum?id=AgM3MzT99c.\n\nZhao, A., Huang, D., Xu, Q., Lin, M., Liu, Y.-J., and Huang, G. Expel: Llm agents are experiential learners. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 38, pp. 19632-19642, 2024a.\n\nZhao, H., Ma, C., Wang, G., Su, J., Kong, L., Xu, J., Deng, Z.-H., and Yang, H. Empowering large language model agents through action learning. arXiv preprint arXiv:2402.15809, 2024b.\n\nZheng, L., Chiang, W.-L., Sheng, Y., Zhuang, S., Wu, Z., Zhuang, Y., Lin, Z., Li, Z., Li, D., Xing, E., Zhang, H., Gonzalez, J. E., and Stoica, I. Judging LLM-as-a-judge with MT-bench and chatbot arena. In Thirty-seventh Conference on Neural Information Processing Systems Datasets and Benchmarks Track, 2023. URL https: //openreview.net/forum?id=uccHPGDlao.\n\nZhuang, S. and Hadfield-Menell, D. Consequences of misaligned ai. Advances in Neural Information Processing Systems, 33:15763-15773, 2020.\n\nZhuge, M., Wang, W., Kirsch, L., Faccio, F., Khizbullin, D., and Schmidhuber, J. GPTSwarm: Language agents as optimizable graphs. In Forty-first International Conference on Machine Learning, 2024. URL https: //openreview.net/forum?id=uTC9AFXIhg.\n\nZimmerman, B. J. and Schunk, D. H. Self-regulated learning and academic achievement: Theoretical perspectives. Routledge, 2013."
+  },
+  "provenance": {
+   "config": {
+    "do_ocr": false,
+    "do_table_structure": true,
+    "pipeline": "standard"
+   },
+   "config_fingerprint": "cc1a02f48c1293e4d66f49f0ca43c728b049c0a3caeb44ca39e99d3a2d668c3b",
+   "filename": "2506.05109v1.pdf",
+   "item_count": 188,
+   "library": "docling",
+   "page_count": 14,
+   "page_sizes": [
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ],
+    [
+     612.0,
+     792.0
+    ]
+   ],
+   "pdf_bytes": 495778,
+   "pdf_sha256": "5b07f2c903d293934b36ef43a0029a6de63da528f8237d0c8642070165717815",
+   "skipped_nontext_items": 5,
+   "source_ref": "source_payload:s1-docling/2506.05109v1.pdf",
+   "span_count": 194,
+   "table_count": 0,
+   "text_item_count": 183,
+   "version": "2.131.0"
+  },
+  "record_version": "s1-docling/1",
+  "spans": [
+   {
+    "bbox": [
+     55.44,
+     700.975878,
+     541.4342813615997,
+     688.0786442
+    ],
+    "char_end": 78,
+    "char_start": 0,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 0,
+    "kind": "text",
+    "label": "section_header",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     210.475,
+     649.5049438,
+     385.26790000000005,
+     639.2678166000001
+    ],
+    "char_end": 119,
+    "char_start": 80,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 1,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     150.19800000000006,
+     616.8560880000001,
+     194.6832992000001,
+     606.1083632000001
+    ],
+    "char_end": 129,
+    "char_start": 121,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 2,
+    "kind": "text",
+    "label": "section_header",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     75.007,
+     600.2526526,
+     271.1731520972,
+     233.0457743929203
+    ],
+    "char_end": 1553,
+    "char_start": 131,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 3,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     209.24908800000003,
+     132.2760704,
+     198.50136320000001
+    ],
+    "char_end": 1570,
+    "char_start": 1555,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 4,
+    "kind": "text",
+    "label": "section_header",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.022,
+     188.29197939999995,
+     291.0967792360001,
+     143.6947743929204
+    ],
+    "char_end": 1804,
+    "char_start": 1572,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 5,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     615.2719794,
+     543.0939568839998,
+     558.7197743929203
+    ],
+    "char_end": 2090,
+    "char_start": 1805,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 5,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     134.4524176,
+     290.9325925760001,
+     114.9303845097345
+    ],
+    "char_end": 2191,
+    "char_start": 2092,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 6,
+    "kind": "text",
+    "label": "footnote",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.162,
+     104.75670079999998,
+     289.43870374400007,
+     75.0793845097345
+    ],
+    "char_end": 2331,
+    "char_start": 2193,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 7,
+    "kind": "text",
+    "label": "footnote",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     549.3386525999999,
+     543.1848045479992,
+     361.45977439292034
+    ],
+    "char_end": 3267,
+    "char_start": 2333,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 8,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.161,
+     352.2579794,
+     543.0979306759998,
+     128.3337743929203
+    ],
+    "char_end": 4369,
+    "char_start": 3269,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 9,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     119.34119399999997,
+     543.0933478799993,
+     86.47481659999994
+    ],
+    "char_end": 4536,
+    "char_start": 4371,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 10,
+    "kind": "text",
+    "label": "text",
+    "page": 1,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     721.4626526,
+     291.09845931200005,
+     521.6277743929203
+    ],
+    "char_end": 5517,
+    "char_start": 4537,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 10,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.112,
+     512.2466526000001,
+     291.0979306759999,
+     324.36777439292035
+    ],
+    "char_end": 6432,
+    "char_start": 5519,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 11,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.131,
+     314.98665259999996,
+     291.0974723964,
+     79.28677439292039
+    ],
+    "char_end": 7580,
+    "char_start": 6434,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 12,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     723.226088,
+     388.24519680000003,
+     712.4783632
+    ],
+    "char_end": 7598,
+    "char_start": 7582,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 13,
+    "kind": "text",
+    "label": "section_header",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     702.4781939999999,
+     400.42094579999986,
+     693.5218166
+    ],
+    "char_end": 7623,
+    "char_start": 7600,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 14,
+    "kind": "text",
+    "label": "section_header",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     683.4366526,
+     543.1858008079993,
+     495.55777439292035
+    ],
+    "char_end": 8560,
+    "char_start": 7625,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 15,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     486.56519399999996,
+     543.0985483571994,
+     322.2077743929203
+    ],
+    "char_end": 9362,
+    "char_start": 8562,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 16,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.112,
+     313.215194,
+     543.0917487439993,
+     172.7677743929204
+    ],
+    "char_end": 10058,
+    "char_start": 9364,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 17,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     156.575194,
+     447.59385679999986,
+     147.61881659999995
+    ],
+    "char_end": 10090,
+    "char_start": 10060,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 18,
+    "kind": "text",
+    "label": "section_header",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     137.53465260000007,
+     543.0961174828009,
+     81.14581659999999
+    ],
+    "char_end": 10375,
+    "char_start": 10092,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 19,
+    "kind": "text",
+    "label": "text",
+    "page": 2,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.112,
+     721.4626526,
+     291.09334787999995,
+     605.3137743929203
+    ],
+    "char_end": 10961,
+    "char_start": 10376,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 19,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.112,
+     596.321194,
+     291.1848045479999,
+     408.05377439292033
+    ],
+    "char_end": 11860,
+    "char_start": 10963,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 20,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     54.972,
+     399.061194,
+     291.18580080799995,
+     174.92777439292036
+    ],
+    "char_end": 12969,
+    "char_start": 11862,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 21,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     156.678088,
+     282.5051136,
+     145.9303632
+    ],
+    "char_end": 13015,
+    "char_start": 12971,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 22,
+    "kind": "text",
+    "label": "section_header",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     135.93019400000003,
+     156.90908100000007,
+     126.97381659999996
+    ],
+    "char_end": 13038,
+    "char_start": 13017,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 23,
+    "kind": "text",
+    "label": "section_header",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     54.972,
+     116.88965259999998,
+     291.0985483572001,
+     84.42677439292038
+    ],
+    "char_end": 13214,
+    "char_start": 13040,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 24,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     337.792,
+     598.542816,
+     511.0895007999997,
+     590.4820224
+    ],
+    "char_end": 13953,
+    "char_start": 13908,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 26,
+    "kind": "text",
+    "label": "caption",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     314.108,
+     420.856194,
+     538.839721047999,
+     338.1907743929203
+    ],
+    "char_end": 14320,
+    "char_start": 13955,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 27,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     306.972,
+     324.4706526,
+     543.1851432764001,
+     280.05377439292033
+    ],
+    "char_end": 14555,
+    "char_start": 14322,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 28,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     270.8519794,
+     543.093669572,
+     130.6137743929204
+    ],
+    "char_end": 15246,
+    "char_start": 14557,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 29,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     114.42119400000001,
+     520.1711977999998,
+     105.46481659999995
+    ],
+    "char_end": 15299,
+    "char_start": 15248,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 30,
+    "kind": "text",
+    "label": "section_header",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     95.37965259999999,
+     541.4447926759992,
+     74.87277439292029
+    ],
+    "char_end": 15411,
+    "char_start": 15301,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 31,
+    "kind": "text",
+    "label": "text",
+    "page": 3,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.112,
+     721.4626526,
+     291.09793067600003,
+     545.5377743929204
+    ],
+    "char_end": 16290,
+    "char_start": 15412,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 31,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     536.1576526,
+     291.09793067600003,
+     431.9637743929203
+    ],
+    "char_end": 16824,
+    "char_start": 16292,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 32,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.189,
+     124.4904176,
+     289.5595319400001,
+     75.49264622300882
+    ],
+    "char_end": 17330,
+    "char_start": 16826,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 35,
+    "kind": "text",
+    "label": "footnote",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     721.4626526,
+     543.0961242719997,
+     629.2237743929203
+    ],
+    "char_end": 17791,
+    "char_start": 17332,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 36,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     613.0311939999999,
+     378.8419541999999,
+     604.0748166
+    ],
+    "char_end": 17810,
+    "char_start": 17793,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 37,
+    "kind": "text",
+    "label": "section_header",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     593.9906526,
+     543.0933478799991,
+     525.6627743929204
+    ],
+    "char_end": 18149,
+    "char_start": 17812,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 38,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     516.670194,
+     543.0978609377997,
+     304.4917743929203
+    ],
+    "char_end": 19194,
+    "char_start": 18151,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 39,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     295.50019399999996,
+     543.1877534775994,
+     83.32177439292036
+    ],
+    "char_end": 20262,
+    "char_start": 19196,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 40,
+    "kind": "text",
+    "label": "text",
+    "page": 4,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     585.3776526,
+     289.61362282720006,
+     552.9157743929203
+    ],
+    "char_end": 20436,
+    "char_start": 20263,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 40,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     80.813,
+     611.9778160000001,
+     516.0707231999996,
+     603.9170224000001
+    ],
+    "char_end": 20556,
+    "char_start": 20438,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 42,
+    "kind": "text",
+    "label": "caption",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     54.972,
+     543.5346526,
+     291.1858008080001,
+     271.96977439292027
+    ],
+    "char_end": 21901,
+    "char_start": 20558,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 43,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.131,
+     262.58865259999993,
+     291.09334787999995,
+     182.3057743929204
+    ],
+    "char_end": 22313,
+    "char_start": 21903,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 44,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     164.05608800000005,
+     157.836288,
+     153.30836320000003
+    ],
+    "char_end": 22335,
+    "char_start": 22315,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 45,
+    "kind": "text",
+    "label": "section_header",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     142.91965260000006,
+     291.09359694500023,
+     86.54677439292038
+    ],
+    "char_end": 22625,
+    "char_start": 22337,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 46,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     435.93865259999995,
+     543.1819652070004,
+     164.3727743929203
+    ],
+    "char_end": 24649,
+    "char_start": 23324,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 47,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     154.99165259999995,
+     543.0933478799992,
+     86.66377439292035
+    ],
+    "char_end": 24983,
+    "char_start": 24651,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 48,
+    "kind": "text",
+    "label": "text",
+    "page": 5,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     622.930088,
+     283.2702464,
+     612.1823631999999
+    ],
+    "char_end": 25427,
+    "char_start": 25384,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 49,
+    "kind": "text",
+    "label": "section_header",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     54.972,
+     601.7936526,
+     291.18514327639986,
+     473.6897743929203
+    ],
+    "char_end": 26070,
+    "char_start": 25429,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 50,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     457.497194,
+     182.98120520000006,
+     448.54081659999997
+    ],
+    "char_end": 26100,
+    "char_start": 26072,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 51,
+    "kind": "text",
+    "label": "section_header",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     438.4556526,
+     291.0953802504,
+     322.30777439292035
+    ],
+    "char_end": 26676,
+    "char_start": 26102,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 52,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.112,
+     312.92665259999995,
+     291.1848045479998,
+     148.95777439292033
+    ],
+    "char_end": 27458,
+    "char_start": 26678,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 53,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     139.5766526,
+     291.09773142399996,
+     83.2047743929204
+    ],
+    "char_end": 27748,
+    "char_start": 27460,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 54,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     613.0311939999999,
+     459.6784905999997,
+     604.0748166
+    ],
+    "char_end": 28252,
+    "char_start": 28216,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 55,
+    "kind": "text",
+    "label": "section_header",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     593.9906526,
+     543.1650785999997,
+     549.5727743929203
+    ],
+    "char_end": 28491,
+    "char_start": 28254,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 56,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.689,
+     534.4326526,
+     428.63355310000003,
+     525.8807743929203
+    ],
+    "char_end": 28517,
+    "char_start": 28493,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 57,
+    "kind": "text",
+    "label": "section_header",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.112,
+     515.7796526,
+     543.1848045479994,
+     244.2147743929204
+    ],
+    "char_end": 29834,
+    "char_start": 28519,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 58,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.689,
+     229.07365260000006,
+     465.10936740000005,
+     220.5217743929204
+    ],
+    "char_end": 29867,
+    "char_start": 29836,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 59,
+    "kind": "text",
+    "label": "section_header",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     210.42065260000004,
+     543.0979306759995,
+     82.31777439292034
+    ],
+    "char_end": 30518,
+    "char_start": 29869,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 60,
+    "kind": "text",
+    "label": "text",
+    "page": 6,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     721.4626526,
+     291.18580080799995,
+     653.1347743929203
+    ],
+    "char_end": 30876,
+    "char_start": 30519,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 60,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     643.7536526,
+     291.18824164500006,
+     455.8747743929203
+    ],
+    "char_end": 31840,
+    "char_start": 30878,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 61,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     439.681194,
+     199.47927080000005,
+     430.7248166
+    ],
+    "char_end": 31876,
+    "char_start": 31842,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 62,
+    "kind": "text",
+    "label": "section_header",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     420.64065259999995,
+     291.18140730139993,
+     316.44777439292034
+    ],
+    "char_end": 32406,
+    "char_start": 31878,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 63,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.689,
+     301.3066526,
+     161.5713944,
+     292.75477439292035
+    ],
+    "char_end": 32429,
+    "char_start": 32408,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 64,
+    "kind": "text",
+    "label": "section_header",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     282.6536526,
+     291.1858008080002,
+     82.81977439292041
+    ],
+    "char_end": 33432,
+    "char_start": 32431,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 65,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     721.4626526,
+     543.0892831392006,
+     688.9997743929204
+    ],
+    "char_end": 33606,
+    "char_start": 33433,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 65,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     679.6196526,
+     543.0933478799993,
+     455.8747743929203
+    ],
+    "char_end": 34717,
+    "char_start": 33608,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 66,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     446.49365259999996,
+     543.1858008079996,
+     330.3447743929203
+    ],
+    "char_end": 35289,
+    "char_start": 34719,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 67,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.689,
+     315.2036526,
+     408.3913944,
+     306.65177439292034
+    ],
+    "char_end": 35311,
+    "char_start": 35291,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 68,
+    "kind": "text",
+    "label": "section_header",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     296.55165259999995,
+     543.0933478799992,
+     84.76177439292042
+    ],
+    "char_end": 36370,
+    "char_start": 35313,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 69,
+    "kind": "text",
+    "label": "text",
+    "page": 7,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     721.4626526,
+     269.2971716000001,
+     712.9107743929203
+    ],
+    "char_end": 36426,
+    "char_start": 36371,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 69,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     703.7089794,
+     291.18346299999996,
+     348.2777743929203
+    ],
+    "char_end": 38174,
+    "char_start": 36428,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 70,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     338.8966526,
+     291.09747239640006,
+     162.97277439292031
+    ],
+    "char_end": 39036,
+    "char_start": 38176,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 71,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     144.72308799999996,
+     148.7742464,
+     133.97536319999995
+    ],
+    "char_end": 39055,
+    "char_start": 39038,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 72,
+    "kind": "text",
+    "label": "section_header",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     123.97519399999999,
+     246.48281760000006,
+     115.01881660000004
+    ],
+    "char_end": 39099,
+    "char_start": 39057,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 73,
+    "kind": "text",
+    "label": "section_header",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     104.93465259999994,
+     289.43816151600004,
+     84.42677439292038
+    ],
+    "char_end": 39218,
+    "char_start": 39101,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 74,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     721.4626526,
+     543.0979306759997,
+     497.7177743929203
+    ],
+    "char_end": 40295,
+    "char_start": 39219,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 74,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.131,
+     488.3366526,
+     543.0979306759996,
+     324.36777439292035
+    ],
+    "char_end": 41090,
+    "char_start": 40297,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 75,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     308.174194,
+     474.32351259999973,
+     299.2178166
+    ],
+    "char_end": 41131,
+    "char_start": 41092,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 76,
+    "kind": "text",
+    "label": "section_header",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     306.972,
+     289.1336526,
+     543.0985483571999,
+     125.16477439292032
+    ],
+    "char_end": 41947,
+    "char_start": 41133,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 77,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     115.78365259999998,
+     543.0933478799992,
+     83.32177439292036
+    ],
+    "char_end": 42122,
+    "char_start": 41949,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 78,
+    "kind": "text",
+    "label": "text",
+    "page": 8,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.131,
+     721.4626526,
+     291.1848045479998,
+     521.6277743929203
+    ],
+    "char_end": 43107,
+    "char_start": 42123,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 78,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     505.43519399999997,
+     222.2238866000001,
+     496.47881659999996
+    ],
+    "char_end": 43148,
+    "char_start": 43109,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 79,
+    "kind": "text",
+    "label": "section_header",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     486.3936526,
+     291.09773142399996,
+     262.64877439292036
+    ],
+    "char_end": 44243,
+    "char_start": 43150,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 80,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     253.4479794,
+     291.1848045479998,
+     77.3437743929203
+    ],
+    "char_end": 45118,
+    "char_start": 44245,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 81,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     721.851194,
+     444.05713379999986,
+     712.8948166
+    ],
+    "char_end": 45152,
+    "char_start": 45120,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 82,
+    "kind": "text",
+    "label": "section_header",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.082,
+     702.8096525999999,
+     543.4298845079995,
+     455.15477439292033
+    ],
+    "char_end": 46366,
+    "char_start": 45154,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 83,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     306.972,
+     445.7736526,
+     543.1824693679991,
+     281.8047743929203
+    ],
+    "char_end": 47191,
+    "char_start": 46368,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 84,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     263.55508800000007,
+     376.5291008,
+     252.80736320000005
+    ],
+    "char_end": 47206,
+    "char_start": 47193,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 85,
+    "kind": "text",
+    "label": "section_header",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     306.972,
+     242.41865259999997,
+     543.1850037999994,
+     78.4497743929204
+    ],
+    "char_end": 48021,
+    "char_start": 47208,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 86,
+    "kind": "text",
+    "label": "text",
+    "page": 9,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     723.226088,
+     146.7418624,
+     712.4783632
+    ],
+    "char_end": 48039,
+    "char_start": 48023,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 87,
+    "kind": "text",
+    "label": "section_header",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.082,
+     702.0896526,
+     291.1846849967999,
+     573.9857743929203
+    ],
+    "char_end": 48661,
+    "char_start": 48041,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 88,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     555.736088,
+     154.27363840000004,
+     544.9883632
+    ],
+    "char_end": 48679,
+    "char_start": 48663,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 89,
+    "kind": "text",
+    "label": "section_header",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     54.972,
+     534.5996526,
+     289.79263082400007,
+     466.27177439292035
+    ],
+    "char_end": 48988,
+    "char_start": 48681,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 90,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     448.022088,
+     110.9838592,
+     437.27436320000004
+    ],
+    "char_end": 49000,
+    "char_start": 48990,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 91,
+    "kind": "text",
+    "label": "section_header",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     428.32565259999996,
+     291.0979306759999,
+     371.9537743929203
+    ],
+    "char_end": 49241,
+    "char_start": 49002,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 92,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     359.3456526,
+     291.17922698800015,
+     314.92877439292033
+    ],
+    "char_end": 49446,
+    "char_start": 49243,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 93,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     302.32065259999996,
+     291.0984108614,
+     257.90377439292035
+    ],
+    "char_end": 49665,
+    "char_start": 49448,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 94,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     245.29565260000004,
+     291.09877444799986,
+     176.96777439292032
+    ],
+    "char_end": 49942,
+    "char_start": 49667,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 95,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     164.36065259999998,
+     291.0892821879999,
+     107.9877743929203
+    ],
+    "char_end": 50186,
+    "char_start": 49944,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 96,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     95.37965259999999,
+     291.1848045479998,
+     74.87277439292029
+    ],
+    "char_end": 50299,
+    "char_start": 50188,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 97,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     317.403,
+     721.6419794,
+     542.6883763039998,
+     700.9547743929203
+    ],
+    "char_end": 50362,
+    "char_start": 50300,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 97,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     686.4346525999999,
+     545.62464,
+     618.1067743929203
+    ],
+    "char_end": 50659,
+    "char_start": 50364,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 98,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     603.5866526,
+     543.1824658059999,
+     559.1687743929203
+    ],
+    "char_end": 50838,
+    "char_start": 50661,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 99,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     544.6486526,
+     543.1848979984002,
+     488.2757743929203
+    ],
+    "char_end": 51083,
+    "char_start": 50840,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 100,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     473.75565259999996,
+     543.0977329199998,
+     417.38277439292034
+    ],
+    "char_end": 51333,
+    "char_start": 51085,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 101,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     402.8626526,
+     543.0986347799994,
+     346.48977439292037
+    ],
+    "char_end": 51571,
+    "char_start": 51335,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 102,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     332.0196526,
+     542.685463,
+     275.59677439292034
+    ],
+    "char_end": 51789,
+    "char_start": 51573,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 103,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     261.0766526,
+     543.0938611039999,
+     180.79377439292034
+    ],
+    "char_end": 52116,
+    "char_start": 51791,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 104,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     166.4529794,
+     541.4353836178001,
+     145.76577439292032
+    ],
+    "char_end": 52200,
+    "char_start": 52118,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 105,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     131.24565259999997,
+     542.68600975,
+     74.87277439292029
+    ],
+    "char_end": 52441,
+    "char_start": 52202,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 106,
+    "kind": "text",
+    "label": "text",
+    "page": 10,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     721.4626526,
+     291.1804225,
+     677.0447743929203
+    ],
+    "char_end": 52663,
+    "char_start": 52443,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 107,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     663.4586525999999,
+     291.1873963199998,
+     619.0417743929203
+    ],
+    "char_end": 52878,
+    "char_start": 52665,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 108,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     605.4556526,
+     289.43948518799994,
+     572.9937743929203
+    ],
+    "char_end": 53012,
+    "char_start": 52880,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 109,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     559.5869794,
+     289.4405457119999,
+     538.8997743929203
+    ],
+    "char_end": 53106,
+    "char_start": 53014,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 110,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     525.3146525999999,
+     291.1826939728,
+     468.9417743929203
+    ],
+    "char_end": 53350,
+    "char_start": 53108,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 111,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     455.3556526,
+     291.0943977399998,
+     398.9827743929203
+    ],
+    "char_end": 53595,
+    "char_start": 53352,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 112,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     385.3966526,
+     290.68687379999994,
+     340.9797743929203
+    ],
+    "char_end": 53768,
+    "char_start": 53597,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 113,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     327.3936526,
+     292.4293599999999,
+     259.0657743929203
+    ],
+    "char_end": 54064,
+    "char_start": 53770,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 114,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     245.4796526,
+     291.09255236800004,
+     201.06277439292035
+    ],
+    "char_end": 54263,
+    "char_start": 54066,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 115,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     187.47665260000008,
+     289.8027926759999,
+     155.01477439292034
+    ],
+    "char_end": 54407,
+    "char_start": 54265,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 116,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     141.42865260000008,
+     291.09733292,
+     108.96577439292037
+    ],
+    "char_end": 54567,
+    "char_start": 54409,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 117,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     95.37965259999999,
+     289.438161516,
+     74.87277439292029
+    ],
+    "char_end": 54668,
+    "char_start": 54569,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 118,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     721.4626526,
+     543.0985041319996,
+     688.9997743929204
+    ],
+    "char_end": 54798,
+    "char_start": 54670,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 119,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     676.4266526,
+     544.4293600000002,
+     608.0987743929203
+    ],
+    "char_end": 55107,
+    "char_start": 54800,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 120,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     595.5256526,
+     545.62464,
+     527.1977743929203
+    ],
+    "char_end": 55403,
+    "char_start": 55109,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 121,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     514.6246526,
+     542.6868737999996,
+     446.29777439292036
+    ],
+    "char_end": 55667,
+    "char_start": 55405,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 122,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     433.72465259999996,
+     542.6868737999995,
+     377.35177439292033
+    ],
+    "char_end": 55911,
+    "char_start": 55669,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 123,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     364.7786526,
+     542.6867542488005,
+     308.40577439292036
+    ],
+    "char_end": 56166,
+    "char_start": 55913,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 124,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     295.83265259999996,
+     544.4293600000002,
+     215.5497743929203
+    ],
+    "char_end": 56525,
+    "char_start": 56168,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 125,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     202.97665260000008,
+     543.097979723,
+     74.8727743929204
+    ],
+    "char_end": 57055,
+    "char_start": 56527,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 126,
+    "kind": "text",
+    "label": "list_item",
+    "page": 11,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     721.5116525999999,
+     289.44235301199996,
+     688.9997743929204
+    ],
+    "char_end": 57208,
+    "char_start": 57057,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 127,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     677.9826525999999,
+     289.44063514399994,
+     645.5197743929203
+    ],
+    "char_end": 57348,
+    "char_start": 57210,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 128,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     634.5026526,
+     291.0977329199999,
+     578.1297743929204
+    ],
+    "char_end": 57607,
+    "char_start": 57350,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 129,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     567.1116526,
+     290.6870531268,
+     510.73977439292037
+    ],
+    "char_end": 57841,
+    "char_start": 57609,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 130,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     499.72165259999997,
+     292.4293599999999,
+     419.4387743929203
+    ],
+    "char_end": 58211,
+    "char_start": 57843,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 131,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     408.42165259999996,
+     291.09334787999995,
+     375.9587743929203
+    ],
+    "char_end": 58348,
+    "char_start": 58213,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 132,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     364.9416526,
+     291.09791224680004,
+     320.5237743929203
+    ],
+    "char_end": 58531,
+    "char_start": 58350,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 133,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     309.50565259999996,
+     291.0977329199998,
+     265.0887743929203
+    ],
+    "char_end": 58719,
+    "char_start": 58533,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 134,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     254.07065260000002,
+     291.0933478799999,
+     221.6087743929204
+    ],
+    "char_end": 58884,
+    "char_start": 58721,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 135,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     210.5906526,
+     291.09779480400016,
+     154.2187743929203
+    ],
+    "char_end": 59156,
+    "char_start": 58886,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 136,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     143.2006526,
+     291.09773291999994,
+     75.01621820000003
+    ],
+    "char_end": 59488,
+    "char_start": 59158,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 137,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     316.845,
+     721.6419794,
+     542.6848864454001,
+     700.9547743929203
+    ],
+    "char_end": 59549,
+    "char_start": 59490,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 138,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     689.5426526,
+     543.1848045479996,
+     657.0807743929204
+    ],
+    "char_end": 59708,
+    "char_start": 59551,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 139,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     645.6686526,
+     542.685463,
+     601.2507743929203
+    ],
+    "char_end": 59889,
+    "char_start": 59710,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 140,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     589.8386525999999,
+     544.4293600000002,
+     521.5107743929203
+    ],
+    "char_end": 60193,
+    "char_start": 59891,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 141,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     510.0986526,
+     543.0929609987999,
+     453.7257743929203
+    ],
+    "char_end": 60435,
+    "char_start": 60195,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 142,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     442.31365259999995,
+     543.1790277359993,
+     397.8957743929203
+    ],
+    "char_end": 60661,
+    "char_start": 60437,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 143,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     386.48365259999997,
+     543.1858008079996,
+     377.9317743929203
+    ],
+    "char_end": 60724,
+    "char_start": 60663,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 144,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     366.5196526,
+     542.6891866192,
+     310.14677439292035
+    ],
+    "char_end": 60991,
+    "char_start": 60726,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 145,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     298.7346526,
+     542.6868737999994,
+     242.36177439292032
+    ],
+    "char_end": 61244,
+    "char_start": 60993,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 146,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     230.94965260000004,
+     542.685463,
+     198.4877743929203
+    ],
+    "char_end": 61378,
+    "char_start": 61246,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 147,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     187.0756526,
+     543.0977329199993,
+     130.70277439292033
+    ],
+    "char_end": 61613,
+    "char_start": 61380,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 148,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     119.29065260000004,
+     543.0977329199993,
+     74.87277439292029
+    ],
+    "char_end": 61830,
+    "char_start": 61615,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 149,
+    "kind": "text",
+    "label": "list_item",
+    "page": 12,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     688.7416526,
+     291.18689669400004,
+     680.1897743929203
+    ],
+    "char_end": 61892,
+    "char_start": 61832,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 151,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     667.9766526,
+     291.1848045479999,
+     647.4697743929203
+    ],
+    "char_end": 61997,
+    "char_start": 61894,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 152,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     635.2566525999999,
+     290.68687379999983,
+     590.8387743929203
+    ],
+    "char_end": 62185,
+    "char_start": 61999,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 153,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     578.6756526,
+     290.68243458839993,
+     522.2537743929204
+    ],
+    "char_end": 62447,
+    "char_start": 62187,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 154,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     510.03965259999995,
+     291.09412601040003,
+     477.57777439292033
+    ],
+    "char_end": 62594,
+    "char_start": 62449,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 155,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     465.3646526,
+     291.0887966319999,
+     420.94777439292034
+    ],
+    "char_end": 62785,
+    "char_start": 62596,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 156,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     408.73365259999997,
+     291.1790277359999,
+     352.3617743929203
+    ],
+    "char_end": 63046,
+    "char_start": 62787,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 157,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     340.1486526,
+     291.09869292,
+     176.17877439292033
+    ],
+    "char_end": 63770,
+    "char_start": 63048,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 158,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     163.9656526,
+     291.0977329199999,
+     119.54877439292034
+    ],
+    "char_end": 63965,
+    "char_start": 63772,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 159,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     107.51497940000002,
+     291.0943890039998,
+     74.87277439292029
+    ],
+    "char_end": 64106,
+    "char_start": 63967,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 160,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     721.4626526,
+     543.1848045479996,
+     665.0897743929203
+    ],
+    "char_end": 64342,
+    "char_start": 64108,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 161,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     654.7646526,
+     541.4381615159998,
+     634.2567743929203
+    ],
+    "char_end": 64449,
+    "char_start": 64344,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 162,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     623.9316526,
+     543.0987915882001,
+     567.5587743929203
+    ],
+    "char_end": 64701,
+    "char_start": 64451,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 163,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     557.2336526,
+     542.6868738,
+     512.8157743929203
+    ],
+    "char_end": 64891,
+    "char_start": 64703,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 164,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     502.4906526,
+     543.0887966319996,
+     458.0737743929203
+    ],
+    "char_end": 65089,
+    "char_start": 64893,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 165,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     447.7476526,
+     542.6826496576006,
+     403.3307743929203
+    ],
+    "char_end": 65305,
+    "char_start": 65091,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 166,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     393.0046526,
+     541.4369660039998,
+     360.5427743929203
+    ],
+    "char_end": 65466,
+    "char_start": 65307,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 167,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     350.2176526,
+     543.0931028759999,
+     281.88977439292034
+    ],
+    "char_end": 65770,
+    "char_start": 65468,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 168,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     271.56365259999995,
+     543.0933478799994,
+     215.19177439292037
+    ],
+    "char_end": 66025,
+    "char_start": 65772,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 169,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     205.0449794,
+     541.4421811904002,
+     184.3587743929204
+    ],
+    "char_end": 66123,
+    "char_start": 66027,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 170,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     174.03365259999998,
+     542.6868737999998,
+     129.61577439292034
+    ],
+    "char_end": 66309,
+    "char_start": 66125,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 171,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     119.29065260000004,
+     543.1804224999993,
+     74.87277439292029
+    ],
+    "char_end": 66522,
+    "char_start": 66311,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 172,
+    "kind": "text",
+    "label": "list_item",
+    "page": 13,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     721.4626526,
+     292.4293599999999,
+     629.2237743929203
+    ],
+    "char_end": 66946,
+    "char_start": 66524,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 173,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     613.3136526,
+     291.09564600000004,
+     556.9417743929203
+    ],
+    "char_end": 67180,
+    "char_start": 66948,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 174,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     541.0316526,
+     291.09773291999994,
+     472.70377439292037
+    ],
+    "char_end": 67453,
+    "char_start": 67182,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 175,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     456.7936526,
+     292.4293599999999,
+     400.42077439292035
+    ],
+    "char_end": 67709,
+    "char_start": 67455,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 176,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     384.51065259999996,
+     291.0920506639998,
+     316.1827743929203
+    ],
+    "char_end": 67975,
+    "char_start": 67711,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 177,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     300.27265259999996,
+     291.12717290780006,
+     267.8107743929204
+    ],
+    "char_end": 68141,
+    "char_start": 67977,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 178,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     251.90065260000006,
+     291.0980616858,
+     207.4837743929204
+    ],
+    "char_end": 68338,
+    "char_start": 68143,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 179,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     191.57265259999997,
+     291.18669371179993,
+     147.15577439292042
+    ],
+    "char_end": 68569,
+    "char_start": 68340,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 180,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     55.44,
+     131.24565259999997,
+     292.4293599999999,
+     74.8727743929204
+    ],
+    "char_end": 68814,
+    "char_start": 68571,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 181,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     721.4626526,
+     543.0977329199994,
+     677.0447743929203
+    ],
+    "char_end": 69025,
+    "char_start": 68816,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 182,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     665.6716526,
+     542.6868737999998,
+     621.2537743929204
+    ],
+    "char_end": 69210,
+    "char_start": 69027,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 183,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     609.8806526,
+     544.4293600000002,
+     529.5977743929203
+    ],
+    "char_end": 69570,
+    "char_start": 69212,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 184,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     518.2246526,
+     543.0928397874004,
+     485.7617743929203
+    ],
+    "char_end": 69710,
+    "char_start": 69572,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 185,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     474.3886526,
+     544.4293600000002,
+     418.0157743929203
+    ],
+    "char_end": 69957,
+    "char_start": 69712,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 186,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   },
+   {
+    "bbox": [
+     307.44,
+     406.8219794,
+     543.18329025,
+     374.18077439292034
+    ],
+    "char_end": 70086,
+    "char_start": 69959,
+    "coord_origin": "CoordOrigin.BOTTOMLEFT",
+    "item_index": 187,
+    "kind": "text",
+    "label": "list_item",
+    "page": 14,
+    "table_index": -1
+   }
+  ],
+  "tables": []
+ },
+ "runs": {
+  "digest_a": "e01154a81f4e1f06e96421ea902dab4227a7560d0eea9a2163542c763f0a4bb2",
+  "digest_b": "e01154a81f4e1f06e96421ea902dab4227a7560d0eea9a2163542c763f0a4bb2",
+  "payload_chars": 70086,
+  "payload_sha256_a": "72d2d93c660276e76f4e89eabadf1a41d03267d9298ce2b0cf66c8f10dc22e5e",
+  "payload_sha256_b": "72d2d93c660276e76f4e89eabadf1a41d03267d9298ce2b0cf66c8f10dc22e5e",
+  "raw_difference_count": 0,
+  "raw_difference_note": "structure_digest quantizes coordinates to 0.001 pt (docling model-level float variance observed in S1); raw docling floats are kept in record",
+  "raw_differences": [],
+  "raw_record_equal": true,
+  "rerun_identical": true,
+  "spans": 194,
+  "tables": 0
+ }
+}

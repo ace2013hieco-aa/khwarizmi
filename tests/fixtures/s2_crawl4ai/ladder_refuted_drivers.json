@@ -1,0 +1,59 @@
+{
+ "fixture_version": "s2-crawl4ai-fixture/1",
+ "page": {
+  "bytes": 10857,
+  "filename": "ladder_refuted_drivers.html",
+  "repo_doc_copy_matches_at_record_time": true,
+  "sha256": "a6fc13dd71f967545fe7eea44149ffe5f4f6141b64849e21fe91f3b14eece848",
+  "source_kind": "repo-doc-vendored",
+  "source_note": "vendored copy of a repository document",
+  "source_path_at_capture": "docs/diagrams/ladder_refuted_drivers.html",
+  "source_ref": "source_payload:s2-crawl4ai/ladder_refuted_drivers.html",
+  "url": "https://fixtures.test/ladder_refuted_drivers.html"
+ },
+ "record": {
+  "content": {
+   "origin": "crawl4ai.markdown",
+   "ref": "https://fixtures.test/ladder_refuted_drivers.html",
+   "text": "# Adversarial review — Evidence Ladder REFUTED drivers\nSemantic pattern: **state transition with guards + attack gate funnel** -> visual types: **state machine** + **flowchart** * the 29-attack map * verified at HEAD `ac770f7`\nDriver 1 — ratified proposal REJECT_BRANCH approved; ratification re-verified Driver 2 — obligation climbs completed obligations = ratification, no agent intent Driver 3 — bare classification digest-valid record alone = falsification fact THE GATE FUNNEL (fail-closed per row — every ✗ is a skip, never a crash) G1 project scoping ✗ #4 #15 foreign project G2 digest identity (id == artifact_id) ✗ #1 forged id G3 content integrity (F13 re-derive hash) ✗ #2 #3 #7 rewrite G4 class + falsification predicate ✗ #8–#14 classes/constraints G5 program + hypothesis resolution ✗ #5 #6 #16 #17 foreign/stale G6 terminal + F12 applied-transition check ✗ #21–#24 dup/tamper REFUTED — applied (terminal) never downgraded; a tampered cache is HEALED back to REFUTED with a note (F12) only repairs: upward tamper → derived rung; downward tamper of applied → healed all gates pass → apply (row + event, own transaction) Drivers 1/2 refusals ✗ #25 corrupt proposal ✗ #26 missing ratification ✗ #27 rejected · #28 wrong action ✗ #29 stale/foreign ratification all → note + nothing applied (AC-2) PRINCIPLE: stored ladder state is a CACHE, never the source of truth desired state derives only from ratified facts (satisfaction links · ratified REJECT_BRANCH proposals · digest-valid decisive falsifications). REFUTED is terminal and cannot be silently downgraded (#22); F8 bounds the RefutedApplied payload; F9 makes one-transition schema-level. Attack numbers refer to the 29-attack map in hermes_current_epistemic_architecture_review.md §C.2 — every attack is test-pinned (tests/test_q05_evidence_ladder.py).\n## Provenance manifest — diagram source  \n| Item | Value |  \n| --- | --- |  \n| Repository commit | Hermes `ac770f7` (clean tree) |  \n| Semantic pattern → type | State transition with guards + attack gate funnel → State machine / Flowchart (harvested from cathrynlavery/diagram-design v2.4 @ `09df49d8`, MIT) |  \n| Files inspected | `src/hermes/research/controller.py` (`_apply_evidence_ladder_pass`: drivers 1–3, F12/F13 checks), `src/hermes/research/evidence_ladder.py` (`certifies_decisive_falsification`, content identity), `src/hermes/research/gateway.py` (`_resolve_ratified_proposal`), `src/hermes/persistence/migrations.py` (v12 index F9) |  \n| Architecture documents | `hermes_current_epistemic_architecture_review.md` §C.2 (29-attack map) + §G, IDR-041 (AC-1/AC-2/AC-4/AC-5) |  \n| Tests | `test_non_falsification_class_never_refutes`, `test_methodology_constraint_violation_never_refutes`, `test_forged_identity_never_refutes`, `test_content_identity_verifier`, `test_metadata_rewrite_forging_falsification_is_refused`, `test_foreign_target_never_refutes`, `test_refuted_is_terminal`, `test_tampered_refuted_cache_never_reverted`, `test_downward_tamper_of_applied_refuted_is_healed`, `test_refuted_without_ratification_applies_nothing`, `test_rejected_decision_applies_nothing`, `test_forged_ratification_ref_applies_nothing`, `test_many_rivals_never_crash_tick_payload_bounded` (F8) |  \n| Node status | All nodes **IMPLEMENTED** ; ✗ branches are the test-pinned fail-closed skips |\n"
+  },
+  "provenance": {
+   "config": {
+    "citations": true,
+    "html2text_options": {}
+   },
+   "config_fingerprint": "4bcb342169bd45e9cca874e600c5801f858846fa1718ba48c4ebc5ab0d36ca23",
+   "content_type": "text/html",
+   "encoding": "utf-8",
+   "final_url": "https://fixtures.test/ladder_refuted_drivers.html",
+   "guard_hops": [
+    [
+     "https://fixtures.test/ladder_refuted_drivers.html",
+     "1.1.1.1"
+    ]
+   ],
+   "guard_policy_fingerprint": "75608aa552ab5b8516ecd2d11592564e502b261945d19fc427e8b4a78b0f61f2",
+   "library": "crawl4ai",
+   "markdown_sha256": "f364ad00da28f88feed0f2c927f915a8f2f2626755048c164959d8b251d43b41",
+   "raw_markdown_sha256": "f364ad00da28f88feed0f2c927f915a8f2f2626755048c164959d8b251d43b41",
+   "redirect_hops": [],
+   "references_sha256": "4e1b8df0c995371b5ebb288dddf38542958b7a2b1ebe3bcc1fdf242a7071f1ff",
+   "requested_url": "https://fixtures.test/ladder_refuted_drivers.html",
+   "source_bytes": 10857,
+   "source_ref": "source_payload:s2-crawl4ai/ladder_refuted_drivers.html",
+   "source_sha256": "a6fc13dd71f967545fe7eea44149ffe5f4f6141b64849e21fe91f3b14eece848",
+   "status": 200,
+   "version": "0.9.4"
+  },
+  "record_version": "s2-crawl4ai/1"
+ },
+ "runs": {
+  "markdown_sha256_a": "f364ad00da28f88feed0f2c927f915a8f2f2626755048c164959d8b251d43b41",
+  "markdown_sha256_b": "f364ad00da28f88feed0f2c927f915a8f2f2626755048c164959d8b251d43b41",
+  "processes": 2,
+  "record_diff": "",
+  "record_sha256_a": "9ad15a4d320f812815c07ec68c9056664f6170e2182e348d746edf0792afa586",
+  "record_sha256_b": "9ad15a4d320f812815c07ec68c9056664f6170e2182e348d746edf0792afa586",
+  "rerun_identical": true
+ }
+}
