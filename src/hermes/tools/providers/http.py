@@ -239,11 +239,45 @@ def _pinned_table() -> dict[str, str]:
     return table
 
 
+def _pin_key(host: str) -> str:
+    """Canonical pin-table key: lowercased, trailing root dot stripped, and an
+    explicit https DEFAULT port folded away.
+
+    FIX-USERINFO: the gate vets a host through ``EgressPolicy``, which
+    canonicalises exactly this way (``parts.hostname.lower().rstrip(".")``),
+    and a hostname has one identity however it is written (URLs are
+    case-insensitive; ``example.org.`` is the same name as ``example.org``).
+    Without the shared key, an accepted spelling whose raw form differs from
+    the vetted form would MISS the pin at dial time — a second resolution,
+    i.e. the vetted address would stop being the dialed address. (Measured:
+    the audited userinfo URL never reached a dial — the shipped transport's
+    own parser refuses it pre-connect; the LIVE row was the non-default
+    port.) The key is derived in one place, here.
+
+    FIX-PIN-PORT: the dialer looks the pin up with urllib's own spelling of the
+    authority (``Request.host``), which KEEPS an explicit port
+    (``'api.openalex.org:443'``) while the gate publishes the vetted host
+    without one. The accepted ``:443``/``:0443`` spelling therefore looked up a
+    key nobody had published and dialed the NAME — a second resolution at dial
+    time, i.e. exactly the DNS-rebinding window the pin exists to shut. An
+    explicit default port is not a different origin (``EgressPolicy``'s own
+    ``_canonical_origin`` folds it the same way), so it is folded here too; any
+    OTHER port stays part of the key. The table belongs to the https opener
+    alone (``PinnedHTTPSHandler``), which is why the default is 443.
+    """
+    key = host.lower().rstrip(".")
+    name, separator, port = key.rpartition(":")
+    if separator and name and port.isdigit() and int(port) == 443:
+        return name
+    return key
+
+
 def pin_host_for_request(host: str, address: str) -> str | None:
     """Publish the vetted ``address`` for ``host``; returns the prior pin."""
     table = _pinned_table()
-    prior = table.get(host)
-    table[host] = address
+    key = _pin_key(host)
+    prior = table.get(key)
+    table[key] = address
     return prior
 
 
@@ -253,12 +287,13 @@ def clear_pinned_host(host: str, address: str | None = None) -> None:
     an address that passed vetting seconds earlier, but clearing keeps the
     table exactly request-scoped)."""
     table = _pinned_table()
-    if address is None or table.get(host) == address:
-        table.pop(host, None)
+    key = _pin_key(host)
+    if address is None or table.get(key) == address:
+        table.pop(key, None)
 
 
 def _lookup_pin(host: str) -> str | None:
-    return _pinned_table().get(host)
+    return _pinned_table().get(_pin_key(host))
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):

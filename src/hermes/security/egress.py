@@ -249,7 +249,18 @@ class EgressPolicy:
             resolver = resolve or _default_resolve
             try:
                 addresses = tuple(resolver(canonical_host, port))
-            except (OSError, socket.gaierror) as exc:
+            except Exception as exc:  # noqa: BLE001 — rejection is data, never bare
+                # AUDIT-USERINFO SF-2: the resolver is an INJECTED seam
+                # (``build_live_fetch_wiring(dns_resolve=…)``, tests), and its
+                # contract permits the whole Exception family — the OSError /
+                # socket.gaierror pair from ``socket.getaddrinfo``, ValueError
+                # (a bad name; UnicodeError, JSONDecodeError), RuntimeError
+                # (incl. NotImplementedError), KeyError (a table-backed
+                # resolver), TypeError, and any resolver-defined class. EVERY
+                # one is a resolution failure, and the base gate refused them
+                # all with a typed error; fail closed the same way here:
+                # refusals are data with a code, never a bare exception. The
+                # class name stays in the detail for diagnosability.
                 raise EgressRefused(
                     "DNS_FAILURE", canonical_host,
                     f"resolution failed ({type(exc).__name__})") from None

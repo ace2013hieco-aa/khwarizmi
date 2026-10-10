@@ -18,6 +18,19 @@ sink); live runs convert those interactions to replay fixtures (the
 corpus under tests/fixtures/p_auto_3_live/), which replay hermetically.
 Egress is narrowed-only by ``sandbox.network_egress_allowlist``
 (``allowlist_from_config``): operator config can remove D5 hosts, never add.
+
+FIX-USERINFO: hosts are read the way ``urlsplit`` reads them
+(``parts.hostname``), never by slicing ``netloc`` — the audited bypass read
+``api.openalex.org`` (the userinfo prefix) as the host of
+``https://api.openalex.org:foo@evil.example/works``, whose actual host is
+``evil.example``: the allowlist verdict and the FIX-D pin were keyed on a
+name that is not the URL's host. Measured on the base gate, that URL never
+reached a dial — the shipped transport's own parser refuses it pre-connect
+(``InvalidURL``); the LIVE row is the non-default port, where base dialed
+``api.openalex.org:8443`` — outside the vetted origin — with the pin keyed
+on the bare host. The gate is a thin adapter over the ONE rule layer
+(``hermes.security.egress.EgressPolicy.vet``) and only re-raises its named
+refusal code; it no longer re-implements any rule.
 """
 
 from __future__ import annotations
@@ -30,8 +43,8 @@ from hermes.persistence.provider_interactions import make_persisting_sink
 from hermes.research.autonomy_caps import (
     build_rate_profiles,
     build_wallclock,
-    refuse_non_public_addresses,
 )
+from hermes.security.egress import EgressPolicy, EgressRefused
 from hermes.tools.providers.adapters.openalex import OpenalexAdapter
 from hermes.tools.providers.adapters.pubmed import PubmedAdapter
 from hermes.tools.providers.base import RateProfile, RequestSpec, TransportResponse
@@ -76,11 +89,33 @@ DEFAULT_PER_CALL_TIMEOUT_SECONDS = 10.0
 
 
 class _AllowlistedTransport:
-    """Sanitized egress: scheme https + host in the allowlist + DNS vetting.
+    """Sanitized egress gate: a thin adapter over ``EgressPolicy.vet``.
 
     Wraps any Transport. Refuses anything else fail-closed before any I/O.
     The allowlist is the code-owned D5 provider surface, optionally NARROWED
     by operator config (never widened — see ``allowlist_from_config``).
+
+    FIX-USERINFO — the rule layer has exactly ONE implementation. The gate
+    used to re-derive the host with ``netloc.lower().split(":")[0]``, which
+    reads ``"api.openalex.org"`` out of
+    ``https://api.openalex.org:foo@evil.example/works`` (the userinfo
+    prefix) while the URL's actual host is ``evil.example``: the userinfo
+    prefix was mistaken for the host, the non-default port was truncated
+    away, and both the DNS vetting and the FIX-D pin were keyed on the
+    wrong host — a rogue URL passed the allowlist under an allowlisted
+    NAME that is not its host. Measured on the base gate: the userinfo URL
+    never reached a dial (``urllib``'s own parser refuses it pre-connect
+    with ``InvalidURL``); the LIVE row is the non-default port, where base
+    dialed ``api.openalex.org:8443`` — outside the vetted origin —
+    unpinned. Every rule now comes from ``EgressPolicy.vet``, which parses
+    the host with
+    ``urlsplit(...).hostname``: scheme (``SCHEME_NOT_ALLOWED``), userinfo
+    (``CREDENTIALS_IN_URL``), origin including an explicit non-default port
+    (``ORIGIN_NOT_ALLOWLISTED``), an unparseable port (``MALFORMED_URL``),
+    resolution (``DNS_FAILURE``/``NO_ADDRESSES``) and the public-address
+    rule (``ADDRESS_BLOCKED``). The gate does not re-check any of them — it
+    re-raises the layer's NAMED code inside the lifecycle's refusal type.
+
     P-AUTO-4 DNS-rebinding guard: the allowlisted host is resolved and EVERY
     address must be public (S2 pin mechanics, D5 scope) — a private /
     loopback / link-local answer (or a mixed set) is refused before the inner
@@ -101,43 +136,34 @@ class _AllowlistedTransport:
                 "live fetch egress refused: an EMPTY host allowlist is "
                 "incoherent (no request could ever be issued) — the D5 "
                 "provider surface is the floor")
+        # The ONE rule layer: the code-owned host surface expressed as the
+        # https origins ``vet`` allowlists (the explicit-port form is a
+        # different origin and is therefore refused there).
+        self._policy = EgressPolicy(
+            allowlist=tuple(f"https://{host}" for host in self._allowlist))
+
+    def _resolve_for_vet(self, host: str, port: int) -> tuple[str, ...]:
+        """Bridge the gate's injected ``resolve(host)`` to ``vet``'s
+        ``resolve(host, port)`` shape (https-only, so ``port`` is always the
+        scheme default the gate's resolver has always assumed)."""
+        return tuple(self._resolve(host))
 
     def request(self, spec: RequestSpec) -> TransportResponse:
-        url = spec.url
-        parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https":
-            raise ProviderValidationError(
-                f"live fetch egress refused: scheme {parsed.scheme!r} "
-                f"not in the allowlist (https only; got {url!r})"
-            )
-        host = (parsed.netloc or "").lower().split(":")[0]
-        if host not in self._allowlist:
-            raise ProviderValidationError(
-                f"live fetch egress refused: host {host!r} not in "
-                f"the allowlist {sorted(self._allowlist)} (got {url!r})"
-            )
         try:
-            addresses = self._resolve(host)
-        except ProviderValidationError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — resolution failure is a refusal
+            target = self._policy.vet(spec.url, resolve=self._resolve_for_vet)
+        except EgressRefused as exc:
             raise ProviderValidationError(
-                f"live fetch egress refused: DNS resolution failed for "
-                f"host {host!r} ({type(exc).__name__})") from None
-        try:
-            refuse_non_public_addresses(host, tuple(addresses))
-        except ValueError as exc:
-            raise ProviderValidationError(str(exc)) from None
+                f"live fetch egress refused [{exc.code}] "
+                f"{exc.host or '<no host>'}: {exc.detail}") from None
         # FIX-D — pin the vetted address for exactly this request: the
         # guarded opener dials the pinned address (Host header / TLS SNI
         # keep the hostname), so a resolver flip between vet and dial
         # cannot redirect the connection.
-        pinned = tuple(sorted(set(addresses)))[0]
-        pin_host_for_request(host, pinned)
+        pin_host_for_request(target.host, target.pinned)
         try:
             return self._inner.request(spec)  # type: ignore[attr-defined]
         finally:
-            clear_pinned_host(host, pinned)
+            clear_pinned_host(target.host, target.pinned)
 
 
 def default_dns_resolve(host: str) -> tuple[str, ...]:
@@ -199,7 +225,21 @@ def allowlist_from_config(policy: Any | None) -> tuple[str, ...]:
             raise ProviderValidationError(
                 f"sandbox.network_egress_allowlist entry {entry!r} is not "
                 f"https — the D5 egress surface is https-only")
-        host = (parsed.netloc or parsed.path).lower().split(":")[0].split("/")[0]
+        # FIX-USERINFO — parse the host, never slice ``netloc``: slicing
+        # reads the userinfo prefix as the host, so
+        # ``https://api.openalex.org:foo@evil.example`` would be silently
+        # reinterpreted as the D5 host named in its userinfo. An entry is a
+        # host, never a credential.
+        try:
+            host = (parsed.hostname or "").lower().rstrip(".")
+        except ValueError as exc:
+            raise ProviderValidationError(
+                f"sandbox.network_egress_allowlist entry {entry!r} does not "
+                f"parse as a host ({exc})") from None
+        if parsed.username is not None or parsed.password is not None:
+            raise ProviderValidationError(
+                f"sandbox.network_egress_allowlist entry {entry!r} carries "
+                f"userinfo — an entry names a host, never a credential")
         if host not in ALLOWLIST_HOSTS:
             raise ProviderValidationError(
                 f"sandbox.network_egress_allowlist entry {entry!r} is "

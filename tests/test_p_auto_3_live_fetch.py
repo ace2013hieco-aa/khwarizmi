@@ -139,19 +139,29 @@ def _store(db, tmp_path):
         clock=lambda: CLOCK)
 
 
-def _wiring(db, store, *, mode="replay", fixtures=None):
+def _public_resolve(host: str) -> tuple[str, ...]:
+    """Hermetic DNS stub: one public address, no real resolution."""
+    return ("93.184.216.34",)
+
+
+def _wiring(db, store, *, mode="replay", fixtures=None, dns_resolve=None):
     """Build the production wiring; in replay mode swap the inner
     transport for a refusing one (zero live contact, byte-identical
     results). Unit (non-live) wiring uses a public-IP DNS stub so the
-    P-AUTO-4 DNS guard stays hermetic offline (no real resolution)."""
+    P-AUTO-4 DNS guard stays hermetic offline (no real resolution).
+
+    FIX-USERINFO: ``dns_resolve`` reaches the ``mode="live"`` wiring too.
+    A unit test that drives the live gate must inject a stub, otherwise the
+    gate resolves for real and the suite silently depends on DNS. The
+    marked ``live_fetch`` end-to-end tests leave it None (real resolution
+    is the point of those tests)."""
     if mode == "live":
-        return build_live_fetch_wiring(db, store, lambda: CLOCK)
+        return build_live_fetch_wiring(db, store, lambda: CLOCK,
+                                       dns_resolve=dns_resolve)
     import dataclasses
 
-    def _public(host: str) -> tuple[str, ...]:
-        return ("93.184.216.34",)
-
-    live = build_live_fetch_wiring(db, store, lambda: CLOCK, dns_resolve=_public)
+    live = build_live_fetch_wiring(db, store, lambda: CLOCK,
+                                   dns_resolve=dns_resolve or _public_resolve)
     refusing = RefusingTransport()
     replay = RecordedTransport(
         refusing,
@@ -343,11 +353,15 @@ class TestSanitizedEgress:
         # The allowlist gate sits BETWEEN RecordedTransport and the HTTP
         # client in the live wiring — reached via transport._inner.
         store = _store(db, tmp_path)
-        wiring = _wiring(db, store, mode="live")
+        wiring = _wiring(db, store, mode="live", dns_resolve=_public_resolve)
         gate = wiring.transport._inner
         for url in ("http://api.openalex.org/works",        # wrong scheme
                     "https://evil.example.com/steal",       # unknown host
                     "https://api.crossref.org/works",       # another provider
+                    # FIX-USERINFO — the audited userinfo bypass: the host
+                    # is evil.example, not the allowlisted userinfo prefix
+                    "https://api.openalex.org:foo@evil.example/works",
+                    "https://api.openalex.org:8443/works",   # non-default port
                     ):
             with pytest.raises(ProviderValidationError):
                 gate.request(RequestSpec(url=url, params={}, headers_meta={}))
@@ -357,7 +371,11 @@ class TestSanitizedEgress:
         from hermes.tools.providers.base import TransportResponse
 
         store = _store(db, tmp_path)
-        wiring = _wiring(db, store, mode="live")
+        # FIX-USERINFO: the gate resolves its host before dialing, so this
+        # unit test injects the hermetic DNS stub (the marked live_fetch
+        # tests are the only ones that touch real DNS).
+        wiring = _wiring(db, store, mode="live",
+                         dns_resolve=_public_resolve)
         gate = wiring.transport._inner
         seen = {}
 
