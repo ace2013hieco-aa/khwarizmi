@@ -30,7 +30,7 @@ engines are external, probed by `hermes doctor`).
 | Persistence | `src/hermes/persistence/` (`repositories.py` 19 classes; `failure_classifications.py`; `source_outcomes.py`; `provider_interactions.py`; `program_obligations.py`; `corpus.py`; `graph_edges.py`; `migrations.py`, schema v19 `:20`) | SQLite via owned transactions (18 acquisition owners; mostly `BEGIN IMMEDIATE`, intentional plain-`BEGIN` creates/retry — see §3.10); pure domain helpers | expose unwritten state; delete rows (no DELETE in `src/`) |
 | Journal / events | `src/hermes/core/events.py` (catalog); writer in repositories | append via `_append_event_to_db` inside write txs | rewrite history; oversized payloads (`event_validation.py`, `RATIONALE`) |
 | Research / domain | `src/hermes/research/` (programs, evaluation, contradictions, completion, extraction, ladder, claims…) | core types, persistence reads, tools ports | decide transitions by model output; leak into providers |
-| Provider adapters | `src/hermes/tools/providers/adapters/` (11 adapters, ABC `src/hermes/tools/providers/base.py:139`, registry `src/hermes/tools/providers/adapters/__init__.py:37`) | `hermes.tools.*` only | import `research`/`core`/`persistence` (sole recorded exception: `src/hermes/tools/providers/hazards.py:137`) |
+| Provider adapters | `src/hermes/tools/providers/adapters/` (15 adapters, ABC `src/hermes/tools/providers/base.py:139`, registry `src/hermes/tools/providers/adapters/__init__.py:37`) | `hermes.tools.*` only | import `research`/`core`/`persistence` (sole recorded exception: `src/hermes/tools/providers/hazards.py:137`) |
 | Replay / determinism | `RecordedTransport` (`src/hermes/tools/providers/replay.py:293`), fixture identity `fx_`, recorder boundary | adapters (record), fixtures (replay) | touch live network in replay (refusing inner transport) |
 | Authority / humans | operator credentials (`repositories.py:1063`), `HumanDecisionReceived` journal rows | — (ingested by deterministic surfaces) | LLM/agent profiles deciding (`AgentProfile`, `src/hermes/core/node.py`) |
 
@@ -88,6 +88,13 @@ rows binding deterministic command hashes; missing/forged/mismatched
 verdicts refuse (`PROPOSAL`); bad credentials refuse (`OPERATOR`);
 held leases refuse (`LOCK`); oversized rationales refuse
 (`RATIONALE`). LLM-invokable set is closed (`intents.py:124).
+
+Experiment-gated support (claim-ground G12, `claims.py`): causal
+DIRECT/PARTIAL claims require an experiment that dereferences to an
+admitted in-project row via the experiment resolver. No experiment
+registry or declaration intent exists, so this is structurally
+inadmissible today; INFERRED/SPECULATIVE remain the downgrade path.
+Pinned by `tests/test_experiment_gate_pin_v2.py`.
 
 ## 3.7 Contradiction lifecycle (CURRENT / NORMATIVE)
 

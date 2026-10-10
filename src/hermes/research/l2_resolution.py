@@ -53,6 +53,16 @@ from typing import Any
 # (the design-gate census forms, plus ``source_fetch_outcome`` completing
 # the ratified SOURCE_ARTIFACT_TYPES taxonomy; the ``evidence:`` form
 # carries a bare artifact id instead of a hash and is handled separately).
+#
+# IDR-046 D2/E6 — NAMED EXEMPTION (comment only, no behaviour change):
+# ``source_search`` / ``source_fetch_outcome`` STAY in this set even
+# though web-derived rows of those types are barred from every evidence
+# position (E4/E5, keyed on WEB_SEARCH_PROVIDERS in
+# ``hermes.tools.research_sources``). This resolver's sole production
+# caller is the S5 retraction cone (``gateway._validate_retract_source``),
+# so resolution here is *retraction reach*, not evidence admission — a web
+# exclusion here would make a retracted web source unreachable and break
+# acceptance A6. Retraction needs no edit: N9 applies to every source.
 _L2_HASH_TYPED_PREFIXES = frozenset({
     "source_result",
     "source_payload",

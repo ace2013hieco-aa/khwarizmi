@@ -477,6 +477,14 @@ def _run(args, cfg: HermesConfig) -> int:
     tasks are left unhandled, and HUMAN_GATE tasks park at WAITING_HUMAN —
     surfaced in the summary — until an operator verdict lands through the
     controller's resolve_human_gate surface.
+
+    R-3: the operator knobs are read HERE — the ``[autonomy_caps]`` section
+    of the loaded config is handed to the controller, which builds the
+    deterministic envelopes (dispatch deadline, step/token budgets, retry
+    caps, loop threshold) through the narrow-only builders. A tightened
+    value applies; a value above the code-owned ceiling is refused loudly
+    (``KNOB_WIDEN_REFUSED``), never silently clamped; an absent section
+    carries the code-owned defaults byte-identically.
     """
     from .persistence.database import connect
     from .persistence.migrations import migrate_to_latest
@@ -490,7 +498,9 @@ def _run(args, cfg: HermesConfig) -> int:
     conn = connect(str(db_path))
     try:
         migrate_to_latest(conn)
-        ctrl = Controller(conn, project_id=args.project_id)
+        ctrl = Controller(
+            conn, project_id=args.project_id,
+            autonomy_operator=cfg.autonomy_caps)
         outcomes = ctrl.run(max_ticks=args.ticks)
         notes = list(ctrl.notes)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
@@ -654,6 +664,79 @@ def _operator_register(args, cfg: HermesConfig) -> int:
     return 0
 
 
+def _vault_project(args, cfg: HermesConfig) -> int:
+    """Project the journal into the vault notes + the derived-view manifest.
+
+    Operator surface for the P-AUTO-5 projector: reads the persisted cursor
+    (0 when absent — full projection), writes the window notes and the
+    manifest, then persists the new cursor. The journal is read-only.
+    """
+    from .persistence.database import connect
+    from .persistence.migrations import migrate_to_latest
+    from .vault.projection import (
+        ProjectionRefused,
+        project,
+        read_cursor,
+        write_cursor,
+    )
+
+    db_path = Path(cfg.sqlite.database_path)
+    if not db_path.exists():
+        print("No database found. Run `hermes init` first.")
+        return 1
+    conn = connect(str(db_path))
+    try:
+        migrate_to_latest(conn)
+        cursor = read_cursor(args.vault_root)
+        new_cursor, written = project(conn, args.project_id, args.vault_root,
+                                      cursor=cursor)
+        write_cursor(args.vault_root, new_cursor)
+    except ProjectionRefused as exc:
+        print(f"Refused [{exc.code}]: {exc.detail}")
+        return 1
+    finally:
+        conn.close()
+    print(f"Projected {args.project_id} into {args.vault_root}: cursor "
+          f"{cursor} -> {new_cursor}, {len(written)} note(s) written; "
+          "manifest .projection-manifest.json written.")
+    return 0
+
+
+def _vault_verify(args, cfg: HermesConfig) -> int:
+    """Recompute the manifest from the journal and refuse on any mismatch.
+
+    The verifier never trusts the manifest file: it recomputes the claim
+    with the projector's planner and names every missing/invented ID. Exit
+    1 (with the findings) when the derived view is refused.
+    """
+    from .persistence.database import connect
+    from .vault.manifest import verify_manifest
+    from .vault.projection import ProjectionRefused
+
+    db_path = Path(cfg.sqlite.database_path)
+    if not db_path.exists():
+        print("No database found. Run `hermes init` first.")
+        return 1
+    conn = connect(str(db_path))
+    try:
+        report = verify_manifest(conn, args.project_id, args.vault_root)
+    except ProjectionRefused as exc:
+        print(f"Refused [{exc.code}]: {exc.detail}")
+        return 1
+    finally:
+        conn.close()
+    if getattr(args, "as_json", False):
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+    else:
+        for line in report.lines():
+            print(line)
+    if not report.ok:
+        print("Vault manifest does not match the journal — the derived view "
+              "is refused.", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hermes",
@@ -733,7 +816,28 @@ def _build_parser() -> argparse.ArgumentParser:
     pause_p.add_argument("project_id", help="Project UUID.")
 
     resume_p = sub.add_parser("resume", help="Resume a paused project.")
-    resume_p.add_argument("project_id", help="Project UUID.")
+    resume_p.add_argument("project_id", help="Project UUID to resume.")
+
+    vault_p = sub.add_parser(
+        "vault", help="Vault projection (derived views; P-AUTO-5).")
+    vault_sub = vault_p.add_subparsers(dest="vault_command")
+    vault_proj = vault_sub.add_parser(
+        "project", help="Project journal rows into vault notes + manifest.")
+    vault_proj.add_argument("project_id", help="Project UUID to project.")
+    vault_proj.add_argument("--vault-root", dest="vault_root", required=True,
+                            help="Absolute vault root (human-owned areas "
+                                 "are refused).")
+    vault_verify = vault_sub.add_parser(
+        "verify", help="Recompute the manifest from the journal and diff.")
+    vault_verify.add_argument("project_id", help="Project UUID to verify.")
+    vault_verify.add_argument("--vault-root", dest="vault_root",
+                              required=True,
+                              help="Absolute vault root to verify.")
+    vault_verify.add_argument("--json", dest="as_json", action="store_true",
+                              help="Emit the verification report as one JSON "
+                                   "document (stable schema: {\"verify\", "
+                                   "\"ok\", \"findings\": [...]}); exit is "
+                                   "1 when refused.")
 
     return p
 
@@ -799,6 +903,15 @@ def main(argv: list[str] | None = None) -> int:
         return _pause(args, cfg)
     if cmd == "resume":
         return _resume(args, cfg)
+    if cmd == "vault":
+        vc = getattr(args, "vault_command", None)
+        if vc == "project":
+            return _vault_project(args, cfg)
+        if vc == "verify":
+            return _vault_verify(args, cfg)
+        print("Usage: hermes vault {project|verify} <project_id> "
+              "--vault-root <path>")
+        return 0
     if cmd == "run":
         return _run(args, cfg)
     if cmd == "gate":

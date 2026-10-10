@@ -12,16 +12,20 @@ from __future__ import annotations
 
 from hermes.tools.providers.adapters.arxiv import ArxivAdapter
 from hermes.tools.providers.adapters.biorxiv import BiorxivAdapter
+from hermes.tools.providers.adapters.brave import BraveAdapter
 from hermes.tools.providers.adapters.core import CoreAdapter
 from hermes.tools.providers.adapters.crossref import CrossrefAdapter
 from hermes.tools.providers.adapters.europepmc import EuropePmcAdapter
+from hermes.tools.providers.adapters.exa import ExaAdapter
 from hermes.tools.providers.adapters.medrxiv import MedrxivAdapter
 from hermes.tools.providers.adapters.openalex import OpenalexAdapter
 from hermes.tools.providers.adapters.pmc import PmcAdapter
 from hermes.tools.providers.adapters.pubmed import PubmedAdapter
+from hermes.tools.providers.adapters.searxng import SearxngAdapter
 from hermes.tools.providers.adapters.semantic_scholar import (
     SemanticScholarAdapter,
 )
+from hermes.tools.providers.adapters.tavily import TavilyAdapter
 from hermes.tools.providers.adapters.unpaywall import UnpaywallAdapter
 from hermes.tools.providers.base import ProviderAdapter
 from hermes.tools.research_sources import (
@@ -46,6 +50,10 @@ PROVIDER_REGISTRY: dict[str, type[ProviderAdapter]] = {
     "semantic-scholar": SemanticScholarAdapter,
     "core": CoreAdapter,
     "unpaywall": UnpaywallAdapter,
+    "brave": BraveAdapter,
+    "exa": ExaAdapter,
+    "tavily": TavilyAdapter,
+    "searxng": SearxngAdapter,
 }
 
 _MISSING = sorted(set(SOURCE_PROVIDER_ALLOWLIST) - set(PROVIDER_REGISTRY))

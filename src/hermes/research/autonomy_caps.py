@@ -106,6 +106,7 @@ __all__ = [
     "DEFAULT_RETRY_MAX_DELAY_S",
     "DEFAULT_RETRY_MAX_RETRIES",
     "DNS_REBINDING_REFUSED",
+    "KNOB_WIDEN_REFUSED",
     "LOOP_PATTERN_QUARANTINED",
     "POISON_TASK_QUARANTINED",
     "P_AUTO_4_PROPOSED_VALUES",
@@ -150,6 +151,10 @@ DAILY_CAP_HARD_STOP = "daily_cap_exhausted"
 LOOP_PATTERN_QUARANTINED = "LOOP_PATTERN_QUARANTINED"
 POISON_TASK_QUARANTINED = "POISON_TASK_QUARANTINED"
 DNS_REBINDING_REFUSED = "DNS_REBINDING_REFUSED"
+# Operator-knob widen refusal: the narrow-only surface — operator
+# config may TIGHTEN a code-owned cap, never widen it (named,
+# refusal-as-data; the value is never silently clamped).
+KNOB_WIDEN_REFUSED = "KNOB_WIDEN_REFUSED"
 
 # ── proposed defaults (the values table, machine-readable) ──
 
@@ -245,9 +250,10 @@ class WallClockCaps:
 def narrow_int(operator: int | None, code_default: int, name: str) -> int:
     """Narrow-only int knob: absent => default; tighter => accepted.
 
-    A looser-than-default operator value is refused LOUDLY (never silently
-    clamped) — the code-owned surface is the ceiling, mirroring
-    ``allowlist_from_config`` (config may narrow, never widen).
+    A looser-than-default operator value is refused LOUDLY with the named
+    code ``KNOB_WIDEN_REFUSED`` (never silently clamped) — the code-owned
+    surface is the ceiling, mirroring ``allowlist_from_config`` (config may
+    narrow, never widen).
     """
     if operator is None:
         return code_default
@@ -257,13 +263,18 @@ def narrow_int(operator: int | None, code_default: int, name: str) -> int:
         raise ValueError(f"P-AUTO-4 {name} must be > 0, got {operator!r}")
     if operator > code_default:
         raise ValueError(
-            f"P-AUTO-4 {name}={operator!r} widens the code-owned ceiling "
-            f"{code_default!r} — operator config may only narrow, never widen")
+            f"P-AUTO-4 {KNOB_WIDEN_REFUSED}: {name}={operator!r} widens the "
+            f"code-owned ceiling {code_default!r} — operator config may only "
+            f"narrow, never widen")
     return operator
 
 
 def narrow_float(operator: float | int | None, code_default: float, name: str) -> float:
-    """Narrow-only float knob: absent => default; tighter => accepted."""
+    """Narrow-only float knob: absent => default; tighter => accepted.
+
+    A looser-than-default operator value is refused with the named code
+    ``KNOB_WIDEN_REFUSED`` (never silently clamped).
+    """
     if operator is None:
         return code_default
     if not isinstance(operator, (int, float)) or isinstance(operator, bool):
@@ -273,8 +284,9 @@ def narrow_float(operator: float | int | None, code_default: float, name: str) -
         raise ValueError(f"P-AUTO-4 {name} must be > 0, got {operator!r}")
     if value > code_default:
         raise ValueError(
-            f"P-AUTO-4 {name}={value!r} widens the code-owned ceiling "
-            f"{code_default!r} — operator config may only narrow, never widen")
+            f"P-AUTO-4 {KNOB_WIDEN_REFUSED}: {name}={value!r} widens the "
+            f"code-owned ceiling {code_default!r} — operator config may only "
+            f"narrow, never widen")
     return value
 
 

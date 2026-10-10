@@ -43,6 +43,7 @@ from hermes.research.source_templates import (
     SOURCE_SEARCH_TEMPLATE,
 )
 from hermes.tools.research_sources import (
+    WEB_SEARCH_PROVIDERS,
     content_hash_of_search_result,
     observation_hash_of_search_result,
     outcome_record_hash,
@@ -59,6 +60,7 @@ __all__ = [
     "SourceOutcomeRepository",
     "SourceRepos",
     "_source_artifact_resolves",
+    "source_artifact_is_web_derived",
 ]
 
 
@@ -179,6 +181,87 @@ def source_artifact_retracted(
         "LIMIT 1",
         (artifact_id, project_id)).fetchone()
     return row is not None
+
+
+def source_artifact_is_web_derived(conn: Any, artifact_id: str) -> bool:
+    """Whether a source artifact is web-derived (IDR-046 D2).
+
+    The provider predicate on the row the choke point already holds: a
+    row is web-derived iff *any* contributing provider is in
+    ``WEB_SEARCH_PROVIDERS`` (``hermes.tools.research_sources`` — the
+    single definition; no other module may hardcode the four ids). The
+    marker rides the row's own metadata, dispatched on the row's type:
+
+    - ``source_search`` / ``source_fetch_outcome``: the ``providers`` key
+      (the sorted, de-duplicated contributing-provider list E8 authors);
+    - ``source_result``: ``metadata.record.provider`` (the lossless
+      ``SearchResult`` round-trip);
+    - ``source_payload``: ``metadata.source_result_ref`` dereferenced ONE
+      hop to its ``source_result`` row, then the same ``record.provider``
+      read.
+
+    Pure read of committed state beside ``source_artifact_retracted`` —
+    same shape and discipline: no writes, no exceptions, project scoping
+    left to the caller. Any other type, a missing row, or unparseable
+    metadata     returns ``False``; absence of the key also returns ``False``
+    (provably safe: no row can be web-derived without ``providers``,
+    because the four web providers were unreachable until the allowlist
+    amendment that ships with the marker).
+    """
+    if (not isinstance(artifact_id, str) or not artifact_id):
+        return False
+    row = conn.execute(
+        "SELECT artifact_type, metadata_json FROM artifacts "
+        "WHERE artifact_id = ?",
+        (artifact_id,)).fetchone()
+    if row is None:
+        return False
+    try:
+        artifact_type = row["artifact_type"]
+        metadata_json = row["metadata_json"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    import json as _json
+    try:
+        meta = _json.loads(metadata_json or "{}")
+    except ValueError:
+        return False
+    if not isinstance(meta, dict):
+        return False
+    if artifact_type in ("source_search", "source_fetch_outcome"):
+        providers = meta.get("providers")
+        if not isinstance(providers, list):
+            return False
+        return any(isinstance(p, str) and p in WEB_SEARCH_PROVIDERS
+                   for p in providers)
+    if artifact_type == "source_result":
+        record = meta.get("record")
+        if not isinstance(record, dict):
+            return False
+        provider = record.get("provider")
+        return isinstance(provider, str) and provider in WEB_SEARCH_PROVIDERS
+    if artifact_type == "source_payload":
+        ref = meta.get("source_result_ref")
+        if not isinstance(ref, str):
+            return False
+        prefix, sep, rest = ref.partition(":")
+        if not sep or prefix != "source_result" or not rest:
+            return False
+        target = conn.execute(
+            "SELECT artifact_id FROM artifacts "
+            "WHERE content_hash = ? AND artifact_type = 'source_result' "
+            "ORDER BY created_at LIMIT 1",
+            (rest,)).fetchone()
+        if target is None:
+            return False
+        try:
+            target_id = target["artifact_id"]
+        except (KeyError, IndexError, TypeError):
+            return False
+        if not isinstance(target_id, str) or not target_id:
+            return False
+        return source_artifact_is_web_derived(conn, target_id)
+    return False
 
 
 def _proposed_set(outcome: object, outcome_kind: str) -> frozenset[str]:
@@ -925,7 +1008,7 @@ class SourceOutcomeRepository:
             "size_bytes": 0,
             "storage_path": "inline://source_fetch_outcome",
             "producer": produced_by,
-            "metadata": self._fetch_outcome_metadata(outcome),
+            "metadata": self._fetch_outcome_metadata(outcome, task_id),
         })
         edges.append((outcome_id, task_id, "derived_from"))
         # the fetch outcome used the search task's outcome as input (§14)
@@ -1010,15 +1093,29 @@ class SourceOutcomeRepository:
                 "provider_spec_version": log.provider_spec_version,
                 "raw_artifact_hashes": list(log.raw_artifact_hashes or ()),
             }
+        # IDR-046 D2 — the provenance marker: the union of per-provider
+        # result carriers with the request-log carrier when present. The
+        # union is what makes the marker total across both the success
+        # path (per-provider results) and the shortfall paths (log only).
+        providers: set[str] = set()
+        for result in getattr(outcome, "per_provider", ()) or ():
+            provider = getattr(result, "provider", None)
+            if isinstance(provider, str) and provider:
+                providers.add(provider)
+        if log is not None:
+            log_provider = getattr(log, "provider", None)
+            if isinstance(log_provider, str) and log_provider:
+                providers.add(log_provider)
         return {
             "outcome_kind": "search",
             "aggregate": getattr(outcome, "aggregate", ""),
             "notes": list(getattr(outcome, "notes", ()) or ()),
             "request_log": request_log,
+            "providers": sorted(providers),
         }
 
-    @staticmethod
-    def _fetch_outcome_metadata(outcome: object) -> dict:
+    def _fetch_outcome_metadata(self, outcome: object,
+                                task_id: str | None = None) -> dict:
         log_entries = []
         for e in getattr(outcome, "fetch_log", ()) or ():
             log_entries.append({
@@ -1056,6 +1153,31 @@ class SourceOutcomeRepository:
                 "failure_class": fl.failure_class,
                 "reason": fl.reason,
             })
+        # IDR-046 D2 — the fetch-side provenance marker:
+        # `{x.source.provider}` over `per_source` / `no_full_text` /
+        # `failed`, falling back to the producing fetch task's
+        # `spec.provider` when that union is empty (a fetch that ran
+        # nothing) — read with the accessor this class already uses
+        # (`_spec_search_task_id`). Sorted, de-duplicated.
+        providers: set[str] = set()
+        for group in (getattr(outcome, "per_source", ()) or (),
+                      getattr(outcome, "no_full_text", ()) or (),
+                      getattr(outcome, "failed", ()) or ()):
+            for item in group:
+                provider = getattr(getattr(item, "source", None),
+                                   "provider", None)
+                if isinstance(provider, str) and provider:
+                    providers.add(provider)
+        if not providers and task_id is not None:
+            task_row = self._conn.execute(
+                "SELECT spec_json FROM tasks WHERE task_id = ?", (task_id,),
+            ).fetchone()
+            if task_row is not None:
+                task_spec = self._json_loads(task_row["spec_json"]) or {}
+                fallback = task_spec.get("provider") if isinstance(
+                    task_spec, dict) else None
+                if isinstance(fallback, str) and fallback:
+                    providers.add(fallback)
         return {
             "outcome_kind": "fetch",
             "aggregate": getattr(outcome, "aggregate", ""),
@@ -1064,4 +1186,5 @@ class SourceOutcomeRepository:
             "fetch_log": log_entries,
             "fetched_count": getattr(outcome, "fetched_count", 0),
             "no_full_text_count": getattr(outcome, "no_full_text_count", 0),
+            "providers": sorted(providers),
         }

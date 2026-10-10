@@ -98,11 +98,20 @@ class PageState:
 class RequestSpec:
     """The request form `build_request` produces — passed through redaction at
     the recorder boundary before it may be logged; credentials are injected
-    HERE and only here (the driver never sees raw credential material)."""
+    HERE and only here (the driver never sees raw credential material).
+
+    IDR-046 D4 — the additive POST path: `method` is "GET" or "POST"
+    (anything else refuses `ProviderValidationError` at `build_request`
+    time, before I/O); `body` is the POST body (empty means "GET
+    semantics"). Defaults preserve every existing call site: a spec with
+    `method="GET"` and `body=b""` builds the same URL and issues the same
+    GET as before, with a byte-identical recorded normalized form."""
 
     url: str
     params: dict[str, str]
     headers_meta: dict[str, str]  # header-auth metadata — never logged
+    method: str = "GET"  # "GET" | "POST" — closed set (D4 rule 2)
+    body: bytes = b""  # POST body; on POST the query string is built from the URL alone (D4 rule 3)
 
 
 RawRecord: TypeAlias = dict[str, object]

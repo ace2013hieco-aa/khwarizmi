@@ -1,0 +1,45 @@
+# experimenter.yaml — runtime profile configuration (ARCHITECTURE_DELTA §2.3).
+version: "1"
+name: experimenter
+role: bounded experiment execution and replication requests
+agent_profile: IMPLEMENTER
+
+model_policy:
+  tier: experiment
+  contract: runtime_proposal_v1
+  kind_field: kind
+  rationale_field: rationale
+  structured_fields: [proposals, tool_calls, delegations]
+  allows_tool_calls: true
+  max_output_tokens: 3072
+
+tools: [experiment_execute, artifact_store]
+
+authority:
+  proposable_kinds:
+    - INSERT_TASK
+    - REQUEST_REPLICATION
+    - REQUEST_ADDITIONAL_EXPERIMENT
+  director_only: false
+  allowed_capabilities: [experiment_execute, artifact_store]
+  requires_human_for:
+    - PROPOSE_GATE_OVERRIDE
+
+schemas:
+  proposal: runtime_proposal_v1
+  draft: [kind, rationale, payload]
+
+termination:
+  max_ticks: 6
+  max_proposals: 8
+  # Converged: stop once a tick raises nothing it has not already raised — an
+  # experiment loop that keeps re-proposing the same run is not progress.
+  stop_when: converged
+  max_model_calls_per_tick: 2
+  max_tool_calls: 6
+  deadline_seconds: 600
+
+review:
+  reviewer_profile: verifier
+  required: true
+  max_review_rounds: 1

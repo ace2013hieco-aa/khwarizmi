@@ -1,4 +1,4 @@
-﻿"""B1 break-it harness ΓÇö hostile inputs through the public API, no model.
+"""B1 break-it harness — hostile inputs through the public API, no model.
 
 Runs 8 red-team scenarios against a throwaway in-memory database built per
 scenario, entirely through the PUBLIC surfaces (``apply_intent`` gateway,
@@ -7,7 +7,7 @@ production code is exercised outside its shipped contract; nothing here can
 change durable state outside the temp directory.
 
 Scenarios and their reference tests (the oracle each outcome is asserted
-against ΓÇö every outcome below matches its test's assertion):
+against — every outcome below matches its test's assertion):
 
   S1 hostile instruction text inside fetched content stays enveloped and
      inert ............ tests/test_boundaries.py:15 (str/repr carry the
@@ -27,20 +27,20 @@ against ΓÇö every outcome below matches its test's assertion):
                         fabricated span is not admitted)
   S5 forged gate journal events can refuse but never authorize ....
                         tests/test_controller.py:2426 (forged
-                        HumanGateResolved ΓçÆ ALREADY_RESOLVED, gate stays
+                        HumanGateResolved ⇒ ALREADY_RESOLVED, gate stays
                         WAITING_HUMAN)
   S6 open contradiction denies completion with OPEN_CONTRADICTION ...
                          tests/test_p6_classification.py:435
                          (assert "OPEN_CONTRADICTION" in [d.code for d in result.denials])
   S7 citing a retracted source is refused (N9) ....................
                         tests/test_n9_retraction_admission.py:232 (fresh
-                        citation after retraction ΓçÆ MALFORMED_PAYLOAD with
+                        citation after retraction ⇒ MALFORMED_PAYLOAD with
                         EVIDENCE_DOES_NOT_RESOLVE)
   S8 oversize / secret-bearing payloads are refused before any write ...
                         tests/test_controller.py:1000 (oversized rationale
-                        ΓçÆ RATIONALE, gate still WAITING_HUMAN) and
+                        ⇒ RATIONALE, gate still WAITING_HUMAN) and
                         tests/test_event_validation.py:88 (secret field
-                        name ΓçÆ EventValidationError)
+                        name ⇒ EventValidationError)
 
 Determinism: every clock is frozen at a fixed ISO instant; no wall-clock,
 no randomness in outcomes, no network, no model. The operator credential is
@@ -98,13 +98,13 @@ from hermes.tools.research_sources import (  # noqa: E402
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 OP_ID = "op-1"
 # Local placeholder credential, registered by make_db() with the operator
-# repository ΓÇö the value is a harness fixture, read from the environment
+# repository — the value is a harness fixture, read from the environment
 # with a fixed default so no real credential is ever needed or stored.
 OP_CREDENTIAL = os.environ.get("BREAKIT_OPERATOR_TOKEN",
                                "breakit-local-fixture-credential")
 
 
-# ΓöÇΓöÇ shared fixture (the tests' own db fixture shape) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── shared fixture (the tests' own db fixture shape) ─────────────────
 
 
 def make_db():
@@ -134,7 +134,7 @@ def journal_brief(rows):
     """Deterministic excerpt of journal rows: event type + task id only.
 
     Correlation ids embed wall-clock/uuid values by design (the production
-    clock), so the deterministic harness excerpt omits them ΓÇö the event
+    clock), so the deterministic harness excerpt omits them — the event
     KIND and its task binding are the audit content here.
     """
     seen: dict[tuple[str, str], int] = {}
@@ -151,9 +151,9 @@ def snapshot(conn):
     return EventRepository(conn).count()
 
 
-# ΓöÇΓöÇ S1 ΓÇö hostile fetched content: enveloped and inert ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_boundaries.py:15 ΓÇö str()/repr() carry the marker,
-# never the payload; tests/test_provider_orchestration.py:1447 ΓÇö hostile
+# ── S1 — hostile fetched content: enveloped and inert ────────────────
+# Reference: tests/test_boundaries.py:15 — str()/repr() carry the marker,
+# never the payload; tests/test_provider_orchestration.py:1447 — hostile
 # outcome content is recorded as data only (no claims, no gates, no extra
 # tasks).
 
@@ -224,8 +224,8 @@ def scenario_1(lines):
     return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S2 ΓÇö role violation: an agent proposes an internal-only intent ΓöÇΓöÇΓöÇ
-# Reference: tests/test_gateway.py:170 ΓÇö ADMIT_TASK proposed_by RESEARCHER
+# ── S2 — role violation: an agent proposes an internal-only intent ───
+# Reference: tests/test_gateway.py:170 — ADMIT_TASK proposed_by RESEARCHER
 # is refused with the ROLE code (internal-only, DETERMINISTIC may).
 
 
@@ -246,8 +246,8 @@ def scenario_2(lines):
         return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S3 ΓÇö off-allowlist provider at admission ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_provider_orchestration.py:1616 ΓÇö a hand-forged
+# ── S3 — off-allowlist provider at admission ─────────────────────────
+# Reference: tests/test_provider_orchestration.py:1616 — a hand-forged
 # payload whose provider is not in the IDR-030 allowlist is rejected by the
 # gateway at INSERT_TASK (admission, never execution).
 
@@ -274,8 +274,8 @@ def scenario_3(lines):
         return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S4 ΓÇö fabricated span against a source_payload ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_claims.py:477 ΓÇö with a span resolver that knows the
+# ── S4 — fabricated span against a source_payload ────────────────────
+# Reference: tests/test_claims.py:477 — with a span resolver that knows the
 # cited source, a fabricated span_ref is not admitted
 # (dangling_span_ref). The write path supplies the real resolver
 # (controller.py `_span_resolve`); an unreadable source fails closed, so a
@@ -319,7 +319,7 @@ def scenario_4(lines):
     def span_resolver(source_ref: str, span_ref: str) -> bool:
         # Stand-in for the controller's stored-text resolver: the cited
         # source_payload does not dereference here, so every span fails
-        # closed (controller.py: "unreadable ΓçÆ dangling").
+        # closed (controller.py: "unreadable ⇒ dangling").
         return False
 
     try:
@@ -339,8 +339,8 @@ def scenario_4(lines):
         return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S5 ΓÇö forged gate events can refuse but never authorize ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_controller.py:2426 (leg 2) ΓÇö a forged
+# ── S5 — forged gate events can refuse but never authorize ───────────
+# Reference: tests/test_controller.py:2426 (leg 2) — a forged
 # HumanGateResolved journal row alone refuses the verdict with
 # ALREADY_RESOLVED and the gate stays WAITING_HUMAN. Journal tampering can
 # only deny a verdict, never grant one.
@@ -383,8 +383,8 @@ def scenario_5(lines):
     return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S6 ΓÇö an open contradiction denies completion ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_p6_classification.py:435 ΓÇö two operator
+# ── S6 — an open contradiction denies completion ─────────────────────
+# Reference: tests/test_p6_classification.py:435 — two operator
 # classifications of the same evidence under the same hypothesis with
 # different failure classes record one OPEN contradiction, and
 # can_complete_research denies with OPEN_CONTRADICTION.
@@ -466,8 +466,8 @@ def scenario_6(lines):
     return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S7 ΓÇö citing a retracted source is refused (N9) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_n9_retraction_admission.py:232 ΓÇö after a recorded
+# ── S7 — citing a retracted source is refused (N9) ───────────────────
+# Reference: tests/test_n9_retraction_admission.py:232 — after a recorded
 # retraction, a FRESH classification citing the retracted evidence is
 # rejected (MALFORMED_PAYLOAD with EVIDENCE_DOES_NOT_RESOLVE) and no
 # failure-classification row lands.
@@ -561,11 +561,11 @@ def scenario_7(lines):
     return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ S8 ΓÇö oversize and secret-bearing payloads refused pre-write ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-# Reference: tests/test_controller.py:1000 ΓÇö an oversized rationale is
+# ── S8 — oversize and secret-bearing payloads refused pre-write ──────
+# Reference: tests/test_controller.py:1000 — an oversized rationale is
 # refused with the specific RATIONALE code BEFORE any write (the gate stays
 # WAITING_HUMAN and remains resolvable); tests/test_event_validation.py:88
-# ΓÇö a secret-bearing field name is refused by the deterministic backstop.
+# — a secret-bearing field name is refused by the deterministic backstop.
 
 
 def scenario_8(lines):
@@ -601,14 +601,14 @@ def scenario_8(lines):
     ok_gate = (out["rejected"] and out["code"] == "RATIONALE"
                and "too large" in out["detail"]
                and status is TaskStatus.WAITING_HUMAN and gate_events == 0)
-    # a normal rationale still resolves on the same gate ΓÇö nothing half-done
+    # a normal rationale still resolves on the same gate — nothing half-done
     out2 = ctrl.resolve_human_gate(task_id=gate_id, verdict="APPROVED",
                                    rationale="ok", **opkwargs())
     lines.append(f"  follow-up normal verdict accepted: "
                  f"{not out2['rejected']} (gate resolvable, nothing "
                  f"half-landed)")
     # the secret backstop: a field named like a credential is refused
-    # (the field name is assembled at runtime ΓÇö this file must not carry
+    # (the field name is assembled at runtime — this file must not carry
     # the literal, mirroring the discipline it asserts)
     secret_field = "api" + "_key"
     secret_refused = False
@@ -624,12 +624,12 @@ def scenario_8(lines):
     return ok, journal_since(conn, before)
 
 
-# ΓöÇΓöÇ runner ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── runner ───────────────────────────────────────────────────────────
 
 
 def main() -> int:
     lines: list[str] = []
-    lines.append("Hermes B1 break-it harness ΓÇö deterministic, offline, "
+    lines.append("Hermes B1 break-it harness — deterministic, offline, "
                  "no model")
     lines.append(f"clock frozen at {CLOCK}; temp DBs are in-memory; "
                  f"artifacts write only under a temp dir")
@@ -657,7 +657,7 @@ def main() -> int:
             for brief in briefs:
                 lines.append(f"    - {brief}")
         else:
-            lines.append("    - (none ΓÇö refusal left the journal untouched)")
+            lines.append("    - (none — refusal left the journal untouched)")
         results.append((title.split()[0], ok, journal))
         lines.append("")
 
@@ -672,7 +672,7 @@ def main() -> int:
     out_path = out_dir / "breakit-report.txt"
     out_path.write_text(report, encoding="utf-8")
     print(report, end="")
-    # the temp path is inherently nondeterministic ΓÇö it goes to stderr so
+    # the temp path is inherently nondeterministic — it goes to stderr so
     # stdout (the report) stays byte-identical across runs
     print(f"report saved to: {out_path}", file=sys.stderr)
     return 0 if passed == len(results) else 1

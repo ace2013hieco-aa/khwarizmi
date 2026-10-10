@@ -64,7 +64,7 @@ class TestMigrations:
         # (remediation for certified-v16 databases missing the column).
         # Step 3 FIX 1: version 18 adds research_claims.related_claim_ids_json
         # (advisory cross-ref data, never a gate input).
-        assert SUPPORTED_VERSION == 19
+        assert SUPPORTED_VERSION == 20
 
     def test_migration_17_adds_content_type(self):
         """P4 closure remediation matrix, all four cases."""
@@ -84,7 +84,9 @@ class TestMigrations:
             migrate_to_latest(conn)
             conn.execute(
                 "ALTER TABLE provider_interactions DROP COLUMN content_type")
-            conn.execute("DELETE FROM schema_version WHERE version IN (17, 18, 19)")
+            # claim-ground G13 added version 20: rewind it too so the simulated
+            # state is a genuine v16 database.
+            conn.execute("DELETE FROM schema_version WHERE version IN (17, 18, 19, 20)")
             assert conn.execute(
                 "SELECT MAX(version) v FROM schema_version").fetchone()["v"] \
                 == 16
@@ -99,7 +101,7 @@ class TestMigrations:
                     "source_url_redacted, created_at) "
                     "VALUES ('fx-old', 'p1', 'openalex', '1', '1', 'h', "
                     "'{}', 'HTTP_200', 'RECORDED_SUCCESS', 't', 'u', 't')")
-            assert migrate_to_latest(conn) == 19
+            assert migrate_to_latest(conn) == 20
             cols = {r["name"] for r in conn.execute(
                 "SELECT name FROM pragma_table_info("
                 "'provider_interactions')").fetchall()}
@@ -110,8 +112,8 @@ class TestMigrations:
                     "WHERE interaction_id = 'fx-old'").fetchone()
                 assert row["content_type"] is None
                 assert row["provider_id"] == "openalex"
-            # Idempotent re-run: no error, still v19.
-            assert migrate_to_latest(conn) == 19
+            # Idempotent re-run: no error, still v20.
+            assert migrate_to_latest(conn) == 20
             conn.close()
 
     def test_migrate_to_latest_returns_version(self):

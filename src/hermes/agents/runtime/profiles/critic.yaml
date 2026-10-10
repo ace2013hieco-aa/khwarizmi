@@ -1,0 +1,48 @@
+# critic.yaml — runtime profile configuration (ARCHITECTURE_DELTA §2.3).
+#
+# The critic is the adversarial reviewer other profiles delegate to. It requires
+# NO review of its own (a reviewer reviewed by another reviewer is a regress this
+# configuration refuses to declare).
+version: "1"
+name: critic
+role: adversarial review of an admitted proposal set
+agent_profile: ADVERSARY
+
+model_policy:
+  tier: adversary
+  contract: runtime_proposal_v1
+  kind_field: kind
+  rationale_field: rationale
+  structured_fields: [proposals, tool_calls]
+  allows_tool_calls: true
+  max_output_tokens: 2048
+
+tools: [evidence_inspect, contradiction_scan]
+
+authority:
+  proposable_kinds:
+    - ABANDON
+    - REQUEST_HUMAN
+    - REQUEST_REPLICATION
+    - REQUEST_ADDITIONAL_EXPERIMENT
+  director_only: false
+  allowed_capabilities: [evidence_inspect, contradiction_scan]
+  requires_human_for:
+    - PROPOSE_GATE_OVERRIDE
+
+schemas:
+  proposal: runtime_proposal_v1
+  draft: [kind, rationale, payload]
+
+termination:
+  max_ticks: 3
+  max_proposals: 4
+  # No proposals is a *successful* adversarial pass: the critic looked and found
+  # nothing to object to.
+  stop_when: no_proposals
+  max_model_calls_per_tick: 2
+  max_tool_calls: 4
+  deadline_seconds: 180
+
+review:
+  required: false

@@ -90,6 +90,19 @@ slices + `docs/idr/` history. Read as history, never as contract.
 
 ## Known residual debt
 
+- Causal support is structurally inadmissible (AUDIT-CLAIM-GROUND
+  finding C, resolution (b); pinned by
+  `tests/test_experiment_gate_pin_v2.py`). Causal/experimental claims
+  with `support_state` DIRECT or PARTIAL refuse with
+  `unverified_experiment_ref` for every experiment ref, because no
+  experiment registry exists and no gated declaration intent admits
+  one; the hardened resolver (`claims.py`, G12) fails closed. The only
+  admissible downgrade path is INFERRED or SPECULATIVE. This stays
+  until an experiment registry with a gated declaration intent is
+  designed and certified (a future authority design, not a bug fix).
+  Note: `main` (`ac1860a`) still carries the prefix-only M4 check,
+  which admits these refs; the refusal holds only on the claim-ground
+  line.
 - STALE-guard project filter wart (F-01; OPEN, owned — needs a
   targeted S5-adjacent gate + S5 slice re-run, not structural).
 - Ancestor-scope question (F-02; DEFERRED deliberation, recorded,

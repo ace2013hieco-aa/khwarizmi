@@ -26,6 +26,7 @@ deferred per the manual-proof-first rule (v6 §29.2 rule 7).
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Mapping
@@ -38,6 +39,8 @@ __all__ = [
     "CONTEXT_DIMENSIONS",
     "DEREFERENCE_DIMENSIONS",
     "EXPERIMENT_ARTIFACT_TYPE",
+    "FAIL_CLOSED_EXEMPT_CARRIERS",
+    "READABLE_TEXT_CARRIERS",
     "REF_SEP",
     "SUPPORT_STATES",
     "ClaimValidationError",
@@ -50,7 +53,10 @@ __all__ = [
     "ResearchClaimDraft",
     "SupportState",
     "assumption_id_of",
+    "carrier_of",
     "claim_id_of",
+    "extract_quoted_runs",
+    "non_readable_carrier_exempt",
     "validate_extraction",
 ]
 
@@ -102,6 +108,25 @@ CONTEXT_DIMENSIONS = frozenset({
 # Dimensions whose values must dereference to an authoritative carrier when a
 # resolver is supplied (the write path supplies the resolver at P7).
 DEREFERENCE_DIMENSIONS = frozenset({"dataset_ref", "regime"})
+
+# claim-ground (G10): the carriers whose stored text the substrate can read.
+# Only these can have a span or quoted statement material verified against
+# bytes. Every other carrier is NON-READABLE: a span_ref or a quoted statement
+# against it cannot be checked, so it is refused (fail closed) — the old
+# behaviour returned True for every non-source_payload carrier.
+READABLE_TEXT_CARRIERS = frozenset({"source_payload"})
+
+# claim-ground (G10) explicit, enumerated exemption list: non-readable carriers
+# exempt from the fail-closed refusal above. Every entry MUST be named here
+# AND covered by a dedicated test in tests/test_claim_ground.py. Empty by
+# design: no carrier is exempt today, so nothing unreadable is ever accepted
+# on an unverifiable span or quote.
+FAIL_CLOSED_EXEMPT_CARRIERS: frozenset[str] = frozenset()
+
+# claim-ground (G9): a double-quoted run inside a statement is verbatim source
+# material and must appear byte-for-byte in the cited source's stored text.
+# Paraphrase is NOT checked here (that needs judgment — out of scope).
+_QUOTED_RUN = re.compile(r'"([^"\n]+)"')
 
 # Ref form for source_ref / supporting artifact refs: "artifact_type:ref".
 REF_SEP = ":"
@@ -173,6 +198,10 @@ class ExtractionDraft:
     assumptions: tuple[ResearchAssumptionDraft, ...] = ()
     extracted_by: str = ""                # advisory provenance: model_ref / task id
     schema_version: str = CLAIM_SCHEMA_VERSION
+    # claim-ground (G13): optional caller-asserted run provenance. Advisory,
+    # never part of content identity. None = unknown (never fabricated).
+    prompt_template_version: str | None = None
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +269,11 @@ class ExtractionResult:
     claims: tuple[ResearchClaim, ...] = ()
     assumptions: tuple[ResearchAssumption, ...] = ()
     source_ref: str = ""
+    # claim-ground (G13): advisory run provenance, copied from the draft.
+    # Outside content identity. None = unknown (never fabricated).
+    model_ref: str | None = None
+    prompt_template_version: str | None = None
+    run_id: str | None = None
 
     @property
     def admitted(self) -> bool:
@@ -316,11 +350,52 @@ ContextResolver = Callable[[str, str], bool]
 # (substrate-level fixtures), in which case span_ref is form-checked only.
 SpanResolver = Callable[[str, str], bool]
 
+# claim-ground (G9) text protocol: source_ref → the cited source's stored text
+# as a str, or None when no readable text exists for that ref. Used for the
+# statement-vs-source byte check. None (no resolver) or a None return means
+# "no stored text" — the quote check then cannot run and is not claimed.
+TextResolver = Callable[[str], "str | None"]
+
+# claim-ground (G12) experiment protocol: source_ref (a pre_registered_experiment
+# ref) → the declared experiment exists AND is admitted in the project. None
+# (no resolver) fails closed for causal DIRECT/PARTIAL claims.
+ExperimentResolver = Callable[[str], bool]
+
 
 def _err(code: str, path: str, requirement: str, explanation: str,
          next_action: str) -> ClaimValidationError:
     return ClaimValidationError(
         code, path, requirement, explanation, next_action)
+
+
+def carrier_of(source_ref: str) -> str:
+    """The artifact type (carrier) of an ``artifact_type:ref`` reference.
+
+    Returns ``""`` for a ref with no separator (form-checked upstream).
+    """
+    if not isinstance(source_ref, str) or REF_SEP not in source_ref:
+        return ""
+    return source_ref.partition(REF_SEP)[0]
+
+
+def non_readable_carrier_exempt(carrier: str) -> bool:
+    """True iff a NON-readable carrier is on the enumerated exemption list.
+
+    claim-ground (G10): span/quote verification is impossible for a carrier
+    without readable stored text, so such a carrier is refused unless it is
+    explicitly named in ``FAIL_CLOSED_EXEMPT_CARRIERS``. The default is
+    fail-closed: an unnamed carrier is never exempt.
+    """
+    return carrier in FAIL_CLOSED_EXEMPT_CARRIERS
+
+
+def extract_quoted_runs(statement: str) -> tuple[str, ...]:
+    """Double-quoted runs in a statement (verbatim-source material), in order.
+
+    Only double quotes are treated as verbatim source material; paraphrase
+    is never inferred. Empty runs are ignored.
+    """
+    return tuple(m for m in _QUOTED_RUN.findall(statement) if m.strip())
 
 
 def _validate_context_tags(
@@ -371,6 +446,8 @@ def validate_extraction(
     *,
     context_resolver: ContextResolver | None = None,
     span_resolver: SpanResolver | None = None,
+    text_resolver: TextResolver | None = None,
+    experiment_resolver: ExperimentResolver | None = None,
 ) -> ExtractionResult:
     """The ClaimAssumptionValidator entry point (deterministic, pure).
 
@@ -448,6 +525,21 @@ def validate_extraction(
                 "span_ref must be a non-empty string or None",
                 f"got {c.span_ref!r}",
                 "supply a span reference or omit it"))
+        elif (c.span_ref is not None and isinstance(c.source_ref, str)
+                and carrier_of(c.source_ref) not in READABLE_TEXT_CARRIERS
+                and not non_readable_carrier_exempt(carrier_of(c.source_ref))):
+            # claim-ground (G10) — FAIL CLOSED. A span on a carrier with no
+            # readable stored text cannot be verified, so it is refused. The
+            # previous path returned True for every non-source_payload carrier
+            # (controller.py `_span_resolve`), admitting unverifiable spans.
+            errors.append(_err(
+                "unverifiable_span_ref", f"{path}.span_ref",
+                "span_ref requires a carrier with readable stored text "
+                f"({sorted(READABLE_TEXT_CARRIERS)}); the cited carrier is "
+                "not readable, so the span cannot be verified (claim-ground G10)",
+                f"span_ref {c.span_ref!r} cited against non-readable carrier "
+                f"{carrier_of(c.source_ref)!r}",
+                "cite a readable source_payload, or drop the span_ref"))
         elif (c.span_ref is not None and span_resolver is not None
                 and isinstance(c.source_ref, str)
                 and not span_resolver(c.source_ref, c.span_ref)):
@@ -464,6 +556,34 @@ def validate_extraction(
                 f"source {c.source_ref!r}",
                 "cite a span that exists in the source, or drop the "
                 "span_ref"))
+        # claim-ground (G9) — statement-vs-source byte check. Any double-quoted
+        # run in the statement is verbatim source material and must appear
+        # byte-for-byte in the cited source's stored text. Checked ONLY where
+        # readable text exists (text_resolver returns str); otherwise the
+        # check cannot run and is not claimed. Deterministic, no judgment.
+        if (text_resolver is not None and isinstance(c.statement, str)
+                and isinstance(c.source_ref, str)):
+            quoted = extract_quoted_runs(c.statement)
+            if quoted:
+                # A quote against a NON-readable carrier has no stored bytes
+                # to verify against, so it is refused (stored is None below),
+                # never passed through unchecked (claim-ground G9 fail-closed).
+                stored = (text_resolver(c.source_ref)
+                          if carrier_of(c.source_ref) in READABLE_TEXT_CARRIERS
+                          else None)
+                missing = [q for q in quoted
+                           if stored is None or q not in stored]
+                if missing:
+                    errors.append(_err(
+                        "statement_not_in_source", f"{path}.statement",
+                        "a quoted run in the statement must appear byte-for-"
+                        "byte in the cited source (claim-ground G9)",
+                        f"quoted run(s) {missing!r} not found in source "
+                        f"{c.source_ref!r}"
+                        + ("" if stored is not None
+                           else " (no stored text)"),
+                        "quote only text present in the cited source, or "
+                        "remove the quotation marks"))
         if not isinstance(c.claim_type, str) or len(c.claim_type) > 64:
             errors.append(_err(
                 "invalid_claim_type", f"{path}.claim_type",
@@ -515,6 +635,27 @@ def validate_extraction(
                     f"{c.source_ref!r}",
                     "cite a pre_registered_experiment source, or lower the "
                     "support_state (INFERRED/SPECULATIVE)"))
+            # claim-ground (G12) — the experiment must EXIST and be admitted
+            # in-project, not merely carry the right prefix. A prefix-only
+            # check admitted a fabricated experiment ref. With no resolver a
+            # causal DIRECT/PARTIAL claim cannot prove its experiment, so it
+            # fails closed.
+            elif (c.claim_type.strip().casefold() in CAUSAL_CLAIM_TYPES
+                    and c.support_state in (
+                        SupportState.DIRECT.value,
+                        SupportState.PARTIAL.value)
+                    and isinstance(c.source_ref, str)
+                    and carrier_of(c.source_ref) == EXPERIMENT_ARTIFACT_TYPE
+                    and (experiment_resolver is None
+                         or not experiment_resolver(c.source_ref))):
+                errors.append(_err(
+                    "unverified_experiment_ref", f"{path}.source_ref",
+                    "a causal DIRECT/PARTIAL claim must cite an experiment "
+                    "that exists and is admitted in-project (claim-ground G12)",
+                    f"experiment ref {c.source_ref!r} did not dereference to "
+                    "an admitted in-project experiment",
+                    "cite an existing admitted pre_registered_experiment, "
+                    "or lower the support_state"))
         _validate_context_tags(c.context_tags, path, errors, context_resolver)
         for r in c.related_claims:
             if not isinstance(r, str) or not r.strip():
@@ -650,4 +791,7 @@ def validate_extraction(
         claims=tuple(claims),
         assumptions=tuple(assumptions),
         source_ref=draft.source_ref,
+        model_ref=draft.extracted_by or None,
+        prompt_template_version=draft.prompt_template_version,
+        run_id=draft.run_id,
     )

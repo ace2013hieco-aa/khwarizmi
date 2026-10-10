@@ -39,11 +39,11 @@ IDENTIFIER_KINDS: tuple[str, ...] = ("doi", "pmid", "pmcid", "arxiv", "url")
 _HINT_PREFIX_RE = re.compile(r"^(doi|pmid|pmcid|arxiv|url):", re.IGNORECASE)
 
 # arXiv schemes: new YYMM.NNNNN(vN)? ; old category/YYMMNNN(vN)? (contract §3.1)
-_ARXIV_NEW_RE = re.compile(r"^(\d{4}\.\d{4,5})(?:v\d+)?$")
-_ARXIV_OLD_RE = re.compile(r"^([a-z-]+(?:\.[a-z-]+)*/\d{7})(?:v\d+)?$")
+_ARXIV_NEW_RE = re.compile(r"^(\d{4}\.\d{4,5})(?:v\d+)?\Z")
+_ARXIV_OLD_RE = re.compile(r"^([a-z-]+(?:\.[a-z-]+)*/\d{7})(?:v\d+)?\Z")
 _ARXIV_RESOLVER_RE = re.compile(
-    r"^/?(?:abs|pdf)/(\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?$|"
-    r"^/(?:abs|pdf)/([a-z-]+(?:\.[a-z-]+)*/\d{7})(?:v\d+)?(?:\.pdf)?$"
+    r"^/?(?:abs|pdf)/(\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?\Z|"
+    r"^/(?:abs|pdf)/([a-z-]+(?:\.[a-z-]+)*/\d{7})(?:v\d+)?(?:\.pdf)?\Z"
 )
 _DOI_PREFIX_RE = re.compile(r"^10\.\d{4,9}/")
 _DOI_RESOLVER_HOSTS = frozenset({"doi.org", "dx.doi.org"})

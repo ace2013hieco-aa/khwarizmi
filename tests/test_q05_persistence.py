@@ -1061,7 +1061,10 @@ class TestAuditRemediations:
         claim = ResearchClaimDraft(
             ref="c1", statement="Alpha reduces beta.",
             source_ref=fc_ref, support_state="INFERRED",
-            span_ref="sec.3", claim_type="causal",
+            # claim-ground G10: no span on a non-readable carrier (the
+            # classification ref is unverifiable). The write-path refusal this
+            # test proves is unchanged: the classification is never a source.
+            span_ref=None, claim_type="causal",
             context_tags={}, assumption_refs=())
         result = validate_extraction(ExtractionDraft(
             source_ref="task_evidence:run-1", claims=(claim,),

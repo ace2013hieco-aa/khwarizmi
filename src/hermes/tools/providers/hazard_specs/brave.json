@@ -1,0 +1,19 @@
+{
+  "schema": "hermes-hazard-spec/v1",
+  "provider_id": "brave",
+  "version": "1.0.0",
+  "markers": [],
+  "empty_body_rule": "treat-as-failure",
+  "error_field": null,
+  "count_semantics": "absent",
+  "counts_raw_rows": false,
+  "required_fields": ["web", "web.results"],
+  "cursor_rule": {"kind": "offset", "loop_guard": 100},
+  "throttle_signature": [
+    {"status": 429, "body_pattern": null, "fields": []}
+  ],
+  "rewrite_suspect": [],
+  "fetch": null,
+  "valid_negative_statuses": [404],
+  "content_types": ["application/json"]
+}

@@ -36,13 +36,20 @@ from hermes.research.claims import (
 
 # ── fixture builders ──
 
+# claim-ground G10: a readable, span-verifiable source for span tests.
+SP = "source_payload:" + "a" * 64
+
+
 def claim(ref: str = "c1", **overrides) -> ResearchClaimDraft:
     fields = {
         "ref": ref,
         "statement": "Alpha reduces beta under gamma conditions.",
         "source_ref": "dataset_manifest:dm-1",
         "support_state": "INFERRED",
-        "span_ref": "sec.3",
+        # claim-ground G10: a span on a non-readable carrier (dataset_manifest)
+        # is unverifiable and refused; the default carries no span. Span tests
+        # cite a readable source_payload explicitly.
+        "span_ref": None,
         "claim_type": "causal",
         "context_tags": {"regime": "ICSS-v1:low-vol", "dataset_ref": "dm-1"},
         "assumption_refs": ("a1",),
@@ -435,11 +442,24 @@ class TestSupportStateVocabulary:
         assert "causal_overclaim" in {e.code for e in r.errors}
 
     def test_causal_direct_from_experiment_source_admits(self):
-        r = validate_extraction(extraction(
-            claims=(claim(
+        # claim-ground G12: the experiment must exist and be admitted
+        # in-project. The resolver stands in for that existence check.
+        r = validate_extraction(
+            extraction(claims=(claim(
                 support_state="DIRECT", claim_type="causal",
-                source_ref="pre_registered_experiment:exp-1"),)))
+                source_ref="pre_registered_experiment:exp-1"),)),
+            experiment_resolver=lambda ref: ref == "pre_registered_experiment:exp-1")
         assert r.admitted, r.errors
+
+    def test_causal_direct_from_unproven_experiment_refused(self):
+        # claim-ground G12: a prefix alone is not existence (fabrication probe).
+        r = validate_extraction(
+            extraction(claims=(claim(
+                support_state="DIRECT", claim_type="causal",
+                source_ref="pre_registered_experiment:fake-exp"),)),
+            experiment_resolver=lambda ref: False)
+        assert not r.admitted
+        assert "unverified_experiment_ref" in {e.code for e in r.errors}
 
     def test_causal_speculative_from_observational_source_admits(self):
         # A speculative causal claim does not assert direct source support,
@@ -471,7 +491,8 @@ class TestSpanDereference:
         def span_resolver(source_ref: str, span_ref: str) -> bool:
             return span_ref == "sec.1"  # only sec.1 exists
         r = validate_extraction(
-            extraction(claims=(claim(span_ref="sec.999"),)),
+            extraction(claims=(claim(span_ref="sec.999",
+                                     source_ref=SP),)),
             span_resolver=span_resolver)
         assert not r.admitted
         assert "dangling_span_ref" in {e.code for e in r.errors}
@@ -480,14 +501,16 @@ class TestSpanDereference:
         def span_resolver(source_ref: str, span_ref: str) -> bool:
             return span_ref == "sec.3"
         r = validate_extraction(
-            extraction(claims=(claim(span_ref="sec.3"),)),
+            extraction(claims=(claim(span_ref="sec.3",
+                                     source_ref=SP),)),
             span_resolver=span_resolver)
         assert r.admitted, r.errors
 
     def test_no_resolver_form_checks_only(self):
         # Without a resolver (substrate-level fixtures), span_ref is
         # form-checked only — a nonexistent span is not rejected here.
-        r = validate_extraction(extraction(claims=(claim(span_ref="sec.999"),)))
+        r = validate_extraction(extraction(claims=(claim(span_ref="sec.999",
+                                                         source_ref=SP),)))
         assert r.admitted, r.errors
 
     def test_none_span_ref_admits_with_resolver(self):

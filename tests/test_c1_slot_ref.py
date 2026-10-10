@@ -509,7 +509,7 @@ class TestAC6NoAuthorityLeak:
 
     def test_no_migration(self, db):
         """C1 adds no migration: the DB schema version is unchanged."""
-        assert get_schema_version(db) == SUPPORTED_VERSION == 19
+        assert get_schema_version(db) == SUPPORTED_VERSION == 20
 
     def test_q02_dimension_set_unchanged(self):
         """slot_ref adds no Q-02 dimension."""

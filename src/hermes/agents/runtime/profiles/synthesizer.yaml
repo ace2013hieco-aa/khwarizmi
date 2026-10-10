@@ -1,0 +1,46 @@
+# synthesizer.yaml — runtime profile configuration (ARCHITECTURE_DELTA §2.3).
+#
+# Bound to DIRECTOR, the only profile that may carry Director-only authority
+# (the loader refuses director_only on any other binding). Its research-program
+# draft is a *proposal*: the deterministic ResearchProgramValidator decides.
+version: "1"
+name: synthesizer
+role: synthesis of admitted evidence into a research-program draft
+agent_profile: DIRECTOR
+
+model_policy:
+  tier: synthesis
+  contract: runtime_proposal_v1
+  kind_field: kind
+  rationale_field: rationale
+  structured_fields: [proposals, delegations]
+  allows_tool_calls: true
+  max_output_tokens: 4096
+
+tools: [artifact_store, provenance_read]
+
+authority:
+  proposable_kinds:
+    - INSERT_TASK
+    - PROPOSE_RESEARCH_PROGRAM
+    - REQUEST_HUMAN
+  director_only: true
+  allowed_capabilities: [artifact_store, provenance_read]
+  requires_human_for: []
+
+schemas:
+  proposal: runtime_proposal_v1
+  draft: [kind, rationale, payload]
+
+termination:
+  max_ticks: 4
+  max_proposals: 3
+  stop_when: proposals_raised
+  max_model_calls_per_tick: 2
+  max_tool_calls: 4
+  deadline_seconds: 300
+
+review:
+  reviewer_profile: critic
+  required: true
+  max_review_rounds: 1

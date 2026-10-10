@@ -73,6 +73,7 @@ from hermes.persistence.repositories import (
 )
 from hermes.persistence.source_outcomes import (
     _source_artifact_resolves,
+    source_artifact_is_web_derived,
     source_artifact_retracted,
 )
 from hermes.research.extraction import (
@@ -2619,12 +2620,21 @@ def _validate_curate_knowledge(
                    f"hypothesis {hypothesis_ref!r}",
             payload=proposed_payload)
         # 5. CuratedKnowledgeAdmitted
+        # R-2/B3: the admission carries the SHARED source-artifact refs —
+        # the stored retraction basis — in artifact_ids_json, additively
+        # (every payload key/value is unchanged). The S5 predicate consumes
+        # the same basis rows and the retraction producers (gateway S5
+        # cascade and the Controller audit event) name the same artifact
+        # ids, so a journal-only derived view (the vault projector) can
+        # match a later SourceRetracted/CuratedKnowledgeInvalidated to this
+        # admission without consulting the registry tables.
         _append_event_to_db(
             conn, clock, EventType.CURATED_KNOWLEDGE_ADMITTED.value,
             project_id=intent.project_id,
             correlation_id=command_hash,
             caused_by=intent.proposed_by,
             reason=f"curated knowledge {operation} admitted: {curated_id}",
+            artifact_ids=basis_sorted,
             payload=admission_payload)
         # 6. commit
         conn.execute("COMMIT")
@@ -2700,6 +2710,11 @@ def _cx_resolve_evidence_ref(conn: Any, project_id: str, ref: Any,
     if row is None:
         return None
     if source_artifact_retracted(conn, project_id, row["artifact_id"]):
+        return None
+    # IDR-046 D2/E4 — web-derived rows are barred from every evidence
+    # position: a resolved row whose providers intersect
+    # WEB_SEARCH_PROVIDERS contributes nothing (fail-safe skip).
+    if source_artifact_is_web_derived(conn, row["artifact_id"]):
         return None
     return row["artifact_id"]
 
@@ -4044,6 +4059,7 @@ def apply_intent(
     task_repo: TaskRepository | None = None,
     program_repo: ResearchProgramRepository | None = None,
     budget_check: Callable[[Intent], None] | None = None,
+    governance_consult: Callable[[Intent], None] | None = None,
 ) -> IntentResult:
     """The single authoritative mutation path (v3 §8, P3).
 
@@ -4062,6 +4078,16 @@ def apply_intent(
 
     ``budget_check`` defaults to a no-op: the budget ledger is a deferred
     subsystem (v6 §27 items / §28.5), and this hook is where it plugs in.
+
+    ``governance_consult`` is BIND-4's Site-A registration seam: an optional
+    read-only preflight, supplied by the caller, that reads the governance
+    plane's public entry (`evaluate_authority` over the shipped canonical
+    policy) and refuses by raising this module's own ``GatewayRejection`` —
+    the code travels verbatim (never translated), and any non-``GatewayRejection``
+    failure is mapped to the frozen ``MALFORMED_PAYLOAD``. It defaults to
+    ``None``, so every existing caller's behavior is byte-identical. The
+    governance plane stays a pure library: nothing here imports it, and this
+    module is not a governance consumer.
     """
     from hermes.core import utc_now
 
@@ -4097,6 +4123,28 @@ def apply_intent(
                 raise
             except Exception as exc:
                 raise _reject(intent.kind, BUDGET, f"budget check rejected: {exc}") from exc
+
+        if governance_consult is not None:
+            # BIND-4 Site A — the read-only governance preflight, REGISTERED
+            # here by the caller (the composition root / the wired run). The
+            # consult is pure (no clock, no store, no I/O): it evaluates the
+            # public governance entry over the snapshots IT was handed, and
+            # answers by raising a ``GatewayRejection`` — the spine's own
+            # frozen code, surfaced NATIVELY and VERBATIM (governance's refusal
+            # vocabulary mirrors this module's by construction, so nothing is
+            # translated, remapped or wrapped). A refusal that is not a
+            # ``GatewayRejection`` is the consult's own shape failure and maps
+            # to the frozen ``MALFORMED_PAYLOAD`` — this seam never invents a
+            # code. The consult writes nothing: a mutation is still only ever
+            # the validator chain's, driven by this one function.
+            try:
+                governance_consult(intent)
+            except GatewayRejection:
+                raise
+            except Exception as exc:
+                raise _reject(
+                    intent.kind, MALFORMED_PAYLOAD,
+                    f"governance consult refused: {exc}") from exc
 
         if intent.kind is IntentKind.PROPOSE_RESEARCH_PROGRAM:
             result = _validate_propose_research_program(

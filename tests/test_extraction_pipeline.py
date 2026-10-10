@@ -103,7 +103,9 @@ def good_output() -> dict:
             "statement": "Alpha reduces beta under gamma conditions.",
             "source_ref": "dataset_manifest:dm-1",
             "support_state": "INFERRED",
-            "span_ref": "sec.3",
+            # claim-ground G10: no span on a non-readable carrier (dataset_manifest
+            # is unverifiable); the canonical output carries no span.
+            "span_ref": None,
             "claim_type": "causal",
             "context_tags": {"regime": "ICSS-v1:low-vol",
                              "dataset_ref": "dm-1"},
@@ -413,9 +415,15 @@ def test_8_model_ref_recorded_on_rows(db):
     # extracted_by is recorded on the claim row (the artifact's provenance)
     assert cl["extracted_by"] == "model_ref:c-tier-1"
     assert cl["reason"] == "extract task t1"
-    # the model_ref is row provenance, never authoritative lineage: no
-    # lineage/ladder field exists on either artifact
-    assert "model_ref" not in set(cl)
+    # claim-ground G13: model_ref is a NULLABLE advisory provenance column on
+    # the CLAIM row. It records the DECLARED model (the draft's extracted_by),
+    # so it equals the declared value. Template and run were NOT declared by
+    # this extraction, so they are NULL (unknown, never fabricated). Assumptions
+    # carry no model column. No lineage or ladder field exists on either.
+    assert "model_ref" in set(cl)
+    assert cl["model_ref"] == "model_ref:c-tier-1"
+    assert cl["prompt_template_version"] is None
+    assert cl["run_id"] is None
     assert "model_ref" not in set(asm)
     assert "ladder_status" not in set(cl)
     assert "ladder_status" not in set(asm)

@@ -61,7 +61,7 @@ emitted against a certified behavior.
 Implement `ProviderAdapter` (`tools/providers/base.py:139`): exactly
 `build_request`, `parse_page`, `extract_ids`, `build_fetch_request`
 (`:144-161`) plus optional `validate_fetch` (`:165`); register in
-`PROVIDER_REGISTRY` (`src/hermes/tools/providers/adapters/__init__.py:37`, 11 adapters);
+`PROVIDER_REGISTRY` (`src/hermes/tools/providers/adapters/__init__.py:37`, 15 adapters);
 declare hazards/rate profile per provider. Transports: `Transport`
 and `ProviderRateLimiter` protocols (`base.py:182-217`); replay via
 `RecordedTransport` (`replay.py:293`) + fixture identity `fx_`.

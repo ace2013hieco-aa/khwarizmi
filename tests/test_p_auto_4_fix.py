@@ -7,6 +7,8 @@ Offline/fixture-only throughout.
 """
 from __future__ import annotations
 
+import contextlib
+
 import pytest
 
 from hermes.research.autonomy_caps import (
@@ -59,7 +61,7 @@ def _good_draft():
             "statement": "Alpha reduces beta under gamma conditions.",
             "source_ref": "dataset_manifest:dm-1",
             "support_state": "INFERRED",
-            "span_ref": "sec.3",
+            "span_ref": None,  # claim-ground G10: unverifiable span on a non-readable carrier
             "claim_type": "causal",
             "context_tags": {"regime": "ICSS-v1:low-vol",
                              "dataset_ref": "dm-1"},
@@ -343,6 +345,108 @@ def test_d_opener_routes_pinned_hosts_through_pin_handler():
     kinds = [type(h).__name__ for h in opener.handlers]
     assert "PinnedHTTPSHandler" in kinds
     assert "HTTPSHandler" not in kinds
+    # FIX-PIN — membership-only is insufficient (the bug was dispatch
+    # order): the `handle_open["https"]` chain must be pinned-first with
+    # no exact-type default shadowing it.
+    chain = [type(h).__name__ for h in opener.handle_open.get("https", [])]
+    assert chain, "https dispatch chain must not be empty"
+    assert chain[0] == "PinnedHTTPSHandler", f"pinned must lead, got {chain}"
+    assert "HTTPSHandler" not in chain
+
+
+def test_fix_pin_dispatch_pinned_first_and_dials_loopback():
+    """FIX-PIN dispatch-order proof: chain assertion + dial accounting.
+
+    Pinned host lands on loopback (hits>=1 via the vetted pin); unpinned
+    path is unchanged (same opener, `.invalid` DNS failure, zero loopback
+    dials); subclass test doubles supplied via `extra` still win the
+    chain (additive contract). Loopback/accounting only, no egress.
+    """
+
+    import urllib.error
+    import urllib.request
+
+    import hermes.tools.providers.http as http_module
+
+    pinned_host = "pin-dispatch-proof.invalid"
+    unpinned_host = "pin-dispatch-unpinned.invalid"
+
+    opener = http_module._build_opener(
+        pin_resolver=lambda h: "127.0.0.1" if h == pinned_host else None)
+
+    # 1. audited chain order: pinned first, default unregistered.
+    chain = [type(h).__name__ for h in opener.handle_open.get("https", [])]
+    assert chain, "https dispatch chain must not be empty"
+    assert chain[0] == "PinnedHTTPSHandler", f"pinned must lead, got {chain}"
+    assert "HTTPSHandler" not in chain
+
+    # 2. dial-target accounting through the injectable connection_cls
+    # (no sockets, no egress — the dial target is the assertion).
+    dialed: list[tuple[str, str | None]] = []
+
+    class _FakeLoopbackConnection:
+        def __init__(self, host: str, **kwargs: object) -> None:
+            pinned_ip = kwargs.get("pinned_ip")
+            assert isinstance(pinned_ip, str) or pinned_ip is None
+            dialed.append((host, pinned_ip))  # type: ignore[arg-type]
+            self.sock = None
+
+        def set_debuglevel(self, level: int) -> None:
+            pass
+
+        def request(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def getresponse(self) -> object:
+            class _FakeResp:
+                code = 200
+                status = 200
+                reason = "OK"
+                msg = "OK"
+
+                def info(self) -> dict[str, str]:
+                    return {}
+
+                def getheaders(self) -> list[tuple[str, str]]:
+                    return []
+
+            return _FakeResp()
+
+        def close(self) -> None:
+            pass
+
+    pinned = next(
+        h for h in opener.handle_open["https"]
+        if isinstance(h, http_module.PinnedHTTPSHandler))
+    pinned._connection_cls = _FakeLoopbackConnection  # type: ignore[attr-defined]
+    resp = opener.open(
+        urllib.request.Request(f"https://{pinned_host}/"), timeout=5)
+    assert int(getattr(resp, "status", 0) or getattr(resp, "code", 0)) == 200
+    loopback_hits = sum(1 for _, ip in dialed if ip == "127.0.0.1")
+    assert loopback_hits >= 1, f"pinned dial must land on loopback, got {dialed}"
+    assert dialed[0][0] == pinned_host
+    with contextlib.suppress(Exception):
+        resp.close()  # type: ignore[attr-defined]
+
+    # 3. unpinned path unchanged on the SAME opener (no loopback dial,
+    # DNS failure for `.invalid` — never egress).
+    dialed.clear()
+    with pytest.raises(urllib.error.URLError):
+        opener.open(
+            urllib.request.Request(f"https://{unpinned_host}/"), timeout=5)
+    assert dialed == [], f"unpinned must not dial loopback, got {dialed}"
+
+    # 4. subclass doubles supplied via `extra` still win (kept, first).
+    class _Double(http_module.PinnedHTTPSHandler):
+        pass
+
+    both = http_module._build_opener(
+        _Double(pin_for=lambda h: None),
+        pin_resolver=lambda h: "127.0.0.1")
+    chain2 = [type(h).__name__ for h in both.handle_open.get("https", [])]
+    assert chain2[0] == "_Double", f"test double must still win, got {chain2}"
+    assert "PinnedHTTPSHandler" in chain2
+    assert "HTTPSHandler" not in chain2
 
 
 # ── A3: post-execution wall check ──
@@ -389,7 +493,7 @@ def test_f_fully_capped_tick_emits_named_idle():
                 "statement": "Alpha reduces beta under gamma conditions.",
                 "source_ref": "dataset_manifest:dm-1",
                 "support_state": "INFERRED",
-                "span_ref": "sec.3",
+                "span_ref": None,  # claim-ground G10: unverifiable span on a non-readable carrier
                 "claim_type": "causal",
                 "context_tags": {"regime": "ICSS-v1:low-vol",
                                  "dataset_ref": "dm-1"},

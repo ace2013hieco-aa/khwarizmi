@@ -253,7 +253,7 @@ def test_controller_run_stops_on_run_step_budget():
                 "statement": "Alpha reduces beta under gamma conditions.",
                 "source_ref": "dataset_manifest:dm-1",
                 "support_state": "INFERRED",
-                "span_ref": "sec.3",
+                "span_ref": None,  # claim-ground G10: unverifiable span on a non-readable carrier
                 "claim_type": "causal",
                 "context_tags": {"regime": "ICSS-v1:low-vol",
                                  "dataset_ref": "dm-1"},
@@ -317,7 +317,7 @@ def test_controller_tick_stops_on_tick_step_budget():
                 "statement": "Alpha reduces beta under gamma conditions.",
                 "source_ref": "dataset_manifest:dm-1",
                 "support_state": "INFERRED",
-                "span_ref": "sec.3",
+                "span_ref": None,  # claim-ground G10: unverifiable span on a non-readable carrier
                 "claim_type": "causal",
                 "context_tags": {"regime": "ICSS-v1:low-vol",
                                  "dataset_ref": "dm-1"},

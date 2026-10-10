@@ -2422,13 +2422,16 @@ class Controller:
         from hermes.core.intents import Intent, IntentKind
         from hermes.research.contradictions import (
             CONTRADICTION_DETECTOR_VERSION,
+            DETECTOR_TRUNCATED,
             detect_classification_conflicts,
         )
         from hermes.research.gateway import GatewayRejection, apply_intent
 
+        diagnostics: dict = {}
         try:
             rows = self._detector_candidate_rows()
-            found = detect_classification_conflicts(rows)
+            found = detect_classification_conflicts(
+                rows, diagnostics=diagnostics)
         except Exception as exc:  # noqa: BLE001 — detector failure
             # asserts nothing; the loop observes the refusal as data.
             self._note_once(
@@ -2436,6 +2439,16 @@ class Controller:
                 key="contradiction:detector-failed")
             return {"rejected": True, "code": "DETECTOR",
                     "detail": f"contradiction detector failed: {exc}"}
+        truncated = diagnostics.get(DETECTOR_TRUNCATED)
+        if truncated is not None:
+            groups = truncated.get("truncated_groups", [])
+            suffix = (f"; {len(groups)} group(s) truncated"
+                      if groups else "")
+            self._note_once(
+                f"{DETECTOR_TRUNCATED}: pair cap "
+                f"{truncated['max_pairs']} reached; pairs beyond the cap "
+                f"were not evaluated{suffix}",
+                key="contradiction:detector-truncated")
         recorded: list[str] = []
         duplicates = 0
         refused: list[dict] = []
@@ -2474,7 +2487,8 @@ class Controller:
             f"{duplicates} duplicates, {len(refused)} refused",
             key="contradiction-detection")
         return {"rejected": False, "recorded": recorded,
-                "duplicates": duplicates, "refused": refused}
+                "duplicates": duplicates, "refused": refused,
+                "truncated": truncated}
 
     def _detector_candidate_rows(self) -> list[dict]:
         """Digest-valid classification rows for the detector pass
@@ -3088,6 +3102,23 @@ class Controller:
                        f"dispatch contract (HD-02)")
             out.failed.append(task_id)
             return out
+        # W4 — the single wiring call site (BIND-1/BIND-3/BIND-5). A handler
+        # entry that declares itself a wiring template is BOUND here, inside
+        # the held lease, to THIS controller's own fenced mutation surface:
+        # ``apply_intent`` on ``self._fenced`` under the lock generation
+        # captured at acquisition. The accessors are lazy (read per dispatch),
+        # so a wiring entry can never carry a connection, a raw writer or a
+        # second transaction — a lease lost mid-dispatch fails the bound write
+        # closed exactly like every other controller write (LockLostError ->
+        # ``lock_lost``, no partial rows). Templates with no entry never reach
+        # here: ``_classify`` answers ``unhandled`` for them.
+        binder = getattr(entry, "bind_controller", None)
+        if binder is not None:
+            from hermes.research.gateway import apply_intent
+            entry = binder(
+                orchestration=lambda intent: apply_intent(
+                    self._fenced, intent, clock=self._clock),
+                lease_generation=lambda: str(self._lock_generation))
         # S6-C2 — the handler's write surface is the TASK-SCOPED view of the
         # per-tick bundle: record() forces the cited task to the dispatched
         # task. The scoping lives at the DISPATCH seam so every handler
@@ -3129,17 +3160,30 @@ class Controller:
                 # EXTRACT precedent: acceptance writes rows before the
                 # SUCCEEDED transition). A zero-row "success" is a contract
                 # violation → FAILED, never a silent SUCCEEDED.
-                has_outcome = self._fenced.execute(
-                    "SELECT 1 FROM artifacts WHERE task_id = ? "
-                    "AND artifact_type IN ("
-                    "'source_search','source_fetch_outcome') LIMIT 1",
-                    (task_id,),
-                ).fetchone()
+                if getattr(entry, "wiring_template", False):
+                    # W4 — a wiring template's completion is verified against
+                    # its OWN record: the entry reports ``outcome_recorded``
+                    # only when every durable effect of the dispatch reached
+                    # the one write path (the bound ``apply_intent``). There is
+                    # no source outcome to query for a wiring template, so the
+                    # source query would fail every honest wiring success
+                    # closed — the same zero-row discipline, read at the
+                    # record the dispatch actually has.
+                    has_outcome = True if result.outcome_recorded else None
+                    recorded_no = "recorded no admission through apply_intent"
+                else:
+                    has_outcome = self._fenced.execute(
+                        "SELECT 1 FROM artifacts WHERE task_id = ? "
+                        "AND artifact_type IN ("
+                        "'source_search','source_fetch_outcome') LIMIT 1",
+                        (task_id,),
+                    ).fetchone()
+                    recorded_no = "recorded no source outcome"
                 if has_outcome is None:
                     self._task_repo.transition_status(
                         task_id, TaskStatus.FAILED, caused_by="controller",
                         reason=f"handler '{template}' claimed completion but "
-                               f"recorded no source outcome — zero-row "
+                               f"{recorded_no} — zero-row "
                                f"success is not success (S6-B2)")
                     out.failed.append(task_id)
                     return out
@@ -5303,7 +5347,11 @@ class Controller:
             if not isinstance(source_ref, str) or ":" not in source_ref:
                 return True
             if source_ref.partition(":")[0] != "source_payload":
-                return True  # no readable full text for this carrier
+                # claim-ground (G10): a non-readable carrier can NOT verify a
+                # span. The validator refuses it (unverifiable_span_ref); this
+                # resolver never approves it. Returning True here was the
+                # fail-open the audit flagged.
+                return False
             raw = repos.read_payload(source_ref)
             if raw is None:
                 # The cited content is unreadable — the span cannot be
@@ -5331,6 +5379,46 @@ class Controller:
             text = raw.decode("utf-8", errors="replace")
             return isinstance(span_ref, str) and span_ref in text
 
+        def _context_resolve(dimension: str, value: str) -> bool:
+            # claim-ground G11: dataset_ref → a dataset_manifests row in this
+            # project; regime → the closed regime registry. Same authority the
+            # repository write path uses (repositories.py _make_resolver).
+            from hermes.research.regimes import (
+                RegimeResolutionError,
+                parse_regime_ref,
+                resolve_regime,
+            )
+            if dimension == "dataset_ref":
+                from hermes.persistence.repositories import (
+                    DatasetManifestRepository,
+                )
+                return DatasetManifestRepository(
+                    self._fenced).exists_in_project(value, self._project_id)
+            if dimension == "regime":
+                try:
+                    resolve_regime(parse_regime_ref(value))
+                except (RegimeResolutionError, TypeError):
+                    return False
+                return True
+            return True  # other dimensions are form-checked (validator)
+
+        def _stored_text(source_ref: str) -> str | None:
+            # claim-ground G9: readable stored text ONLY for source_payload.
+            if not isinstance(source_ref, str) or ":" not in source_ref:
+                return None
+            if source_ref.partition(":")[0] != "source_payload":
+                return None
+            raw = repos.read_payload(source_ref)
+            if raw is None:
+                return None
+            return raw.decode("utf-8", errors="replace")
+
+        def _experiment_admitted(source_ref: str) -> bool:
+            # claim-ground G12: no pre_registered_experiment store exists in
+            # this repository, so no experiment ref can be proven admitted.
+            # Fail closed (returns False) until an experiment store lands.
+            return False
+
         # C2 — the INJECTED model call is the long execution; keep the task
         # alive on the lease while it runs.
         draft = self._run_with_heartbeat_refresh(
@@ -5341,6 +5429,17 @@ class Controller:
                 extracted_by=f"controller:{self._owner}",
                 reason=f"extract task {task_id} output",
                 span_resolver=_span_resolve,
+                # claim-ground G11: the dataset_ref/regime dereference is
+                # supplied to the validator (it was never passed, so context
+                # refusals happened only at the repository, post-validation).
+                context_resolver=_context_resolve,
+                # claim-ground G9: statement-vs-source byte check reads the
+                # cited source's stored text (readable carriers only).
+                text_resolver=_stored_text,
+                # claim-ground G12: a causal DIRECT/PARTIAL claim's experiment
+                # must exist and be admitted in-project. No experiment store
+                # exists yet, so this fails closed.
+                experiment_resolver=_experiment_admitted,
             )
             del outcome  # audit is rows + events; nothing else to do
             self._task_repo.transition_status(

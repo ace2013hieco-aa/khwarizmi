@@ -35,6 +35,7 @@ from hermes.research.programs import canonical_json, sha256_hex
 __all__ = [
     # the ratified provider allowlist (IDR-030 decision point 1)
     "SOURCE_PROVIDER_ALLOWLIST",
+    "WEB_SEARCH_PROVIDERS",
     "FetchFailure",
     "FetchLogEntry",
     "FetchOutcome",
@@ -186,14 +187,24 @@ def observation_hash_of_search_result(result: "SearchResult") -> str:
     return sha256_hex(canonical_json(data))
 
 
-# The RATIFIED initial adapter allowlist (IDR-030 decision point 1, contract
-# §3 — the 11 scholarly-retrieval providers). The gateway enforces membership
-# at INSERT_TASK admission (OQ-5); the handler machinery refuses anything
-# else before any I/O.
+# The RATIFIED adapter allowlist (IDR-030 decision point 1, contract §3 —
+# the 11 scholarly-retrieval providers — as amended by IDR-046 D1 with the
+# four commercial web-search legs). The gateway enforces membership at
+# INSERT_TASK admission (OQ-5); the handler machinery refuses anything
+# else before any I/O. Web legs are barred from every evidence position
+# (IDR-046 D2/D3) — the `WEB_SEARCH_PROVIDERS` predicate below is the
+# single definition of "web-derived"; no other module may hardcode ids.
 SOURCE_PROVIDER_ALLOWLIST = frozenset({
     "pubmed", "pmc", "europepmc", "arxiv", "biorxiv", "medrxiv",
     "openalex", "crossref", "semantic-scholar", "core", "unpaywall",
+    "brave", "exa", "tavily", "searxng",
 })
+
+# The web-search provenance class (IDR-046 D1) — exactly the four
+# commercial web legs. A row is web-derived iff its provider intersects
+# this set (`src/hermes/tools/research_sources.py` is the single
+# definition).
+WEB_SEARCH_PROVIDERS = frozenset({"brave", "exa", "tavily", "searxng"})
 
 
 def outcome_record_hash(outcome: object, outcome_kind: str) -> str:

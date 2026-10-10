@@ -17,7 +17,7 @@ import sqlite3
 
 from hermes.core import Clock, utc_now
 
-SUPPORTED_VERSION = 19
+SUPPORTED_VERSION = 20
 
 
 def _migrate_0_to_1(conn: sqlite3.Connection, clock: Clock) -> None:
@@ -1190,6 +1190,37 @@ def _migrate_18_to_19(conn: sqlite3.Connection, clock: Clock) -> None:
     )
 
 
+def _migrate_19_to_20(conn: sqlite3.Connection, clock: Clock) -> None:
+    """Migration 19 → 20 (claim-ground G13: model provenance on claims).
+
+    Adds three NULLABLE advisory provenance columns to ``research_claims``:
+
+    - ``model_ref`` — the model that produced the extraction
+    - ``prompt_template_version`` — the prompt template the output used
+    - ``run_id`` — the producing run
+
+    Append-only: ``ADD COLUMN`` only (no table rebuild, no UPDATE, no
+    rewrite of any existing row). BACKFILL POLICY: rows written before this
+    migration keep NULL in all three columns. NULL means UNKNOWN — the
+    provenance was never recorded, so it is never fabricated or inferred
+    retroactively. Existing ``extracted_by`` is left untouched. Advisory
+    only: none of these columns enter content identity or any gate.
+    """
+    ts = clock()
+    columns = {row["name"] for row in conn.execute(
+        "SELECT name FROM pragma_table_info('research_claims')",
+    ).fetchall()}
+    for col in ("model_ref", "prompt_template_version", "run_id"):
+        if col not in columns:
+            conn.execute(
+                f"ALTER TABLE research_claims ADD COLUMN {col} TEXT"
+            )
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+        (20, ts),
+    )
+
+
 # ── migration registry (indexed by version number) ──
 
 _MIGRATIONS = [
@@ -1212,6 +1243,7 @@ _MIGRATIONS = [
     _migrate_16_to_17,  # version 16 → 17 (P4 closure: provider_interactions.content_type remediation)
     _migrate_17_to_18,  # version 17 → 18 (Step 3 FIX 1: advisory related_claim_ids on claims)
     _migrate_18_to_19,  # version 18 → 19 (ADR-041: parallel-regime-test advisory columns on research_programs)
+    _migrate_19_to_20,  # version 19 → 20 (claim-ground G13: model_ref/prompt_template_version/run_id on research_claims)
 ]
 
 

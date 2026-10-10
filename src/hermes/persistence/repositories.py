@@ -2064,6 +2064,11 @@ class ClaimAssumptionRepository:
                 "refusing to persist an empty extraction — ADMITTED requires "
                 "at least one claim or assumption"
             )
+        # claim-ground (G13): provenance is advisory and read from the
+        # validated result; absent provenance stays None (unknown).
+        provenance_model_ref = result.model_ref
+        provenance_prompt_template_version = result.prompt_template_version
+        provenance_run_id = result.run_id
         # 0b. Governance: the project must exist (V6-P7-F03). Resolved here,
         #    never trusted from the caller — a nonexistent project must fail
         #    with a structured error, not a raw FK IntegrityError.
@@ -2302,15 +2307,19 @@ class ClaimAssumptionRepository:
                         source_ref, support_state, span_ref, claim_type,
                         context_tags_json, schema_version, extracted_by,
                         reason, supersedes_id, producing_task_id,
-                        related_claim_ids_json, created_at)
+                        related_claim_ids_json, created_at,
+                        model_ref, prompt_template_version, run_id)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?)""",
+                               ?, ?, ?, ?, ?)""",
                     (c.claim_id, project_id, c.content_hash, c.statement,
                      c.source_ref, c.support_state, c.span_ref, c.claim_type,
                      _json_dumps(dict(c.context_tags)),
                      c.schema_version, extracted_by, reason, c.supersedes_ref,
                      producing_task_id, _json_dumps(list(c.related_claim_ids)),
-                     ts),
+                     ts,
+                     # claim-ground G13: NULL = unknown (never fabricated).
+                     provenance_model_ref, provenance_prompt_template_version,
+                     provenance_run_id),
                 )
                 persisted_claims[c.claim_id] = {
                     "claim_id": c.claim_id,

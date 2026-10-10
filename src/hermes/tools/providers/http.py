@@ -72,6 +72,7 @@ from hermes.tools.providers.base import RequestSpec, TransportResponse
 from hermes.tools.providers.redact import DEFAULT_POLICY, RedactionPolicy, redact_url
 from hermes.tools.research_sources import (
     PermanentProviderError,
+    ProviderValidationError,
     TransientProviderError,
 )
 
@@ -163,13 +164,16 @@ def _build_opener(
 ) -> urllib.request.OpenerDirector:
     """Build an opener whose redirect authority is the A1 handler.
 
-    P-AUTO-4 proxy-path: the opener carries an EMPTY ``ProxyHandler({})``
-    unless the caller supplies its own — guarded fetches never honor
-    ``HTTPS_PROXY``/``HTTP_PROXY`` env proxies, so a proxy can never bypass
-    the allowlist (the proxy would dial exfiltration the gate refused).
-    (Audit NOTE: on this Python an empty mapping leaves no ProxyHandler in
-    ``opener.handlers`` at all — the outcome is what matters: no proxy
-    authority survives, env proxies are ignored.)
+    P-AUTO-4 proxy-path: passing an EMPTY ``ProxyHandler({})`` suppresses
+    the one ``build_opener`` would otherwise install — the default handler
+    reads ``HTTPS_PROXY``/``HTTP_PROXY`` from the environment. The opener
+    therefore holds NO proxy authority for any scheme: guarded fetches dial
+    the origin directly, so a proxy can never become the exfiltration path
+    the allowlist gate refused. (Audit NOTE: an empty mapping registers no
+    ``*_open`` method, so no ProxyHandler appears in ``opener.handlers`` at
+    all; the outcome — no proxy authority survives — is what R-3 pins by
+    socket accounting at both candidate destinations, never by inspecting
+    the handler list.)
 
     FIX-D — ``pin_resolver`` (``host -> ip | None``): when given, the
     default exact-type ``HTTPSHandler`` is replaced with a
@@ -197,6 +201,23 @@ def _build_opener(
             if type(h) is not urllib.request.HTTPSHandler
         ])
         opener.add_handler(PinnedHTTPSHandler(pin_for=pin_resolver))
+        # FIX-PIN — the dispatch chain is `handle_open["https"]`, not
+        # `handlers` bookkeeping: both entries share `handler_order` 500 so
+        # `bisect.insort` parks the pin AFTER the default and the default
+        # shadows the vetted dial (TOCTOU: gaierror + 0 loopback hits).
+        # Purge the exact-type default from the dispatch chain so the pin
+        # is authoritative (sole entry unless a subclass test double was
+        # supplied via `extra`, which stays first and still wins). An
+        # unpinned host falls through `PinnedHTTPSHandler.super()`
+        # (identical dial), so allowlist/redirect/proxy behavior is
+        # unchanged — only the dial target for a pinned host changes.
+        chain_map = getattr(opener, "handle_open", None)
+        dispatch = chain_map.get("https", None) if isinstance(chain_map, dict) else None
+        if dispatch is not None:
+            dispatch[:] = [
+                h for h in dispatch
+                if type(h) is not urllib.request.HTTPSHandler
+            ]
     return opener
 
 
@@ -356,21 +377,42 @@ class ProviderHTTPTransport:
     # ── the Transport protocol ──
 
     def request(self, spec: RequestSpec) -> TransportResponse:
-        """Issue one GET and return the response — status + raw bytes +
-        headers + the normalized media type.
+        """Issue one request (GET or POST — IDR-046 D4) and return the
+        response — status + raw bytes + headers + the normalized media type.
 
         Raises ONLY for transport-level failures (RT-02/RT2-01/RT3-01) —
         never on an HTTP status. Timeout/connection → `TIMEOUT` transient;
         the streaming size-abort fires ONLY on a 2xx status →
         `PARTIAL_CONTENT` permanent.
+
+        D4: a `method` outside {GET, POST} refuses `ProviderValidationError`
+        (closed method set); POST sends `data=` + `Content-Type:
+        application/json` (the adapter-declared JSON content type — never
+        guessed) with the query string built from the URL alone (`params`
+        are the declared form for redaction and identity only, never sent);
+        a POST with an empty body refuses `ProviderValidationError`. The GET
+        path is byte-identical to before.
         """
+        method = getattr(spec, "method", "GET")
+        if method not in ("GET", "POST"):
+            raise ProviderValidationError(
+                f"unknown request method {method!r} — refusing (closed "
+                f"method set: GET | POST)") from None
+        if method == "POST" and not getattr(spec, "body", b""):
+            raise ProviderValidationError(
+                "POST request with an empty body — refusing (a POST with "
+                "no body is never issued)") from None
         url = self._build_url(spec)
         netloc = urllib.parse.urlsplit(url).netloc
         timeout = self._timeouts.get(netloc, self._timeout)
         cap = self._size_caps.get(netloc, self._size_cap_bytes)
         headers = {"User-Agent": self._user_agent}
         headers.update({k: v for k, v in spec.headers_meta.items() if v})
-        req = urllib.request.Request(url, headers=headers)
+        if method == "POST":
+            headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(url, data=spec.body, headers=headers)
+        else:
+            req = urllib.request.Request(url, headers=headers)
         try:
             resp = _open_request(req, timeout=timeout)
         except urllib.error.HTTPError as exc:
@@ -448,7 +490,14 @@ class ProviderHTTPTransport:
 
     def _build_url(self, spec: RequestSpec) -> str:
         """Merge the declared params into the URL query (deterministic sort —
-        the recorder's fingerprint discipline, PS-06)."""
+        the recorder's fingerprint discipline, PS-06).
+
+        IDR-046 D4 rule 3: on POST the query string is built from the URL
+        alone — `params` are the *declared* form for redaction and identity
+        only, never sent (this prevents a credential-class param from being
+        smuggled into a body while being redacted as a param)."""
+        if getattr(spec, "method", "GET") == "POST":
+            return spec.url
         parts = urllib.parse.urlsplit(spec.url)
         query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
         query.extend(sorted(spec.params.items()))

@@ -1,0 +1,53 @@
+# researcher.yaml — runtime profile configuration (ARCHITECTURE_DELTA §2.3).
+#
+# A profile is DATA. It is loaded by hermes/agents/runtime/config.py and executed
+# by the one runtime; no profile is a class anywhere in the package. Authority is
+# declared here and enforced by ProfileSpec.refuses_by_authority before any intent
+# exists, so this file is the honest statement of what a researcher run may
+# propose.
+version: "1"
+name: researcher
+role: bounded evidence acquisition from admitted sources
+agent_profile: RESEARCHER
+
+model_policy:
+  tier: research
+  contract: runtime_proposal_v1
+  kind_field: kind
+  rationale_field: rationale
+  structured_fields: [proposals, tool_calls]
+  allows_tool_calls: true
+  max_output_tokens: 2048
+
+# Capability ids the run may ask for. The grant is NOT declared here: authority
+# is injected by the Orchestration API (a config may not mint it).
+tools: [source_search, source_fetch]
+
+authority:
+  proposable_kinds:
+    - INSERT_TASK
+    - EVIDENCE_TRANSITION
+    - REQUEST_ADDITIONAL_EXPERIMENT
+  director_only: false
+  allowed_capabilities: [source_search, source_fetch]
+  # Declared-but-refused: needs a bound HumanDecisionReceived, which a plane can
+  # never supply (§2.3 PROPOSAL). Declared so the refusal is explicit, not silent.
+  requires_human_for:
+    - PROPOSE_GATE_OVERRIDE
+
+schemas:
+  proposal: runtime_proposal_v1
+  draft: [kind, rationale, payload]
+
+termination:
+  max_ticks: 4
+  max_proposals: 6
+  stop_when: proposals_raised
+  max_model_calls_per_tick: 2
+  max_tool_calls: 4
+  deadline_seconds: 120
+
+review:
+  reviewer_profile: critic
+  required: true
+  max_review_rounds: 1

@@ -30,10 +30,10 @@ records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `ffbdf93cdda207ab155307d24128ee81783890e5aba34913f4c9c469f278e447.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `8d2c74fad3ed4e84b876d861160b478ac7d8d13f93df8b5cdae2781db3d9866a.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `232fd00e97ba2a0c0d358d80905567d75b3dab728c35be6988d0aa7e8eee04f3.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `7ed0612ea0c615d12071b3b23c6805ecb89d51a622ce8e507a5e047f205a338d.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `4bc5dc28fa5e859acb772a85f410cf2398d53dfc4527ebff6fb82b34ac21645d.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `948a0d8876b9d70e2064f178f81a024be3a86e5ff36dcd90d8c3a3bde4a522ca.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -43,6 +43,24 @@ records:
 > exactly one token (the new `IDR-044` mention), so the citation structure is invariant — only the pinned
 > byte identities moved. The GR3 phase reports kept their as-of-then digests (records are not rewritten);
 > this table is the live set.
+
+> **Re-derivation (experiment-gate doc — `GATE-DOC-REGEN`).** The gate-doc
+> commit (`fix/experiment-gate-doc-v2`, `05c3217`) edited two governed
+> corpus members (`docs/ARCHITECTURE.md` +7, `docs/STATE.md` +13), so
+> `b4-c1` / `b4-c2` / `b4-c4` were regenerated deliberately per §Regenerating:
+> `ffbdf93c… → 0ee743f9…`, `8d2c74fa… → 3efc5422…`, `4bc5dc28… → 4feda75b…`. `b4-c3` is unchanged (its
+> stratum is IDR-only).
+> Edge sets, `counts`, and the `skipped` lists are identical
+> (5 / 19 / 10 / 5) — only those two source identities moved, and this
+> table is the regeneration's own output.
+
+> **Re-derivation (REBASE-DET — `merge/claim` replayed onto platform `main` `d1241a1`).** The claim
+> line's regeneration collided *rename/rename* with the platform line's own O2 census regeneration of the
+> same content-addressed fixtures. The rebased corpus is the union (platform documents ∪ the claim
+> gate-doc edits), so the fixtures were regenerated a third time per §Regenerating:
+> `0ee743f9… → 232fd00e…`, `3efc5422… → 7ed0612e…`, `4feda75b… → 948a0d88…`. `b4-c3` is unchanged
+> (IDR-only stratum). Edge sets, `counts`, and the `skipped` lists are identical (5 / 19 / 10 / 5); only
+> the pinned byte identities moved, and this table is the live set.
 
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are

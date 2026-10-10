@@ -17,6 +17,14 @@ stable file names from content IDs (never titles); alias-form wikilinks
 only (``[[stable-id|human alias]]``); cursor = max event_id projected;
 re-running a cursor range changes zero bytes; the projector never mutates
 the journal (read-only SELECTs; no persistence imports, no new schema).
+
+Every run also writes the derived-view manifest
+(``.projection-manifest.json``, see ``hermes.vault.manifest``): the cursor
+range, one digest per note the journal claims in that range, and the
+journal-head anchor. The manifest is derived state, never authority —
+``hermes vault verify`` recomputes it from the journal and refuses loudly,
+naming the missing/invented IDs, when the vault and the journal disagree
+(restored-ahead cursors, lost/backfilled ranges, tampered notes).
 """
 
 from __future__ import annotations
@@ -179,6 +187,16 @@ _EVENT_SUMMARIES: dict[str, str] = {
     "CuratedKnowledgeInvalidated": "Curated knowledge invalidated",
     "FloorGrantRecorded": "Floor grant recorded",
 }
+
+
+# The journal columns the projector reads (SELECT shape shared by the
+# window / head / full-range queries, so the head hash and the note digests
+# are computed from the same row projection).
+_COLUMNS = (
+    "event_id, event_type, project_id, task_id, from_state, to_state, "
+    "correlation_id, caused_by, reason, artifact_ids_json, payload_json, "
+    "created_at"
+)
 
 
 class ProjectionRefused(Exception):
@@ -539,82 +557,56 @@ def _see_links(row: dict[str, Any], event_id: int,
     return links
 
 
-def project(conn: Any, project_id: str, vault_root: str,
-            cursor: int = 0) -> tuple[int, list[str]]:
-    """Project journal rows (event_id > cursor) for one project to notes.
-
-    Read-only over the journal (SELECTs only — the single mutation path is
-    untouched, no schema, no intents). Returns ``(new_cursor, written)``
-    where ``written`` lists note file names in event_id order. Determinism:
-    the same rows always render byte-identical notes, so rerunning a cursor
-    range changes zero bytes and scratch == incremental catch-up.
-    """
-    if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
-        raise ProjectionRefused(
-            "BAD_CURSOR", f"cursor must be a non-negative int, got {cursor!r}")
-    if not isinstance(project_id, str) or not project_id:
-        raise ProjectionRefused(
-            "BAD_PROJECT_ID", f"project_id must be non-empty, got {project_id!r}")
-    root = init_vault_root(vault_root)
-    execute = conn.execute  # type: ignore[attr-defined,union-attr]
-    db_rows = execute(
-        "SELECT event_id, event_type, project_id, task_id, from_state, "
-        "to_state, correlation_id, caused_by, reason, artifact_ids_json, "
-        "payload_json, created_at FROM events "
+def _window_rows(conn: Any, project_id: str,
+                 cursor: int) -> list[dict[str, Any]]:
+    """Journal rows for one project with event_id > cursor (read-only)."""
+    rows = conn.execute(
+        f"SELECT {_COLUMNS} FROM events "
         "WHERE project_id = ? AND event_id > ? ORDER BY event_id ASC",
         (project_id, cursor),
     ).fetchall()
-    rows = [dict(r) for r in db_rows]
-    if not rows:
-        max_row = execute(
-            "SELECT MAX(event_id) AS max_id FROM events WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()
-        journal_max = max_row["max_id"] if max_row is not None else None
-        if isinstance(journal_max, int) and cursor > journal_max:
-            logger.warning(
-                "projection cursor %d is ahead of journal max event_id %d for "
-                "project %s — backfilled rows below the cursor can never be "
-                "projected", cursor, journal_max, project_id)
-        return cursor, []
+    return [dict(row) for row in rows]
 
-    # Creation links span the FULL journal (not just the window): an
-    # incremental run must render byte-identical notes to a scratch run,
-    # so task-creation targets resolve the same at every cursor.
-    created_rows = execute(
+
+def _journal_head(conn: Any, project_id: str) -> dict[str, Any] | None:
+    """The project's highest journal row (read-only), or None when empty."""
+    row = conn.execute(
+        f"SELECT {_COLUMNS} FROM events WHERE project_id = ? "
+        "ORDER BY event_id DESC LIMIT 1",
+        (project_id,),
+    ).fetchone()
+    return None if row is None else dict(row)
+
+
+def _created_index(conn: Any, project_id: str) -> dict[str, int]:
+    """First TaskCreated event_id per task (link-target resolution)."""
+    created: dict[str, int] = {}
+    rows = conn.execute(
         "SELECT event_id, task_id FROM events "
         "WHERE project_id = ? AND event_type = 'TaskCreated' "
         "ORDER BY event_id ASC",
         (project_id,),
     ).fetchall()
-    created: dict[str, int] = {}
-    for created_row in created_rows:
-        task_id = created_row["task_id"]
-        event_id = created_row["event_id"]
+    for row in rows:
+        task_id = row["task_id"]
+        event_id = row["event_id"]
         if isinstance(task_id, str) and task_id \
                 and isinstance(event_id, int) and task_id not in created:
             created[task_id] = event_id
-    # Validity over FULL history (not just the window): a victim projected
-    # authoritative by an earlier run must still be retired when its
-    # invalidator lands in a later window — otherwise scratch and
-    # incremental runs diverge. Only fact/invalidation classes are read
-    # (the full row set is never needed for the verdict).
-    max_id = max(row["event_id"] for row in rows)
-    expected_slots = max_id - cursor
-    if expected_slots > len(rows):
-        logger.warning(
-            "projection gap for project %s in (%d, %d]: %d of %d event_id "
-            "slot(s) absent (compacted or lost) — skipped loudly",
-            project_id, cursor, max_id, expected_slots - len(rows),
-            expected_slots)
+    return created
+
+
+def _invalidated_by(conn: Any, project_id: str,
+                    horizon: int) -> dict[int, int]:
+    """victim event_id -> invalidator event_id, over history <= horizon."""
     auth_marks = ",".join("?" for _ in AUTHORITATIVE_EVENT_TYPES)
     inval_marks = ",".join("?" for _ in INVALIDATING_EVENT_TYPES)
-    history_rows = execute(
+    rows = conn.execute(
         "SELECT event_id, event_type, task_id, artifact_ids_json, "
-        f"payload_json FROM events WHERE project_id = ? AND event_id <= ? "
+        "payload_json FROM events WHERE project_id = ? AND event_id <= ? "
         f"AND (event_type IN ({auth_marks}) OR event_type IN ({inval_marks})) "
         "ORDER BY event_id ASC",
-        (project_id, max_id, *AUTHORITATIVE_EVENT_TYPES,
+        (project_id, horizon, *AUTHORITATIVE_EVENT_TYPES,
          *INVALIDATING_EVENT_TYPES),
     ).fetchall()
     # Two passes over one deterministic order: later invalidating rows
@@ -622,7 +614,7 @@ def project(conn: Any, project_id: str, vault_root: str,
     # is causal — a pre-cursor invalidation never retires a later fact.
     invalidated_by: dict[int, int] = {}  # invalidated event_id -> invalidator
     live_subjects: dict[str, int] = {}
-    for history_row in history_rows:
+    for history_row in rows:
         past = dict(history_row)
         past_id = past["event_id"]
         subjects = _row_subject_keys(past)
@@ -634,10 +626,12 @@ def project(conn: Any, project_id: str, vault_root: str,
         elif subjects and _is_authoritative(past):
             for key in subjects:
                 live_subjects[key] = past_id
+    return invalidated_by
 
-    # Plan every write before touching disk: path-guard refusals, link-
-    # namespace refusals and missing invalidator/victim rows abort the whole
-    # run, never leaving a partially written window (B1).
+
+def _window_plans(rows: list[dict[str, Any]], created: dict[str, int],
+                  invalidated_by: dict[int, int]) -> list[tuple[int, str, str]]:
+    """Plan ``(event_id, filename, body)`` for a contiguous row window."""
     by_id = {row["event_id"]: row for row in rows}
     plans: list[tuple[int, str, str]] = []
     for row in rows:
@@ -658,6 +652,206 @@ def project(conn: Any, project_id: str, vault_root: str,
                     currently_valid=True,
                     links=_see_links(row, event_id, created, invalidator)),
         ))
+    return plans
+
+
+def _stale_plans(conn: Any, project_id: str, created: dict[str, int],
+                 invalidated_by: dict[int, int],
+                 window_ids: set[int]) -> list[tuple[int, str, str]]:
+    """Late-invalidation rewrites for victims outside the window (B1/B2).
+
+    The invalidator is queried from the journal by id (never indexed through
+    the window) and link emission is shared with the in-window path, so a
+    consumed invalidation cannot wedge a later catch-up and the rewrite is
+    byte-identical to scratch.
+    """
+    stale_victims = sorted(
+        victim for victim in invalidated_by if victim not in window_ids)
+    plans: list[tuple[int, str, str]] = []
+    if not stale_victims:
+        return plans
+    placeholders = ",".join("?" for _ in stale_victims)
+    victim_rows = conn.execute(
+        "SELECT event_id, event_type, project_id, task_id, from_state, "
+        "to_state, correlation_id, caused_by, reason, artifact_ids_json, "
+        "payload_json, created_at FROM events "
+        f"WHERE project_id = ? AND event_id IN ({placeholders}) "
+        "ORDER BY event_id ASC",
+        (project_id, *stale_victims),
+    ).fetchall()
+    victims = {row["event_id"]: dict(row) for row in victim_rows}
+    missing_victims = [v for v in stale_victims if v not in victims]
+    if missing_victims:
+        raise ProjectionRefused(
+            "VICTIM_MISSING",
+            f"invalidated rows {missing_victims} are absent from the "
+            "journal — refusing an unverifiable supersede")
+    invalidator_ids = sorted({invalidated_by[v] for v in stale_victims})
+    inv_marks = ",".join("?" for _ in invalidator_ids)
+    inv_rows = conn.execute(
+        "SELECT event_id, event_type FROM events "
+        f"WHERE project_id = ? AND event_id IN ({inv_marks})",
+        (project_id, *invalidator_ids),
+    ).fetchall()
+    invalidators = {row["event_id"]: dict(row) for row in inv_rows}
+    missing_invalidators = [i for i in invalidator_ids
+                            if i not in invalidators]
+    if missing_invalidators:
+        raise ProjectionRefused(
+            "INVALIDATOR_MISSING",
+            f"invalidator rows {missing_invalidators} are absent from "
+            "the journal — cannot render a supersede link")
+    for victim_id in stale_victims:
+        victim = victims[victim_id]
+        invalidator = invalidators[invalidated_by[victim_id]]
+        plans.append((
+            victim_id,
+            note_filename(victim_id, str(victim.get("event_type"))),
+            _render(victim, authoritative=False, currently_valid=False,
+                    links=_see_links(victim, victim_id, created,
+                                     invalidator)),
+        ))
+    return plans
+
+
+def _plan_range(conn: Any, project_id: str,
+                upper: int) -> list[tuple[int, str, str]]:
+    """Scratch-equivalent plan over the FULL range (0, upper] — writes nothing.
+
+    This is the manifest's claim: one note per journal row in the range,
+    rendered by the same planner a scratch run uses (the pinned
+    scratch == incremental invariant, so the digests certify catch-up runs
+    too). Public to the vault package: the manifest verifier recomputes
+    through it instead of trusting the manifest file.
+    """
+    if upper < 1:
+        return []
+    rows = conn.execute(
+        f"SELECT {_COLUMNS} FROM events "
+        "WHERE project_id = ? AND event_id <= ? ORDER BY event_id ASC",
+        (project_id, upper),
+    ).fetchall()
+    row_dicts = [dict(row) for row in rows]
+    if not row_dicts:
+        return []
+    return _window_plans(row_dicts, _created_index(conn, project_id),
+                         _invalidated_by(conn, project_id, upper))
+
+
+def _write_run_manifest(conn: Any, project_id: str, root: str, *,
+                        cursor_before: int, cursor_after: int,
+                        written: list[str]) -> None:
+    """Write the derived-view manifest for this run (D2/G closure).
+
+    The claim is recomputed from the journal, never guessed: every project
+    row in ``(0, cursor_after]`` must have exactly one note whose digest is
+    the rendered body. Notes this run did not write (below the cursor) are
+    checked on disk here so an incomplete vault is loud at run time too;
+    ``hermes vault verify`` is the refusing surface.
+    """
+    from hermes.vault.manifest import (
+        build_manifest,
+        journal_gap_event_ids,
+        write_manifest,
+    )
+    entries = _plan_range(conn, project_id, cursor_after)
+    head_row = _journal_head(conn, project_id)
+    gaps = journal_gap_event_ids(conn, cursor_after)
+    write_manifest(root, build_manifest(
+        project_id=project_id, cursor_before=cursor_before,
+        cursor_after=cursor_after, head_row=head_row, entries=entries,
+        gap_event_ids=gaps))
+    if gaps:
+        logger.warning(
+            "projection manifest for project %s records %d journal hole(s) "
+            "in (0, %d] (event_id slots %s) — their notes can never be "
+            "projected", project_id, len(gaps), cursor_after, list(gaps[:20]))
+    # Run-time loudness for notes this run did not materialize (below-cursor
+    # rows, restored cursors, prior edits). The verifier recomputes the same
+    # facts from the journal instead of trusting the manifest.
+    just_written = set(written)
+    missing: list[int] = []
+    diverged: list[int] = []
+    for event_id, filename, body in entries:
+        if filename in just_written:
+            continue
+        try:
+            with open(os.path.join(root, filename), "rb") as handle:
+                on_disk = handle.read()
+        except OSError:
+            missing.append(event_id)
+            continue
+        if on_disk != body.encode("utf-8"):
+            diverged.append(event_id)
+    if missing:
+        logger.warning(
+            "projection manifest: %d note(s) claimed for rows below the "
+            "cursor are absent from the vault (event_ids %s) — the derived "
+            "view is incomplete; `hermes vault verify` refuses loudly",
+            len(missing), list(missing[:20]))
+    if diverged:
+        logger.warning(
+            "projection manifest: %d note(s) diverge from the journal "
+            "render (event_ids %s) — edited outside the projector; "
+            "`hermes vault verify` refuses loudly",
+            len(diverged), list(diverged[:20]))
+
+
+def project(conn: Any, project_id: str, vault_root: str,
+            cursor: int = 0) -> tuple[int, list[str]]:
+    """Project journal rows (event_id > cursor) for one project to notes.
+
+    Read-only over the journal (SELECTs only — the single mutation path is
+    untouched, no schema, no intents). Returns ``(new_cursor, written)``
+    where ``written`` lists note file names in event_id order. Determinism:
+    the same rows always render byte-identical notes, so rerunning a cursor
+    range changes zero bytes and scratch == incremental catch-up.
+    """
+    if not isinstance(cursor, int) or isinstance(cursor, bool) or cursor < 0:
+        raise ProjectionRefused(
+            "BAD_CURSOR", f"cursor must be a non-negative int, got {cursor!r}")
+    if not isinstance(project_id, str) or not project_id:
+        raise ProjectionRefused(
+            "BAD_PROJECT_ID", f"project_id must be non-empty, got {project_id!r}")
+    root = init_vault_root(vault_root)
+    rows = _window_rows(conn, project_id, cursor)
+    if not rows:
+        head_row = _journal_head(conn, project_id)
+        journal_max = None if head_row is None else head_row["event_id"]
+        if journal_max is not None and cursor > journal_max:
+            logger.warning(
+                "projection cursor %d is ahead of journal max event_id %d for "
+                "project %s — backfilled rows below the cursor can never be "
+                "projected; the manifest records the ahead range and "
+                "`hermes vault verify` refuses loudly",
+                cursor, journal_max, project_id)
+        _write_run_manifest(conn, project_id, root, cursor_before=cursor,
+                            cursor_after=cursor, written=[])
+        return cursor, []
+
+    # Creation links span the FULL journal (not just the window): an
+    # incremental run must render byte-identical notes to a scratch run,
+    # so task-creation targets resolve the same at every cursor.
+    created = _created_index(conn, project_id)
+    # Validity over FULL history (not just the window): a victim projected
+    # authoritative by an earlier run must still be retired when its
+    # invalidator lands in a later window — otherwise scratch and
+    # incremental runs diverge. Only fact/invalidation classes are read
+    # (the full row set is never needed for the verdict).
+    max_id = max(row["event_id"] for row in rows)
+    expected_slots = max_id - cursor
+    if expected_slots > len(rows):
+        logger.warning(
+            "projection gap for project %s in (%d, %d]: %d of %d event_id "
+            "slot(s) absent (compacted or lost) — skipped loudly",
+            project_id, cursor, max_id, expected_slots - len(rows),
+            expected_slots)
+    invalidated_by = _invalidated_by(conn, project_id, max_id)
+
+    # Plan every write before touching disk: path-guard refusals, link-
+    # namespace refusals and missing invalidator/victim rows abort the whole
+    # run, never leaving a partially written window (B1).
+    plans = _window_plans(rows, created, invalidated_by)
     # Late invalidation: a victim projected by an EARLIER run (event_id <=
     # cursor, outside this window) is rewritten as a superseded process note.
     # The invalidator may also lie outside the window (its row was already
@@ -666,50 +860,8 @@ def project(conn: Any, project_id: str, vault_root: str,
     # emission is shared with the in-window path, so the rewrite is
     # byte-identical to scratch (B2) and idempotent on every re-run.
     window_ids = {row["event_id"] for row in rows}
-    stale_victims = sorted(
-        victim for victim in invalidated_by if victim not in window_ids)
-    if stale_victims:
-        placeholders = ",".join("?" for _ in stale_victims)
-        victim_rows = execute(
-            "SELECT event_id, event_type, project_id, task_id, from_state, "
-            "to_state, correlation_id, caused_by, reason, artifact_ids_json, "
-            "payload_json, created_at FROM events "
-            f"WHERE project_id = ? AND event_id IN ({placeholders}) "
-            "ORDER BY event_id ASC",
-            (project_id, *stale_victims),
-        ).fetchall()
-        victims = {row["event_id"]: dict(row) for row in victim_rows}
-        missing_victims = [v for v in stale_victims if v not in victims]
-        if missing_victims:
-            raise ProjectionRefused(
-                "VICTIM_MISSING",
-                f"invalidated rows {missing_victims} are absent from the "
-                "journal — refusing an unverifiable supersede")
-        invalidator_ids = sorted({invalidated_by[v] for v in stale_victims})
-        inv_marks = ",".join("?" for _ in invalidator_ids)
-        inv_rows = execute(
-            "SELECT event_id, event_type FROM events "
-            f"WHERE project_id = ? AND event_id IN ({inv_marks})",
-            (project_id, *invalidator_ids),
-        ).fetchall()
-        invalidators = {row["event_id"]: dict(row) for row in inv_rows}
-        missing_invalidators = [i for i in invalidator_ids
-                                if i not in invalidators]
-        if missing_invalidators:
-            raise ProjectionRefused(
-                "INVALIDATOR_MISSING",
-                f"invalidator rows {missing_invalidators} are absent from "
-                "the journal — cannot render a supersede link")
-        for victim_id in stale_victims:
-            victim = victims[victim_id]
-            invalidator = invalidators[invalidated_by[victim_id]]
-            plans.append((
-                victim_id,
-                note_filename(victim_id, str(victim.get("event_type"))),
-                _render(victim, authoritative=False, currently_valid=False,
-                        links=_see_links(victim, victim_id, created,
-                                         invalidator)),
-            ))
+    plans.extend(_stale_plans(conn, project_id, created, invalidated_by,
+                              window_ids))
     planned: list[tuple[int, str, str, str]] = []
     for event_id, filename, body in plans:
         _assert_stable_links(body, filename)
@@ -720,6 +872,8 @@ def project(conn: Any, project_id: str, vault_root: str,
             handle.write(body)
         written.append(filename)
     written.sort(key=lambda name: int(name.split("-")[1]))
+    _write_run_manifest(conn, project_id, root, cursor_before=cursor,
+                        cursor_after=max_id, written=written)
     return max_id, written
 
 
@@ -727,6 +881,8 @@ def read_cursor(vault_root: str) -> int:
     """Read the persisted cursor (0 when absent — full projection)."""
     root = init_vault_root(vault_root)
     path = _join_note(root, CURSOR_FILENAME)
+    if not os.path.exists(path):
+        return 0  # no persisted position yet — the caller projects from 0
     try:
         with open(path, encoding="utf-8") as handle:
             return int(handle.read().strip() or "0")

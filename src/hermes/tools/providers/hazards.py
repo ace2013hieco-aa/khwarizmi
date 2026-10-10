@@ -652,7 +652,7 @@ def _load_string_list(raw: object, provider_id: str, where: str) -> tuple[str, .
     return tuple(raw)
 
 
-_CONTENT_TYPE_RE = re.compile(r"^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$")
+_CONTENT_TYPE_RE = re.compile(r"^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+\Z")
 
 
 def _load_content_types(raw: object, provider_id: str, where: str) -> tuple[str, ...]:

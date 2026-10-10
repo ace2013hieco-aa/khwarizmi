@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from hermes.persistence.source_outcomes import source_artifact_retracted
+from hermes.persistence.source_outcomes import (
+    source_artifact_is_web_derived,
+    source_artifact_retracted,
+)
 
 
 def detector_candidate_rows(
@@ -89,7 +92,14 @@ def detector_resolve_ref(
             "SELECT artifact_id FROM artifacts "
             "WHERE artifact_id = ? AND project_id = ?",
             (ref, project_id)).fetchone()
-        return row["artifact_id"] if row is not None else None
+        if row is None:
+            return None
+        # IDR-046 D2/E5 — the bare-id path has no type check at all, so
+        # the web bar is explicit here too: web-derived rows contribute
+        # nothing (fail-safe skip).
+        if source_artifact_is_web_derived(conn, row["artifact_id"]):
+            return None
+        return row["artifact_id"]
     # The ``evidence:`` form carries a content hash resolved against
     # type-``evidence`` rows (Step-7 basis convention).
     lookup_type = "evidence" if prefix == "evidence" else prefix
@@ -102,7 +112,14 @@ def detector_resolve_ref(
         "WHERE project_id = ? AND content_hash = ? "
         "AND artifact_type = ? ORDER BY created_at LIMIT 1",
         (project_id, rest, lookup_type)).fetchone()
-    return row["artifact_id"] if row is not None else None
+    if row is None:
+        return None
+    # IDR-046 D2/E5 — the typed path: web-derived rows are barred from
+    # the detector row's evidence (fail-safe skip, mirroring the gateway
+    # basis derivation).
+    if source_artifact_is_web_derived(conn, row["artifact_id"]):
+        return None
+    return row["artifact_id"]
 
 
 def open_contradiction_parties(conn: Any, project_id: str) -> list[str]:

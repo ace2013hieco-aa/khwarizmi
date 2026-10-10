@@ -1,0 +1,20 @@
+{
+  "schema": "hermes-hazard-spec/v1",
+  "provider_id": "tavily",
+  "version": "1.0.0",
+  "markers": [],
+  "empty_body_rule": "treat-as-failure",
+  "error_field": null,
+  "count_semantics": "absent",
+  "counts_raw_rows": false,
+  "required_fields": ["results"],
+  "cursor_rule": {"kind": "none", "loop_guard": 100},
+  "throttle_signature": [
+    {"status": 429, "body_pattern": null, "fields": []},
+    {"status": null, "body_pattern": "(?i)(rate.?limit|too many|quota|429)", "fields": ["detail"]}
+  ],
+  "rewrite_suspect": [],
+  "fetch": null,
+  "valid_negative_statuses": [404],
+  "content_types": ["application/json"]
+}

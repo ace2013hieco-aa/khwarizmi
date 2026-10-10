@@ -254,6 +254,6 @@ def test_8b_schema_version_is_8(db):
     # M4/HR-05: version 14 adds research_claims.support_state
     # Step 7: version 15 adds the curated knowledge registry (§16.6)
     # CHG-1/CHG-2: version 16 adds contradictions + provider_interactions
-    assert SUPPORTED_VERSION == 19
+    assert SUPPORTED_VERSION == 20
     from hermes.persistence.database import get_schema_version
-    assert get_schema_version(db) == 19
+    assert get_schema_version(db) == 20

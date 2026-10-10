@@ -570,6 +570,10 @@ STEP1_RAW_SHAPES: dict[str, dict[str, str]] = {
     "core": {"core_id": "82071694",
              "url": "https://core.ac.uk/download/82071694.pdf"},
     "unpaywall": {"doi": "10.1038/NATURE12373."},
+    "brave": {"url": "https://brave.com/search/"},
+    "exa": {"url": "https://exa.ai/"},
+    "tavily": {"url": "https://tavily.com/"},
+    "searxng": {"url": "https://docs.searxng.org/"},
 }
 
 STEP1_EXPECTED_CANONICAL: dict[str, dict[str, str]] = {
@@ -588,6 +592,10 @@ STEP1_EXPECTED_CANONICAL: dict[str, dict[str, str]] = {
     "core": {"core_id": "82071694",
              "url": "https://core.ac.uk/download/82071694.pdf"},
     "unpaywall": {"doi": "10.1038/nature12373"},
+    "brave": {"url": "https://brave.com/search/"},
+    "exa": {"url": "https://exa.ai/"},
+    "tavily": {"url": "https://tavily.com/"},
+    "searxng": {"url": "https://docs.searxng.org/"},
 }
 
 
@@ -599,7 +607,7 @@ class TestStep1ProviderSourceIdentityClosure:
     def test_allowlist_is_exactly_the_eleven_ratified_providers(self):
         from hermes.tools.research_sources import SOURCE_PROVIDER_ALLOWLIST
         assert set(SOURCE_PROVIDER_ALLOWLIST) == set(STEP1_RAW_SHAPES)
-        assert len(SOURCE_PROVIDER_ALLOWLIST) == 11
+        assert len(SOURCE_PROVIDER_ALLOWLIST) == 15
 
     @pytest.mark.parametrize("provider", sorted(STEP1_RAW_SHAPES))
     def test_per_adapter_raw_shape_canonicalizes(self, provider):
@@ -741,7 +749,8 @@ class TestStep1ProviderSourceIdentityClosure:
         spec_dir = (Path(__file__).resolve().parent.parent / "src" /
                     "hermes" / "tools" / "providers" / "hazard_specs")
         shipped = sorted(p.stem for p in spec_dir.glob("*.json"))
-        assert shipped == ["arxiv", "europepmc", "openalex", "pmc"]
+        assert shipped == ["arxiv", "brave", "europepmc", "exa", "openalex",
+                           "pmc", "searxng", "tavily"]
         for pid in shipped:
             assert pid in SOURCE_PROVIDER_ALLOWLIST
             spec = load_hazard_spec(pid, json.loads(

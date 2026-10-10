@@ -36,6 +36,7 @@ from hermes.tools.providers.base import (
 from hermes.tools.providers.redact import (
     DEFAULT_POLICY,
     RedactionPolicy,
+    redact_body,
     redact_params,
     redact_url,
 )
@@ -83,15 +84,34 @@ def normalized_request(spec: RequestSpec,
                        ) -> dict[str, Any]:
     """The canonical redacted request form: redacted URL + redacted
     params (sorted by serialization). ``headers_meta`` is NEVER
-    included (never-logged by contract)."""
+    included (never-logged by contract).
+
+    IDR-046 D4 — fixture identity with bodies: POST specs gain a
+    ``"body"`` key holding the *redacted* canonical body (a credential
+    can never enter a fixture id or fixture file; two POSTs differing
+    anywhere in body get distinct fixture ids — otherwise one would
+    replay the other's bytes). GET specs carry no ``"body"`` key, so GET
+    normalized forms and GET fixture ids are byte-identical to before."""
     if not isinstance(spec.url, str) or not spec.url:
         raise ProviderError("cannot normalize a request without a URL",
                             hazard_class="MALFORMED_REQUEST",
                             recordable=False)
     params = spec.params if isinstance(spec.params, dict) else {}
-    return {"url": redact_url(spec.url, policy),
-            "params": redact_params(
-                {str(k): str(v) for k, v in params.items()}, policy)}
+    out: dict[str, Any] = {
+        "url": redact_url(spec.url, policy),
+        "params": redact_params(
+            {str(k): str(v) for k, v in params.items()}, policy),
+    }
+    method = getattr(spec, "method", "GET")
+    if method not in ("GET", "POST"):
+        raise ProviderValidationError(
+            f"unknown request method {method!r} — refusing (closed "
+            f"method set: GET | POST)")
+    if method == "POST":
+        out["body"] = redact_body(
+            spec.body if isinstance(spec.body, bytes) else spec.body,
+            policy)
+    return out
 
 
 def _canonical_bytes(value: Any) -> bytes:

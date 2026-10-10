@@ -331,6 +331,9 @@ def accept_extraction_output(
     reason: str = "",
     claim_repo: Any = None,
     span_resolver: Any = None,
+    context_resolver: Any = None,
+    text_resolver: Any = None,
+    experiment_resolver: Any = None,
 ) -> dict:
     """Accept an EXTRACT task's output, bound to its producing task.
 
@@ -392,7 +395,13 @@ def accept_extraction_output(
             f"the task extracted (V6-P7-E03)"
         )
 
-    result = validate_extraction(draft, span_resolver=span_resolver)
+    result = validate_extraction(
+        draft,
+        span_resolver=span_resolver,
+        context_resolver=context_resolver,
+        text_resolver=text_resolver,
+        experiment_resolver=experiment_resolver,
+    )
     if not result.admitted:
         raise ExtractionOutputRejected(result)
 

@@ -165,14 +165,14 @@ MANDATORY_HUMAN_GATES = ("hypothesis", "pre_compute", "pre_live")
 # Well-formed reference pattern. Hypothesis/experiment artifacts do not yet
 # have persistence tables on this baseline, so refs are format-validated now;
 # dereference checks land with those artifacts (P4/P8).
-_REF_RE = re.compile(r"^[A-Za-z0-9_\-:.]+$")
+_REF_RE = re.compile(r"^[A-Za-z0-9_\-:.]+\Z")
 
 # C1 (design gate §2.2): slot_ref format — ``slot:<snake_case_label>``,
 # ASCII, ≤ 128 characters total. The ``slot:`` prefix namespaces the
 # vocabulary away from every other ref family (hypothesis:, evidence:,
 # claim:). snake_case = lowercase ASCII letters/digits/underscores, starting
 # with a letter.
-_SLOT_REF_RE = re.compile(r"^slot:[a-z][a-z0-9_]*$")
+_SLOT_REF_RE = re.compile(r"^slot:[a-z][a-z0-9_]*\Z")
 _SLOT_REF_MAX_LENGTH = 128
 # Rationale cap discipline (same as MAX_SCOPE_RATIONALE / gateway rationale
 # fields): non-empty, ≤ 2000 characters.

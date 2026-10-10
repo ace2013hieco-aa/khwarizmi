@@ -25,9 +25,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from hermes.tools.research_sources import RedactionError
+
 __all__ = [
     "DEFAULT_POLICY",
     "RedactionPolicy",
+    "redact_body",
     "redact_headers",
     "redact_params",
     "redact_url",
@@ -102,6 +105,84 @@ def redaction_policy_gaps(params: dict[str, str], policy: RedactionPolicy) -> tu
         for name in sorted(params)
         if _classify(name, policy) is None and policy.default_deny
     )
+
+
+#: IDR-046 D4, O2-fix P1-4 — the vendor-declared load-bearing body fields
+#: of the reviewed POST shapes (exa `query`/`numResults`, tavily
+#: `query`/`max_results`). Their VALUES pass through verbatim so two
+#: searches whose bodies differ only in a value stay distinct in fixture
+#: identity. This is parity with the GET legs, not a novel exposure class:
+#: the GET request forms already record the query param names, and every
+#: walk's `RequestLogRecord.query` records the search text it ran with.
+#: Classification still wins first — a credential-class or polite name is
+#: scrubbed even if it collides with this set — and every key NOT in this
+#: set still scrubs under `default_deny`.
+_KNOWN_BODY_FIELDS = frozenset({"query", "numResults", "max_results"})
+
+
+def redact_body(body: bytes, policy: RedactionPolicy = DEFAULT_POLICY) -> object:
+    """Redact a POST JSON body at the recorder boundary (IDR-046 D4).
+
+    Operates on the DECODED object: keys are classified recursively under
+    `policy` — a classified key's subtree becomes its replacement
+    (credential aliases → `"<redacted>"`, polite identifiers →
+    `"<redacted:<name>>"`, substring matches likewise). The vendor-declared
+    load-bearing fields (`_KNOWN_BODY_FIELDS`, the reviewed POST shapes)
+    pass their values through verbatim — otherwise two searches differing
+    only in the query would collapse onto one fixture id (the D4
+    evidence-substitution failure mode). Every other key is the unknown
+    case and scrubs to `"<redacted>"` under `default_deny` — the frozen
+    `redact_params` posture inherited, not invented. The rest of the
+    structure (nesting, lists, scalars under kept keys) is preserved
+    structurally.
+
+    Fail-closed: a non-bytes, empty, non-JSON, or undecodable body refuses
+    `RedactionError` — it is never identity-hashed as raw bytes (a
+    credential-derived value must never enter a fixture id). The message
+    names the offending parameter (`body`), NEVER its value (PS3-07).
+    """
+    import json as _json
+
+    if not isinstance(body, bytes):
+        raise RedactionError(
+            "redact_body: request body is not bytes — refusing "
+            "(parameter 'body')")
+    if not body:
+        raise RedactionError(
+            "redact_body: request body is empty — refusing "
+            "(parameter 'body')")
+    try:
+        decoded = _json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise RedactionError(
+            "redact_body: request body is not valid JSON — refusing "
+            "(parameter 'body')") from None
+    return _redact_body_value(decoded, policy)
+
+
+def _redact_body_value(value: object, policy: RedactionPolicy) -> object:
+    """One recursive step of `redact_body` over a decoded JSON value."""
+    if isinstance(value, dict):
+        out: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                out[key] = "<redacted>"
+                continue
+            replacement = _classify(key, policy)
+            if replacement is not None:
+                out[key] = replacement
+            elif policy.default_deny:
+                # A known vendor-declared field keeps its value (P1-4);
+                # every unknown key keeps the frozen default-deny scrub.
+                out[key] = item if key in _KNOWN_BODY_FIELDS else "<redacted>"
+            else:
+                out[key] = _redact_body_value(item, policy)
+        return out
+    if isinstance(value, list):
+        return [_redact_body_value(item, policy) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_body_value(item, policy) for item in value)
+    return value
 
 
 def redact_headers(headers: dict[str, str], policy: RedactionPolicy) -> dict[str, str]:

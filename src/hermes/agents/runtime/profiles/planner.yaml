@@ -1,0 +1,48 @@
+# planner.yaml — runtime profile configuration (ARCHITECTURE_DELTA §2.3).
+#
+# The planner shapes the task graph (insert / branch / abandon) and completes only
+# when its declared reviewer has reviewed the plan — `stop_when: review_complete`,
+# handled by the loop: the tick that raises the plan stops the run (STOP_WHEN) and
+# the declared review child run then follows as the run's terminal act.
+version: "1"
+name: planner
+role: task-graph planning and branch shaping
+agent_profile: DIRECTOR
+
+model_policy:
+  tier: planning
+  contract: runtime_proposal_v1
+  kind_field: kind
+  rationale_field: rationale
+  structured_fields: [proposals, delegations]
+  allows_tool_calls: true
+  max_output_tokens: 3072
+
+tools: [graph_read, artifact_store]
+
+authority:
+  proposable_kinds:
+    - INSERT_TASK
+    - BRANCH
+    - ABANDON
+    - REQUEST_HUMAN
+  director_only: true
+  allowed_capabilities: [graph_read, artifact_store]
+  requires_human_for: []
+
+schemas:
+  proposal: runtime_proposal_v1
+  draft: [kind, rationale, payload]
+
+termination:
+  max_ticks: 3
+  max_proposals: 5
+  stop_when: review_complete
+  max_model_calls_per_tick: 1
+  max_tool_calls: 2
+  deadline_seconds: 180
+
+review:
+  reviewer_profile: verifier
+  required: true
+  max_review_rounds: 1
