@@ -37,11 +37,14 @@ PAPERS_DIR = FIXTURE_DIR / "papers"
 CONVERTER = ROOT / "scripts" / "s1_docling_convert.py"
 
 # The vendored capture set: fixture filename -> path relative to --source-root.
+# 2510.02557v1.pdf is NOT part of this set: its arXiv licence (arXiv.org
+# perpetual, non-exclusive 1.0) does not permit redistribution, so it was
+# removed from the tree on 2026-10-10 — see
+# tests/fixtures/s1_docling/ATTRIBUTION.md. Do not re-vendor it.
 SOURCE_PATHS = {
     "2305.10601v2.pdf": "papers/2305.10601v2.pdf",
     "2506.05109v1.pdf": "papers/2506.05109v1.pdf",
     "2603.24639v2.pdf": "papers/2603.24639v2.pdf",
-    "2510.02557v1.pdf": "papers2/2510.02557v1.pdf",
 }
 
 QUOTE_LIMITS = {"first_page": 240, "middle_page": 240, "last_page": 240,

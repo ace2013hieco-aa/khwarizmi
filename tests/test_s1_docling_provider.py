@@ -5,8 +5,9 @@ plus location; table cells round-trip; re-running gives identical structure for
 identical input.
 
 Everything is proven against the recorded real-paper fixtures in
-``tests/fixtures/s1_docling/`` (four vendored papers, captured 2026-10-01).
-The hermetic tests need no docling installed; the live test re-converts the
+``tests/fixtures/s1_docling/`` (three vendored papers, captured 2026-10-01;
+per-paper licence and required attribution in ``ATTRIBUTION.md``). The
+hermetic tests need no docling installed; the live test re-converts the
 vendored PDFs when the exact pinned docling is present (spike venv) and skips
 with a reason otherwise — a different version never substitutes.
 
@@ -16,7 +17,7 @@ Honesty notes carried by the fixtures themselves:
   between those runs. The digest is computed over coordinates quantized to
   ``COORD_DECIMALS`` (0.001 pt) because docling's model pipeline was observed
   emitting a table-region bbox differing by ~2e-5 pt between processes on one
-  of the four papers; any recorded raw difference must therefore be a
+  of the vendored papers; any recorded raw difference must therefore be a
   sub-quantum coordinate float (asserted below).
 - claim surrogates are selected by deterministic rules documented in
   ``scripts/s1_docling_record.py`` — no model extraction ran in the spike.
@@ -97,7 +98,7 @@ def _pinned_docling_available() -> bool:
 
 
 def test_pin_is_an_exact_version():
-    assert DOCLING_PIN == "2.131.0"
+    assert DOCLING_PIN == "2.132.0"
     assert re.fullmatch(r"\d+\.\d+\.\d+", DOCLING_PIN)
 
 
@@ -338,7 +339,7 @@ def test_record_round_trip_and_envelope_never_leaks(fixture_path: Path):
 
 
 @pytest.mark.skipif(not _pinned_docling_available(),
-                    reason="pinned docling 2.131.0 not installed "
+                    reason="pinned docling 2.132.0 not installed "
                            "(live leg runs in the S1 spike venv)")
 @pytest.mark.parametrize("fixture_path", FIXTURE_FILES, ids=FIXTURE_IDS)
 def test_live_conversion_matches_recorded_structure(fixture_path: Path):

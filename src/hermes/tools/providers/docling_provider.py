@@ -37,8 +37,8 @@ Contract (spike scope)
   coordinates quantized to ``COORD_DECIMALS`` (0.001 pt); raw float values
   stay in the record. Rationale, from the S1 corpus: docling's model
   pipeline emitted a table-region bbox differing by ~2e-5 pt between two
-  processes on one of four papers while payload, item spans and cells were
-  bit-identical — the quantum is ~50x coarser than that observed variance
+  processes on one of the vendored papers while payload, item spans and cells
+  were bit-identical — the quantum is ~50x coarser than that observed variance
   and ~1000x finer than a glyph, so it removes model float noise without
   hiding any structural movement (a 0.001 pt shift still changes the digest).
 - **Separate process (adoption §4 rule 5).** Model inference runs in a
@@ -85,8 +85,9 @@ __all__ = [
     "span_token_resolves",
 ]
 
-DOCLING_PIN = "2.131.0"
-"""The exact docling version audited by S4 (commit d6f0307…, 2026-09-30)."""
+DOCLING_PIN = "2.132.0"
+"""The exact docling version (S4-audited line: 2.131.0 at commit d6f0307…, 2026-09-30;
+bumped to the security release 2.132.0 per VULN-TRIAGE rows #1-9)."""
 
 COORD_DECIMALS = 3
 """Digest coordinate quantum (0.001 pt); raw values are kept in records."""

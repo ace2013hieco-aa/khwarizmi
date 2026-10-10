@@ -85,7 +85,7 @@
   "filename": "2506.05109v1.pdf",
   "sha256": "5b07f2c903d293934b36ef43a0029a6de63da528f8237d0c8642070165717815",
   "source_note": "vendored local fixture; not for redistribution",
-  "source_path_at_capture": "D:\\Software\\Research-agent-improvement\\papers\\2506.05109v1.pdf"
+  "source_path_at_capture": "C:\\Users\\Ali Zoghi\\AppData\\Local\\Temp\\opencode\\s1-source\\papers\\2506.05109v1.pdf"
  },
  "record": {
   "content": {
@@ -169,7 +169,7 @@
    "span_count": 194,
    "table_count": 0,
    "text_item_count": 183,
-   "version": "2.131.0"
+   "version": "2.132.0"
   },
   "record_version": "s1-docling/1",
   "spans": [
@@ -3281,8 +3281,8 @@
   "tables": []
  },
  "runs": {
-  "digest_a": "e01154a81f4e1f06e96421ea902dab4227a7560d0eea9a2163542c763f0a4bb2",
-  "digest_b": "e01154a81f4e1f06e96421ea902dab4227a7560d0eea9a2163542c763f0a4bb2",
+  "digest_a": "a43e256ff75c26a700fab65ce158cc9e371b632b1b0dc02e5ab71c395294b6fe",
+  "digest_b": "a43e256ff75c26a700fab65ce158cc9e371b632b1b0dc02e5ab71c395294b6fe",
   "payload_chars": 70086,
   "payload_sha256_a": "72d2d93c660276e76f4e89eabadf1a41d03267d9298ce2b0cf66c8f10dc22e5e",
   "payload_sha256_b": "72d2d93c660276e76f4e89eabadf1a41d03267d9298ce2b0cf66c8f10dc22e5e",

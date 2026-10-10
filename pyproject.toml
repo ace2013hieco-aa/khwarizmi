@@ -8,7 +8,11 @@ version = "0.1.0"
 description = "Autonomous Quantitative Research Laboratory — reconciliation loop over a typed research state machine"
 readme = "README.md"
 requires-python = ">=3.14"
-license = { text = "Proprietary" }
+license = "Apache-2.0"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
+]
 authors = [{ name = "Ali Zoghi" }]
 dependencies = [
     # Minimal core: stdlib-first policy (v3 §2 principle 7; foundation decision §4).
@@ -18,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 # External provider SDKs are isolated behind Hermes ports (foundation §5).
 # None are core. They land here as extras only when a concrete adapter needs one.
-docling = ["docling==2.131.0"]
+docling = ["docling==2.132.0"]
 crawl4ai = ["crawl4ai==0.9.4"]
 
 [dependency-groups]
