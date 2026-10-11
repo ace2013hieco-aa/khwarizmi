@@ -1,0 +1,55 @@
+JUDGE-DEMO - two consecutive runs + a third from a foreign cwd
+generated: 2026-10-11T10:07:01Z
+
+script        : scripts/demo_judge.py
+script sha256 : 65bbc08641ca40fc6d195f9cecfc77d40b4d706fdb0696a48ca4d8a414ebdd3d
+interpreter   : Python 3.14.1
+branch        : slice/judge-demo @ a5a9f45  (base = origin/main a5a9f45)
+
+EXIT CODES (all must be 0):
+  RUN 1 (cwd = worktree root) : 0
+  RUN 2 (immediately after)   : 0
+  RUN 3 (cwd = /tmp, absolute path to the script) : 0
+
+REPLAY DIGEST (masked of elapsed time + random scratch paths):
+  REPLAY DIGEST: f360c174eb2bfc7ec158f56821b0e2e9b49edc452f4542f2a8e6b21d79e285cf
+  REPLAY DIGEST: f360c174eb2bfc7ec158f56821b0e2e9b49edc452f4542f2a8e6b21d79e285cf
+  REPLAY DIGEST: f360c174eb2bfc7ec158f56821b0e2e9b49edc452f4542f2a8e6b21d79e285cf
+
+RESULT LINES:
+RESULT: 51/51 checks passed in 3.73s
+RESULT: 51/51 checks passed in 3.81s
+RESULT: 51/51 checks passed in 3.75s
+
+EVERYTHING THAT DIFFERS BETWEEN RUN 1 AND RUN 2 (verbatim, unmasked):
+43,44c43,44
+<     | ============================== 6 passed in 1.17s ==============================
+<   [PASS] the closed-loop leg exits 0 - rc=0 in 1.67s
+---
+>     | ============================== 6 passed in 1.18s ==============================
+>   [PASS] the closed-loop leg exits 0 - rc=0 in 1.68s
+188c188
+<     | report saved to: C:\Users\ALIZOG~1\AppData\Local\Temp\breakit-tmu_b28z\breakit-report.txt
+---
+>     | report saved to: C:\Users\ALIZOG~1\AppData\Local\Temp\breakit-n_e0_rp7\breakit-report.txt
+191c191
+<   [PASS] the refusal battery exits 0 - rc=0 in 1.68s
+---
+>   [PASS] the refusal battery exits 0 - rc=0 in 1.74s
+200c200
+<   [TEMP] vault root: C:\Users\ALIZOG~1\AppData\Local\Temp\judge-demo-vault-pm9tm0kr (outside the repo; removed below)
+---
+>   [TEMP] vault root: C:\Users\ALIZOG~1\AppData\Local\Temp\judge-demo-vault-kffjveh8 (outside the repo; removed below)
+213c213
+<   [PASS] the scratch vault was removed (no residue outside the process) - C:\Users\ALIZOG~1\AppData\Local\Temp\judge-demo-vault-pm9tm0kr
+---
+>   [PASS] the scratch vault was removed (no residue outside the process) - C:\Users\ALIZOG~1\AppData\Local\Temp\judge-demo-vault-kffjveh8
+246c246
+<   [PASS] the whole demo ran inside the 5-minute budget (3.73s) - 3.73s
+---
+>   [PASS] the whole demo ran inside the 5-minute budget (3.81s) - 3.81s
+253c253
+< RESULT: 51/51 checks passed in 3.73s
+---
+> RESULT: 51/51 checks passed in 3.81s
+  <- elapsed seconds and random scratch paths only
