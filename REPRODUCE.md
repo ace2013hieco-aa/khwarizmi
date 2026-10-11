@@ -7,7 +7,7 @@ prints non-ASCII glyphs; the scenarios themselves are encoding-clean).
 ```bash
 uv venv --python 3.14
 uv sync
-.venv/Scripts/python.exe scripts/run_tests.py   # full suite: 4342 passed, 15 conditional skips (live legs; per merge-gate at f693912)
+.venv/Scripts/python.exe scripts/run_tests.py   # full suite: 4342 passed, 15 conditional skips (live legs; per merge-gate at a5a9f45; count carried — portability merge is test-neutral)
 $env:PYTHONPATH = 'src'
 .venv/Scripts/python.exe scripts/break_it.py    # 8/8 refusal scenarios green
 .venv/Scripts/python.exe -m pytest tests/test_p_auto_6_loop.py -q  # closed loop + fault injection

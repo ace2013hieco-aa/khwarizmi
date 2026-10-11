@@ -35,6 +35,21 @@ execute test code, and exactly one driver (``runtime_crash``) executes a
 **subprocess entry point** of a test module — the one exception, named
 here, in the driver that needs it.
 
+Installed builds (verified, deliberately NOT fixed)
+---------------------------------------------------
+
+This driver needs a SOURCE CHECKOUT. The crash child is a subprocess entry
+point of the repo's ``tests/`` package, which is not shipped
+(``[tool.hatch.build.targets.wheel] packages = ["src/hermes"]``), and
+``_WORKTREE``/``_SRC_DIR`` are derived by walking up from this file. From an
+installed wheel they therefore resolve INSIDE ``site-packages``
+(``…/Lib/site-packages`` and ``…/Lib``), ``python -m tests.test_agent_runtime``
+fails with ``ModuleNotFoundError: No module named 'tests'``, and the
+``(runtime, crash)`` case is red. Making it work from an installed build is a
+packaging decision — ship the crash child under ``src/``, or expose a public
+entry point — deliberately **not** taken here: the matrix is a source-tree
+artifact by design, since it also invokes pinned tests out of ``tests/``.
+
 Design rules:
 
 * nothing here writes durable state — temp directories for the crash

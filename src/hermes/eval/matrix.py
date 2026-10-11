@@ -217,7 +217,10 @@ def _invoke_pinned_test(node_id: str, *, timeout: float = 30.0) -> tuple[bool, s
         return False, f"pinned_test {node_id!r}: must be a pytest node id (file::test)"
     py = sys.executable or "python"
     env = dict(os.environ)
-    env.setdefault("PYTHONPATH", "src;.")
+    # ``os.pathsep`` (';' on Windows, ':' on POSIX) — the hardcoded ';' made
+    # the entry a single nonexistent path on POSIX, so the pinned subprocess
+    # could not import the package under test there.
+    env.setdefault("PYTHONPATH", os.pathsep.join(("src", ".")))
     env.setdefault("PYTHONUTF8", "1")
     try:
         result = subprocess.run(
