@@ -6,7 +6,7 @@ task-state transition → event journal → operator-visible result — plus the
 backup/restore, recovery, heartbeat, and epistemic crossover surfaces.
 
 **Date:** 2026-08-16
-**Reviewer:** independent adversarial review (Codebuff)
+**Reviewer:** independent adversarial review
 
 ---
 
