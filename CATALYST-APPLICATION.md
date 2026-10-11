@@ -90,6 +90,8 @@ The commercial model would likely be B2B/B2Institution: researcher/team subscrip
 
 The first measurable objective is not "more AI-generated text." It is reducing the **human review time required to reach an evidence-backed research decision**, while increasing detection of provenance, contradiction and integrity failures.
 
+Recorded walkthrough (all three demos, narrated, exit 0 throughout): https://github.com/ace2013hieco-aa/khwarizmi/releases/download/demo-2026-10-11/Demo.mp4
+
 ## 8. Fit with Digital Science
 
 Khwarizmi directly fits the 2026 Catalyst theme, **"Agentic Workflows You Can Trust."** Digital Science describes the opportunity as AI that acts on research while carrying provenance, governance and accountability through the workflow.
