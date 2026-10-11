@@ -122,6 +122,17 @@ systems, telemetry/dashboards, signing, microservices/event bus,
 scientific-validity claims, auto-resolution/reversal, API
 versioning machinery.
 
+**Platform line (R1–R7 / W0–W4 / O1–O5) — landed but unreachable.** The
+platform planes (R1–R7), the wiring slices (W0–W4) and the O-series
+substrates (O1–O5) are committed on the line as inert substrate: the shipped
+CLI constructs the controller with no handlers, so none of it is reachable in
+production (AUDIT-PLATFORM-MERGE §B). O2 is load-bearing (ratified by
+IDR-046); O1/O3/O4/O5 are unwired and remain deferrable bulk — O1 pending its
+sidecar design gate, O5 pending a ranker design gate, O4 blocked on
+`ARCHITECTURE_DELTA` B-6. Only O2 is in scope for the certified tree; the
+rest is not a certified capability. Full per-slice status and commits:
+`ROADMAP.md` §Platform line.
+
 ## Program status
 
 The architecture/repository structural-improvement program

@@ -62,6 +62,15 @@ records:
 > (IDR-only stratum). Edge sets, `counts`, and the `skipped` lists are identical (5 / 19 / 10 / 5); only
 > the pinned byte identities moved, and this table is the live set.
 
+> **Re-derivation (STATE-MD-PLATFORM-ENTRY — `fix/state-platform-entry`).** The governed edit adds the
+> platform-line entry (R1–R7 / W0–W4 / O1–O5 status) to `docs/STATE.md`, a `CORPUS_REFS` member, so
+> `b4-c1` / `b4-c2` / `b4-c4` were regenerated deliberately per §Regenerating:
+> `232fd00e… → 06dea9db…`, `7ed0612e… → d1312f01…`, `948a0d88… → 550fcc00…`. `b4-c3` is unchanged (its
+> stratum is IDR-only). Edge sets are identical (5 / 19 / 10 / 5) and the `sources` counts are unchanged
+> (4 / 12 / 6 / 8); each affected `skipped` list gains exactly two tokens (the newly cited `IDR-046` and
+> `ARCHITECTURE_DELTA`), so the citation structure is invariant — only the pinned byte identities moved.
+> `ROADMAP.md` is not a governed-corpus member, so the sibling platform record there forced no regen.
+
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are
 structurally distinct strata of the same real corpus. The set is
