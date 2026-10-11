@@ -2,7 +2,7 @@
 
 **Project:** Khwarizmi — governed research-agent control plane for evidence synthesis and research integrity.
 **Applicant:** Ali Osat Zoghi (solo founder).
-**Repository (public, MIT):** https://github.com/ace2013hieco-aa/khwarizmi
+**Repository (public, Apache-2.0):** https://github.com/ace2013hieco-aa/khwarizmi
 **Certified tip:** control-plane production declaration recorded 2026-10-04 (`docs/archive/CERT_GATE_RERUN_CERTIFICATION_2026-10-04.md`); suite 2,699 green with Ruff and Pyright clean.
 **Annex:** [Q&A detail](CATALYST-QA-ANNEX.md)
 
