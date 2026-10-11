@@ -42,3 +42,8 @@ Everything above runs offline except the two keyless scholarly APIs
 (OpenAlex, PubMed) exercised by the marked live tests, which are
 skippable via `HERMES_SKIP_LIVE_FETCH=1` with hermetic replay fixtures
 covering the same paths.
+
+## Watch it run
+
+Recorded walkthrough (all three demos, narrated, exit 0 throughout):
+https://github.com/ace2013hieco-aa/khwarizmi/releases/download/demo-2026-10-11/Demo.mp4
