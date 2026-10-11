@@ -1,0 +1,30 @@
+PLATFORM-DEMO - two consecutive runs + the exit-contract mutation proof
+generated: 2026-10-11
+
+script        : scripts/demo_platform.py
+interpreter   : Python 3.14.1
+branch        : slice/platform-demo @ 218c5a5  (base = origin/main 218c5a5)
+
+EXIT CODES (all must be 0 for the happy path):
+  RUN 1 (cwd = worktree root)                    : 0
+  RUN 2 (immediately after)                      : 0
+
+REPLAY DIGEST (masked of elapsed time + random scratch paths):
+  REPLAY DIGEST: c5c13934d0842fc26690d11d1703a8fc4794eebf002ef62066c82077e9e2f825
+  REPLAY DIGEST: c5c13934d0842fc26690d11d1703a8fc4794eebf002ef62066c82077e9e2f825
+
+RESULT LINES:
+  RESULT: 35/35 checks passed in 0.01s
+  RESULT: 35/35 checks passed in 0.01s
+
+FULL-OUTPUT DIFF (run 1 vs run 2, unmasked): byte-identical (no differing line).
+
+EXIT-CONTRACT PROOF (mutation, one knob: DEMO_PLATFORM_MUTATION):
+  DEMO_PLATFORM_MUTATION=check  -> RESULT: 35/36 checks passed ; FAILED: injected
+                                   failing check (DEMO_PLATFORM_MUTATION=check) ; EXIT 1
+  DEMO_PLATFORM_MUTATION=raise  -> RuntimeError: DEMO_PLATFORM_MUTATION=raise:
+                                   injected fault (proves the exit-2 contract) ;
+                                   traceback printed ; EXIT 2
+
+  The happy path is untouched by the mutation knob: the two green runs above
+  print 35/35 and EXIT 0, and the script's bytes are unchanged between them.
