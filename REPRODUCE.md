@@ -7,7 +7,7 @@ prints non-ASCII glyphs; the scenarios themselves are encoding-clean).
 ```bash
 uv venv --python 3.14
 uv sync
-.venv/Scripts/python.exe scripts/run_tests.py   # full suite: 4342 passed, 15 conditional skips (live legs; per merge-gate at 218c5a5; count carried — the demo merge adds demos, not tests)
+.venv/Scripts/python.exe scripts/run_tests.py   # full suite: 4423 passed, 15 conditional skips (live legs; per merge-gate at ef41296; count carried — the demo merge adds demos, not tests; the cloud merge adds the 81-test provider battery)
 $env:PYTHONPATH = 'src'
 .venv/Scripts/python.exe scripts/break_it.py    # 8/8 refusal scenarios green
 .venv/Scripts/python.exe -m pytest tests/test_p_auto_6_loop.py -q  # closed loop + fault injection
@@ -18,7 +18,7 @@ $env:PYTHONUTF8 = '1'
 
 What each step proves:
 
-- `run_tests.py` — the certified control-plane suite (4,342 passed + 15 conditional skips, per merge-gate), the
+- `run_tests.py` — the certified control-plane suite (4,423 passed + 15 conditional skips, per merge-gate at ef41296), the
   basis of the production declaration in
   `docs/archive/CERT_GATE_RERUN_CERTIFICATION_2026-10-04.md`.
 - `break_it.py` — 8 hostile scenarios (off-allowlist fetch, forged spans,
