@@ -11,7 +11,7 @@ holds a clock, or reads a model. ``ops`` is the operator-facing surface; the
 ``apply_intent`` gateway is the **only** writer, and the ops layer refuses
 any request that would author durable state outside that path.
 
-Rules (R7 contract, ARCHITECTURE_DELTA §5):
+Rules (R7 contract, docs/archive/ARCHITECTURE_DELTA.md §5):
 
 * secrets never enter logs, never enter events, never enter intents;
 * metrics / tracing hooks are no-op sinks by default — a caller may inject

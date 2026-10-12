@@ -2,7 +2,8 @@
 
 ## Start here
 
-- `../README.md` — what Hermes is, install/operate/test, certified chain.
+- `../README.md` — the front door: what Hermes is, the judge demo, the
+  operate/quickstart commands, certified guarantees + limits, and the doc map.
 - `../AGENTS.md` — operating rules for agents and developers (invariants,
   change discipline, verification commands).
 - `ARCHITECTURE.md` — current architecture map from source (layers,

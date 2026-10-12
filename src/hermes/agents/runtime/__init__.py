@@ -1,4 +1,4 @@
-"""Runtime plane — the durable agent loop (ARCHITECTURE_DELTA §2.3).
+"""Runtime plane — the durable agent loop (docs/archive/ARCHITECTURE_DELTA.md §2.3).
 
 The plane is a *port*, never an authority. One runtime drives every profile;
 profiles are **configuration** (`profiles/*.yaml`), not classes. A run is

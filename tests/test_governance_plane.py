@@ -1,4 +1,4 @@
-"""Governance plane tests (ARCHITECTURE_DELTA §2.5, B-1).
+"""Governance plane tests (docs/archive/ARCHITECTURE_DELTA.md §2.5, B-1).
 
 What is covered — and what the coverage *proves*
 ------------------------------------------------

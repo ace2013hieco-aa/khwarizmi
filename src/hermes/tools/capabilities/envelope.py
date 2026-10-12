@@ -1,7 +1,7 @@
 """Capability plane — the invocation envelope (who / why / authority / inputs /
 observation / artifact).
 
-`ARCHITECTURE_DELTA.md` §2.2 requires that a capability call be reconstructible.
+`docs/archive/ARCHITECTURE_DELTA.md` §2.2 requires that a capability call be reconstructible.
 This module owns the record that makes that true, and it is built on **every**
 invocation — success, hazard refusal, authority refusal, timeout, cancel and
 idempotent replay alike. A refusal with no envelope would be exactly the

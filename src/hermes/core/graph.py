@@ -131,7 +131,7 @@ def detect_cycle(
 
 # ── Q-04: forward failure-propagation reachability (derived, read-only) ──
 #
-# Design gate: hermes_q04_failure_propagation_design_gate.md §3. The
+# Design gate: docs/archive/hermes_q04_failure_propagation_design_gate.md §3. The
 # controller's eligibility check is LOCAL (direct deps SUCCEEDED); nothing
 # answers "if A fails/retires/gets patched, what downstream is affected" —
 # the transitive forward closure. These pure queries add exactly that, over

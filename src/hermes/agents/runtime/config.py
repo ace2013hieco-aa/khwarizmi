@@ -1,4 +1,4 @@
-"""Profile configuration — data, not classes (ARCHITECTURE_DELTA §2.3).
+"""Profile configuration — data, not classes (docs/archive/ARCHITECTURE_DELTA.md §2.3).
 
 One runtime, six configurations
 -------------------------------
@@ -14,7 +14,7 @@ or function is named after a profile).
 Why a YAML *subset* parser lives here
 -------------------------------------
 The brief requires `profiles/*.yaml`. The minimal-core policy forbids adding a
-dependency (`README.md:27`, core dependency list `[]`), and the interpreter that
+dependency (`pyproject.toml` `[project].dependencies = []`), and the interpreter that
 runs this plane does not ship PyYAML. So the profiles are read by a small,
 **deterministic, stdlib-only** parser for the subset the configuration format
 uses:

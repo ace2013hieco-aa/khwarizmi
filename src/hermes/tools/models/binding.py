@@ -1,6 +1,6 @@
-"""Model binding — the `ModelPort` → `ModelRouter` wiring (WIRING_DESIGN BIND-2).
+"""Model binding — the `ModelPort` → `ModelRouter` wiring (docs/archive/WIRING_DESIGN.md BIND-2).
 
-`WIRING_DESIGN.md` BIND-2 asks one question: *how does a model call produce only
+`docs/archive/WIRING_DESIGN.md` BIND-2 asks one question: *how does a model call produce only
 proposals that re-enter through intents?* The router answers the plane half
 (`src/hermes/tools/models/router.py`: closed request schema, output-contract
 validation, enveloped `ModelProposal`, refusal-as-data). This module is the

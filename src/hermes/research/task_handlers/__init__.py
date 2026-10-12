@@ -1,6 +1,6 @@
 """Task handlers — the spine-owned shim package (wiring plan W1, BIND-1).
 
-`WIRING_DESIGN.md` §6 reserves this package for the wiring slices. W1 created it
+`docs/archive/WIRING_DESIGN.md` §6 reserves this package for the wiring slices. W1 created it
 as an inert marker; **W4 adds the registration export** — the seam W1 reserved
 for exactly this — and the marker stays import-light: every builder here
 imports its collaborators lazily inside the function that needs them, so

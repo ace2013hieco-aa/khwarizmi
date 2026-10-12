@@ -1,6 +1,6 @@
 """Capability plane — the registry, `enumerate()`, and B-3 named composition.
 
-`ARCHITECTURE_DELTA.md` §2.2 operation 1 is the contract: `enumerate()` is the
+`docs/archive/ARCHITECTURE_DELTA.md` §2.2 operation 1 is the contract: `enumerate()` is the
 composition/discovery surface, and §4 **B-3** is the binding constraint on it.
 
 B-3, honoured literally

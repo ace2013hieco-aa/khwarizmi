@@ -1,4 +1,4 @@
-"""Runtime plane — closed value vocabulary (ARCHITECTURE_DELTA §2.3).
+"""Runtime plane — closed value vocabulary (docs/archive/ARCHITECTURE_DELTA.md §2.3).
 
 What lives here, and why
 ------------------------
@@ -565,7 +565,7 @@ class ProposalSet:
 class DelegationRecord:
     """One subagent dispatch/completion — the B-2 derived-record shape.
 
-    Binding constraints (ARCHITECTURE_DELTA §4 B-2), each one visible in the
+    Binding constraints (docs/archive/ARCHITECTURE_DELTA.md §4 B-2), each one visible in the
     fields rather than in prose:
 
     * **no private lock** — the store is lock-free (atomic replace per record);

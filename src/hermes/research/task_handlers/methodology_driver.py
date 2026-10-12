@@ -1,6 +1,6 @@
 """Methodology execution driver — the W3 binding of BIND-5 over the W2 runtime.
 
-`WIRING_DESIGN.md` BIND-5 asks one question: *how does a methodology run
+`docs/archive/WIRING_DESIGN.md` BIND-5 asks one question: *how does a methodology run
 orchestrate R4+R3+R2 and record only through existing boundaries?* This module is
 the W3 answer — a **new-files-only** slice; it edits nothing that already exists
 (including ``hermes.methodology.workflows`` and ``hermes.methodology.substrate``).
@@ -47,7 +47,7 @@ A wired methodology run may claim its **stage execution, stage outcomes/digests
 and the durable admissions its proposals made through** ``apply_intent``. It may
 **not** claim durable substrate state, a durable chain, or any ``mnode_``/``medge_``
 reference readable after the process ends: that needs a table + an intent kind +
-a gateway validator (the ``ARCHITECTURE_DELTA.md`` §8 item 9 gate), which this
+a gateway validator (the ``docs/archive/ARCHITECTURE_DELTA.md`` §8 item 9 gate), which this
 slice refuses rather than implements (:func:`claim_limits` /
 :func:`refuse_durable_claim`).
 
@@ -124,7 +124,7 @@ ADMISSION_BOUNDARY = "apply_intent"
 #: The gate that durable substrate rows would need. Until it passes, a wired run
 #: holds nodes/edges as derived working state only and claims no durable
 #: substrate state, durable chain or durable node/edge reference.
-DURABILITY_GATE = "ARCHITECTURE_DELTA.md §8 item 9"
+DURABILITY_GATE = "docs/archive/ARCHITECTURE_DELTA.md §8 item 9"
 
 
 # ═══════════════════════ projection (stage → task) ═══════════════════════

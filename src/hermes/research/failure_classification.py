@@ -9,9 +9,9 @@ versioned taxonomy, citation validation, and a deterministic permitted-action
 map — WITHOUT building the ladder, without a new state machine, without a
 write path, and without any authority.
 
-Design record: ``hermes_q05_failure_classification_design.md`` (design gate
+Design record: ``docs/archive/hermes_q05_failure_classification_design.md`` (design gate
 passed, hostile self-review clean). Reconciliation of the surviving-ideas
-framework: ``hermes_surviving_ideas_repo_reconciliation.md``.
+framework: ``docs/archive/hermes_surviving_ideas_repo_reconciliation.md``.
 
 Non-negotiables (each is a structural property of this module, not a rule):
 - **No writes.** No SQL, no repository imports, no gateway imports, no event

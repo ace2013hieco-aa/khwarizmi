@@ -4,7 +4,7 @@ Step 4 of the Part 3 implementation (IDR-030, §27 item 55 RESOLVED).
 Remediated per the three hostile design gates
 (`hermes_researchsourceprovider_ratelimit_review{,2,3}.md` — RT-01…RT-10,
 RT2-01…RT2-06, RT3-01…RT3-05, all FOLDED IN 2026-08-14) and the fourth
-gate on the shipped code (`hermes_researchsourceprovider_ratelimit_audit.md`
+gate on the shipped code (`docs/archive/hermes_researchsourceprovider_ratelimit_audit.md`
 — TR-01/CAP-01/RL-01, FOLDED IN 2026-08-14).
 
 The limiter is a GATE in front of the transport at the driver call site

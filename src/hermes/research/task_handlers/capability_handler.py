@@ -1,6 +1,6 @@
 """Capability execution shim — the W1 dispatch bridge for BIND-1.
 
-`WIRING_DESIGN.md` BIND-1 asks one question: *how does a capability call execute
+`docs/archive/WIRING_DESIGN.md` BIND-1 asks one question: *how does a capability call execute
 from a tick without becoming a writer?* This module is the bridge half of the
 answer. It is a **new-files-only** slice (W1) and edits nothing that already
 exists; no existing template or handler changes, and every key it knows is a key
@@ -51,7 +51,7 @@ Four properties are the point, and each is proved by `tests/test_wiring_capabili
    admits nothing: it is input to an ordinary admission intent routed by the tick
    through `apply_intent`, never the admission itself.
 
-Import discipline (``ARCHITECTURE_DELTA.md`` §3.1 — ports + core types only)
+Import discipline (``docs/archive/ARCHITECTURE_DELTA.md`` §3.1 — ports + core types only)
 ---------------------------------------------------------------------------
 `hermes.tools.capabilities.*` (the port's declared shapes), the untrusted-content
 envelope (`hermes.security.boundaries`), and stdlib. Never `hermes.persistence`,

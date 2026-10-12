@@ -2,7 +2,7 @@
 
 What this package is
 --------------------
-A **research-substrate consumer over the runtime** (``ARCHITECTURE_DELTA.md``
+A **research-substrate consumer over the runtime** (``docs/archive/ARCHITECTURE_DELTA.md``
 §5, classification rule): it answers "does it verify/record research
 knowledge?" and is therefore a consumer of the R4 runtime plane and the R5
 governance plane, never a fourth authority, never a writer of durable state.

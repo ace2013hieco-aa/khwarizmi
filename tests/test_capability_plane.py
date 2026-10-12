@@ -1,4 +1,4 @@
-"""Capability plane tests (ARCHITECTURE_DELTA §2.2 — the Capability/Tool API).
+"""Capability plane tests (docs/archive/ARCHITECTURE_DELTA.md §2.2 — the Capability/Tool API).
 
 Covers the plane's whole contract:
 

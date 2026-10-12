@@ -2,7 +2,7 @@
 
 Implements the C1 design gate's acceptance criteria (AC-1..AC-8) and the
 ratified Option A schema-version contract
-(``hermes_c1_step3_schema_version_spec_conflict.md``, operator ratification
+(``docs/archive/hermes_c1_step3_schema_version_spec_conflict.md``, operator ratification
 2026-08-21): a supported program-schema-version set ``{"1", "2"}`` with
 ``"2"`` current/default, v1 identity and validity preserved, unsupported
 versions rejected consistently at both the validation and persistence

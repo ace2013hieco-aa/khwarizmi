@@ -1,7 +1,7 @@
 """ResearchClaim / ResearchAssumption — P7 CONTRA substrate (v6 §29, DESIGNED → IMPLEMENTED + TESTED).
 
 The deterministic core of the CONTRA / internal-adversarial-memory amendment
-(Part 1 protest ``hermes_contra_adversarial_review.md``; Part 2 reconciliation
+(Part 1 protest ``docs/archive/hermes_contra_adversarial_review.md``; Part 2 reconciliation
 ``docs/idr/IDR-024.md``; normative text v6 §29):
 
 - ``ResearchClaim`` — an atomic assertion extracted from a research artifact

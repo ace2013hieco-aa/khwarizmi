@@ -1,4 +1,4 @@
-"""Checkpoints and resume (ARCHITECTURE_DELTA §2.3, §3.2, §4 B-2).
+"""Checkpoints and resume (docs/archive/ARCHITECTURE_DELTA.md §2.3, §3.2, §4 B-2).
 
 What a checkpoint is — and is not
 ---------------------------------

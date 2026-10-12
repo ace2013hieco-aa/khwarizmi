@@ -1,4 +1,4 @@
-"""Governance control plane — pure policy + evaluation (ARCHITECTURE_DELTA §2.5).
+"""Governance control plane — pure policy + evaluation (docs/archive/ARCHITECTURE_DELTA.md §2.5).
 
 The control plane *owns* the authority vocabulary, the refusal vocabulary and its
 FROZEN meanings, project isolation and the human-authority boundary (§2.5

@@ -17,7 +17,7 @@ It contains:
   (ModelProvider / Tool / ToolSet / AgentRole / Workflow /
   StorageBackend / EventSink / GovernancePolicy / Evaluator).
 
-Rules (R7 contract, ARCHITECTURE_DELTA §5):
+Rules (R7 contract, docs/archive/ARCHITECTURE_DELTA.md §5):
 
 * pure evaluation + enforcement — no plane writes; the matrix WRITES
   nothing durable (reports to stdout / a file outside the repo journal);

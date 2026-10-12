@@ -540,7 +540,7 @@ def test_j_identifier_mutation_after_admission_refused(db):
 
 
 # ── Step 1 (frozen implementation sequence) — provider/source identity ──
-# closure (ratification record §8, hermes_architecture_ratification.md)
+# closure (ratification record §8, docs/archive/hermes_architecture_ratification.md)
 #
 # HR-04 §7 records the honest state: NO production adapters exist; the 11
 # ratified adapters (IDR-030 allowlist) are declared but their extract_ids

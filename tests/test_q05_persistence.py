@@ -1,6 +1,6 @@
 """Q-05 persistence-slice golden fixtures (design §4 + fail-closed matrix).
 
-Proves the 10 acceptance criteria of ``hermes_q05_persistence_slice_design.md``
+Proves the 10 acceptance criteria of ``docs/archive/hermes_q05_persistence_slice_design.md``
 against real SQLite, plus the fail-closed matrix and adversarial attacks:
 
 1. ADMITTED classification persists: row + ``cites``(evidence) +

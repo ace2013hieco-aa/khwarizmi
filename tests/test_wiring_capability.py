@@ -1,6 +1,6 @@
 """W1 wiring tests — the capability dispatch bridge (`BIND-1`).
 
-These fixtures prove the *binding* (`WIRING_DESIGN.md` §7 "BIND-1"), not the
+These fixtures prove the *binding* (`docs/archive/WIRING_DESIGN.md` §7 "BIND-1"), not the
 capability plane itself (that is `tests/test_capability_plane.py`). The suite is
 self-contained: it builds its own minimal registry, grant and invoker rather than
 reaching into the plane's fixtures, so a change to the plane's fixtures cannot

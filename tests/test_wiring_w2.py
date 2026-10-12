@@ -1,6 +1,6 @@
 """W2 wiring tests — the model binding (BIND-2) and the runtime driver (BIND-3).
 
-These fixtures prove the *binding* (`WIRING_DESIGN.md` §7 "BIND-2"/"BIND-3"), not
+These fixtures prove the *binding* (`docs/archive/WIRING_DESIGN.md` §7 "BIND-2"/"BIND-3"), not
 the planes themselves (those are `tests/test_model_plane.py` and
 `tests/test_agent_runtime.py`). The suite is self-contained: it builds its own
 provider, router, policies and profiles rather than reaching into another suite's

@@ -17,7 +17,7 @@ cannot write, read or reach outside the process.
 The default-authority table (provenance of every row)
 -----------------------------------------------------
 The nine governed actions and their default authority levels are the brief's
-default-authority table handed to this round (ARCHITECTURE_DELTA §2.5):
+default-authority table handed to this round (docs/archive/ARCHITECTURE_DELTA.md §2.5):
 
     web-search / read / sandbox-run   → AGENT
     hypothesis-modify                 → AGENT+RECORD

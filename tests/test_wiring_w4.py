@@ -1,4 +1,4 @@
-"""W4 wiring tests — the single wiring (`WIRING_DESIGN.md` BIND-4 + W1–W3).
+"""W4 wiring tests — the single wiring (`docs/archive/WIRING_DESIGN.md` BIND-4 + W1–W3).
 
 This suite is the W4 slice's own evidence. It is deliberately self-contained
 (its own in-memory spine, plane rig, model and profiles), so a change to

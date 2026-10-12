@@ -613,7 +613,7 @@ def test_shipped_spec_key_facts():
     assert openalex.valid_negative_statuses == ()
 
 
-# ── 8. HZ regression fixtures (hermes_researchsourceprovider_hazard_audit.md) ──
+# ── 8. HZ regression fixtures (docs/archive/hermes_researchsourceprovider_hazard_audit.md) ──
 
 
 def test_hz01_legit_content_never_throttled():

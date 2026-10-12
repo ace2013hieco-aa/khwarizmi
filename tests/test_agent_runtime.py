@@ -1,4 +1,4 @@
-"""Runtime plane tests (ARCHITECTURE_DELTA §2.3 — the Agent Runtime API).
+"""Runtime plane tests (docs/archive/ARCHITECTURE_DELTA.md §2.3 — the Agent Runtime API).
 
 Covers the plane's whole contract, with the B-slots it owns:
 

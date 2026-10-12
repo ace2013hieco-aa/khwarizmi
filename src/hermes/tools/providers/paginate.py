@@ -58,7 +58,7 @@ Shipped-driver audit fold-in (WK-01…WK-07):
   `dedup_reduced_below_bound` note when dedup cut the delivered stream.
 
 Second-gate review of the TR-folded limiter/transport (RT4-01/RT4-02,
-`hermes_researchsourceprovider_ratelimit_audit2.md`, FOLDED IN 2026-08-14):
+`docs/archive/hermes_researchsourceprovider_ratelimit_audit2.md`, FOLDED IN 2026-08-14):
 
 - RT4-02 — `TIMEOUT` joins the not-searched set: a transport failure never
   CLASSIFIED a response, so a timeout-exhausted provider aggregates
@@ -901,7 +901,7 @@ def fetch_batch(
     """Fetch every source serially, in the caller's list order (PS2-06).
 
     The authoritative step-5a record is
-    `hermes_researchsourceprovider_fetch_gate_remediation.md` (gate-ruled
+    `docs/archive/hermes_researchsourceprovider_fetch_gate_remediation.md` (gate-ruled
     ACCEPTED FOR IMPLEMENTATION, conditions GC-01…GC-03). Contracts carried
     here:
 

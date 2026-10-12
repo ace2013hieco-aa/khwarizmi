@@ -1,4 +1,4 @@
-"""W3 wiring tests — the methodology execution driver (`WIRING_DESIGN.md` BIND-5).
+"""W3 wiring tests — the methodology execution driver (`docs/archive/WIRING_DESIGN.md` BIND-5).
 
 These fixtures prove the *binding*, not the planes: the methodology plane's own
 ontology/identity/driver tests live in `tests/test_methodology_plane.py`, and the

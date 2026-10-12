@@ -1,6 +1,6 @@
 """Capability plane — closed schemas for Tool / Capability / ToolSet / Observation.
 
-`ARCHITECTURE_DELTA.md` §2.2 is the contract. This module holds only *declared
+`docs/archive/ARCHITECTURE_DELTA.md` §2.2 is the contract. This module holds only *declared
 shapes*: a `Tool` is what may execute, a `Capability` is what a caller may name, a
 `ToolSet` is a named composition (the B-3 slot), and an `Observation` is the only
 successful output.

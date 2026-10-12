@@ -179,7 +179,7 @@ _CONTRACT_SECTIONS: Mapping[str, str] = {
 #: closed set's literal rather than imported: this plane may not import
 #: `research/`, and the value is an existing code, never a new one. The
 #: full-vocabulary pass-through stays a future R4-contract gate
-#: (`WIRING_DESIGN.md` BIND-3 seam note).
+#: (`docs/archive/WIRING_DESIGN.md` BIND-3 seam note).
 _PLANE_REFUSAL_CODES: frozenset[str] = frozenset(
     {PROPOSAL, ROLE, MALFORMED_PAYLOAD, STALE, LOCK, RATIONALE, "OPERATOR"})
 

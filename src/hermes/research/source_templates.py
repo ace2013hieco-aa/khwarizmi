@@ -1,7 +1,7 @@
 """SOURCE_SEARCH / SOURCE_FETCH task templates (ResearchSourceProvider step 6).
 
 The deterministic template layer for the source-slice task graph (design record
-`hermes_researchsourceprovider_step6_orchestration_design.md` D2/OQ-5/OQ-6):
+`docs/archive/hermes_researchsourceprovider_step6_orchestration_design.md` D2/OQ-5/OQ-6):
 
 - ``SOURCE_SEARCH_TEMPLATE`` / ``SOURCE_FETCH_TEMPLATE`` — the canonical,
   normalized template markers the gateway matches on (a hand-built payload

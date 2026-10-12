@@ -1,4 +1,4 @@
-"""Model plane — the provider-independent LLM port (ARCHITECTURE_DELTA §2.1).
+"""Model plane — the provider-independent LLM port (docs/archive/ARCHITECTURE_DELTA.md §2.1).
 
 What this module is
 -------------------

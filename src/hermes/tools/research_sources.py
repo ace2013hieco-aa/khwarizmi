@@ -11,8 +11,8 @@ gateway changes (PA4 `READ_ONLY`, outbox-exempt). The provider machinery lives i
 `hermes.tools.providers` (normalize/redact now; base/http/hazards/paginate/
 ratelimit/replay + the 11 adapters in later steps). Nothing here does I/O.
 
-Design anchors (contract `hermes_researchsourceprovider_contract.md` §2/§5.2,
-blueprint `hermes_researchsourceprovider_implementation_design.md` §2):
+Design anchors (contract `docs/archive/hermes_researchsourceprovider_contract.md` §2/§5.2,
+blueprint `docs/archive/hermes_researchsourceprovider_implementation_design.md` §2):
 - `SearchResult.reconciliation` is the per-provider verdict; the *aggregate* is on
   `SearchOutcome` (COMPLETE/PARTIAL/EMPTY/UNAVAILABLE — PS-13).
 - `raw_retrieved_count` (reconciliation) vs `delivered_count` (consumer stream) are
@@ -498,7 +498,7 @@ class FetchedSource:
 @dataclass(frozen=True)
 class FetchedPayload:
     """The TRANSIENT payload carrier (fetch-gate A1, MODIFIED — the gate
-    remediation `hermes_researchsourceprovider_fetch_gate_remediation.md`).
+    remediation `docs/archive/hermes_researchsourceprovider_fetch_gate_remediation.md`).
 
     Exactly the artifact-store entry the task write path will persist: the
     content-addressed descriptor + the raw bytes, carried on

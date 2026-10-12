@@ -114,7 +114,7 @@ class CompilationStatus(str, Enum):
 
 
 # ── artifact schema version (Part 2 §17: schema_version is part of identity) ──
-# C1 (Step 3, ratified Option A — hermes_c1_step3_schema_version_spec_conflict.md):
+# C1 (Step 3, ratified Option A — docs/archive/hermes_c1_step3_schema_version_spec_conflict.md):
 # the CURRENT program schema version is "2"; the SUPPORTED set retains the
 # legacy "1" so pre-C1 programs remain valid and recompile to the IDENTICAL
 # content_hash/program_id (AC-1 Delta=0). Unsupported versions are rejected

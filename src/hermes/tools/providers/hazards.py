@@ -1,7 +1,7 @@
 """ProviderHazardSpec (hazards as data) + ONE generic ``evaluate_hazards``.
 
 Step 2 of the Part 3 implementation (IDR-030, §27 item 55 RESOLVED).
-Remediated per the hostile code audit `hermes_researchsourceprovider_hazard_audit.md`
+Remediated per the hostile code audit `docs/archive/hermes_researchsourceprovider_hazard_audit.md`
 (HZ-01…HZ-12 folded in — 2026-08-13).
 
 The per-provider failure knowledge lives in ``hazard_specs/<provider>.json`` —

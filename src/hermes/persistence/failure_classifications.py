@@ -1,6 +1,6 @@
 """Q-05 persistence slice — the failure-classification store (design D1–D8).
 
-Design record: ``hermes_q05_persistence_slice_design.md`` (hostile gate
+Design record: ``docs/archive/hermes_q05_persistence_slice_design.md`` (hostile gate
 PASSED). Ratified upstream: IDR-036 (taxonomy + action map) and the pure
 substrate ``hermes.research.failure_classification`` (41 golden fixtures).
 

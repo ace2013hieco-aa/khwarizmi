@@ -1,4 +1,4 @@
-"""Model plane tests (ARCHITECTURE_DELTA §2.1 — the Model Provider API).
+"""Model plane tests (docs/archive/ARCHITECTURE_DELTA.md §2.1 — the Model Provider API).
 
 Covers the port's whole contract:
 

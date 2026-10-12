@@ -1,6 +1,6 @@
-"""Runtime wiring — the composed R4 driver for tick use (WIRING_DESIGN BIND-3).
+"""Runtime wiring — the composed R4 driver for tick use (docs/archive/WIRING_DESIGN.md BIND-3).
 
-`WIRING_DESIGN.md` BIND-3 asks one question: *how does an agent run/delegation
+`docs/archive/WIRING_DESIGN.md` BIND-3 asks one question: *how does an agent run/delegation
 produce only proposals with B-2 discipline?* The runtime answers the plane half
 (`src/hermes/agents/runtime/run.py`: bounded ticks, drafts validated against the
 profile's allowlist, one intent emitted per draft through an injected

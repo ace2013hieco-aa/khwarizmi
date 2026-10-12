@@ -1,4 +1,4 @@
-"""Capability plane — Tool → ToolSet → Capability (ARCHITECTURE_DELTA §2.2).
+"""Capability plane — Tool → ToolSet → Capability (docs/archive/ARCHITECTURE_DELTA.md §2.2).
 
 The plane is the *one gated execution path* for bounded capabilities: it
 declares what may run, decides whether a given caller may run it, gates the

@@ -1,7 +1,7 @@
 """Step-5a golden fixtures — the fetch driver (``fetch_batch``).
 
 Pins the gate-remediated design
-(`hermes_researchsourceprovider_fetch_gate_remediation.md`, ACCEPTED FOR
+(`docs/archive/hermes_researchsourceprovider_fetch_gate_remediation.md`, ACCEPTED FOR
 IMPLEMENTATION with GC-01…GC-03): the verdict→outcome mapping (D2), the
 content-validation hook (FD-01), the batch-cap stop (FD-02), the entry
 rejections (D4/F4/F5/FD-03), the FetchedPayload carrier (A1/GC-02/FD-06),
