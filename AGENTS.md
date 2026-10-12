@@ -88,7 +88,7 @@ Canonical commands (Python 3.14, see README “Operate”):
 
 ```bash
 uv venv --python 3.14; uv sync
-.venv/Scripts/python.exe scripts/run_tests.py -v   # full suite (2101)
+.venv/Scripts/python.exe scripts/run_tests.py -v   # full suite (collected count: docs/SUITE-COUNT.md, generated)
 uvx ruff check src tests                            # lint gate (C3)
 uvx pyright src                                     # strict type gate
 uvx pyright --pythonpath .venv/Scripts/python.exe --project pyrightconfig.tests.json

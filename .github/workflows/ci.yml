@@ -24,6 +24,16 @@ jobs:
       - name: "Sync environment (installs dev group: pytest, pytest-cov)"
         run: uv sync
 
+      # NUM-1 (F2) — the stamped suite count must match the live suite.
+      # Fast and read-only (collect-only, ~7s; writes nothing): a stale
+      # docs/SUITE-COUNT.md fails the build here, so the single source of
+      # truth cannot drift past the merge gate. The step's PYTHONPATH also
+      # exercises the native/forward-separator normalization (F1).
+      - name: "Suite-count freshness (docs/SUITE-COUNT.md vs live collect)"
+        run: |
+          $env:PYTHONPATH = (Join-Path $env:GITHUB_WORKSPACE "src")
+          .venv/Scripts/python.exe scripts/stamp_suite_count.py --check
+
       # Mirrors the local verification command exactly (README "Operate").
       # scripts/run_tests.py scrubs any foreign site-packages from sys.path
       # so the suite reproduces identically inside or outside the Hermes app.

@@ -8,7 +8,7 @@ DELIBERATELY DEFERRED (explicit non-goals).
 
 ## What is currently certified
 
-CERTIFIED structural chain on `main` (full suite 2101 green, Ruff/Pyright
+CERTIFIED structural chain on `main` (full suite green per docs/SUITE-COUNT.md, Ruff/Pyright
 clean, remote CI green):
 
 - P6 production classification writer — `ff79bb6`.
