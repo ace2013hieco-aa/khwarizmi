@@ -3,148 +3,81 @@
 **Project:** Khwarizmi — governed research-agent control plane for evidence synthesis and research integrity.
 **Applicant:** Ali Osat Zoghi (solo founder).
 **Repository (public, Apache-2.0):** https://github.com/ace2013hieco-aa/khwarizmi
-**Certified tip:** control-plane production declaration recorded 2026-10-04 (`docs/archive/CERT_GATE_RERUN_CERTIFICATION_2026-10-04.md`); suite collects 4,440 per docs/SUITE-COUNT.md; 5 documented environmental reds at the certified tip (docs/MERGE-LOG-NUM-1.md), Ruff and Pyright clean.
+**Certified tip (control plane only):** production declaration 2026-10-04 (`docs/archive/CERT_GATE_RERUN_CERTIFICATION_2026-10-04.md`); 4,440 collected (docs/SUITE-COUNT.md); 5 documented environmental reds (docs/MERGE-LOG-NUM-1.md); Ruff and Pyright clean.
 **Annex:** [Q&A detail](CATALYST-QA-ANNEX.md)
 
 ## 1. The problem
 
-Research agents are becoming capable of finding papers, extracting information and producing convincing answers. The harder problem is deciding whether the chain of actions and evidence behind those answers can be trusted.
-
-This affects researchers, research teams, analysts and eventually institutions making evidence-based decisions. Today, a researcher typically performs this work manually: formulate a question, search multiple sources, inspect sources, retrieve documents, compare claims, check provenance, notice contradictions or retractions, decide whether evidence is sufficient, and document what happened. This process is repeated for essentially every non-trivial research question and becomes particularly expensive when evidence is contradictory, incomplete or high-stakes.
-
-Existing AI research tools substantially improve discovery and synthesis, but the underlying workflow often remains centred on producing an answer. Khwarizmi addresses a different question: **can the research process itself be governed, audited and safely advanced?**
+Research agents produce convincing answers; trusting the actions and evidence behind them is the harder problem. Each non-trivial question repeats a manual loop — search, compare, check provenance, spot contradictions or retractions, judge sufficiency, document — costly when evidence is contradictory, incomplete or high-stakes. Tools improve answers; Khwarizmi asks: **can the research process itself be governed, audited and safely advanced?**
 
 ## 2. Our workflow
 
-Khwarizmi is a research-agent control plane. A typical workflow is:
+Khwarizmi is a research-agent control plane: a researcher defines a program and question; typed tasks pass deterministic admission checks; approved sources are searched; material persists with provenance and identity; evidence (contradictions, retractions) is evaluated; the controller decides next steps. Human-authority tasks park at explicit gates as journaled, attributable verdicts; the state can be inspected and replayed. Deterministic code owns transitions; models propose without silent-mutation authority; humans keep consequential decisions.
 
-1. A researcher defines a research program and question.
-2. The system decomposes the work into typed research tasks.
-3. Tasks pass deterministic admission and integrity checks.
-4. The research system searches approved sources.
-5. Retrieved material is persisted with provenance and content identity.
-6. Evidence is evaluated, including contradictions and retractions.
-7. The controller determines what can safely happen next.
-8. Tasks requiring human authority are parked at explicit human gates.
-9. Human decisions become journaled, attributable decisions rather than invisible model outputs.
-10. The resulting research state can be inspected and replayed.
-
-The system is intentionally hybrid. Deterministic code owns state transitions, admission and governance; models can propose research actions but do not have authority to silently mutate the research state. Human reviewers retain authority over consequential decisions.
-
-The current system is an independent CLI/control-plane system with vault-note projection, rather than a plugin embedded inside an established daily-use research application. Its architecture is deliberately designed so that research-source providers and future workbench integrations can sit behind governed interfaces. A control-plane production declaration was recorded 2026-10-04; it covers the control plane only and declares nothing about scientific validity. Section 7 sets out how it would plug into the tools researchers already use.
+Standalone CLI today (vault-note projection), not a plugin; providers and workbench integrations sit behind governed interfaces. Control-plane production declaration 2026-10-04 covers the control plane only — nothing about scientific validity. Section 7 shows integration.
 
 ## 3. Trust, audit and governance
 
-Trust is a first-class architectural requirement rather than a post-processing feature.
-
-Every important mutation passes through a single intent gateway. The system maintains an append-only journal, content-addressed artifacts, provenance relationships and project isolation. Provider interactions can be recorded and replayed. Source retrieval is bound to the task that requested it, preventing a worker from silently attaching evidence to another task.
-
-The system also distinguishes trusted structural information from untrusted source content. Source text is explicitly treated as untrusted content rather than automatically becoming an instruction or authoritative fact.
-
-Failure is data, not a hidden exception. Searches can produce typed outcomes such as empty, unavailable or shortfall states. Provider mismatches, invalid provenance, stale leases and contradictory evidence are refused rather than silently repaired. Deterministic budget envelopes bound every run; over-budget dispatches refuse with named codes, loop patterns quarantine poison tasks instead of retrying silently, and a fully-capped tick emits a named idle code.
-
-Human authority is explicit. Contradiction resolution, source retraction and other consequential decisions require recorded human decisions. The architecture therefore provides an accountability chain from research intent → task → source → evidence/artifact → system decision → human decision.
-
-Importantly, Khwarizmi does **not** claim that replay proves scientific validity. Replay proves that the computational/evidence handling path can be reproduced; scientific validity remains a human and domain-level question.
+Trust is architectural. Every mutation passes a single intent gateway; append-only journal, content-addressed artifacts, provenance and project isolation record it. Providers record and replay; retrieval binds to its task. Source text stays untrusted — never instruction or fact. Failures are typed data (empty, unavailable, shortfall); mismatches, stale leases and contradictions refuse rather than self-repair. Budget envelopes bound runs with named refusal codes; loops quarantine poison tasks. Consequential decisions need recorded human verdicts. Replay reproduces the evidence path, never scientific validity.
 
 ## 4. Team
 
-Khwarizmi is currently founder-led by Ali Osat Zoghi, an independent researcher and software builder working across quantitative research, research methodology and agentic systems.
-
-The founder has built the system from the architecture and governance model through implementation, testing and adversarial review. The public repository contains a substantial deterministic research-control implementation rather than a conceptual mock-up, including a full autonomy loop (planner, prompts, live fetch, safety caps, vault projection, closed-loop fault-injection test), each phase red-teamed before merging.
-
-There are currently no formal institutional advisors or research-industry partners being claimed. A major objective of the Catalyst period would be to add domain expertise from research methodology, scholarly communication and research-infrastructure stakeholders and validate the workflow against real researcher needs.
+Founder-led by Ali Osat Zoghi, researcher across quantitative research, methodology and agentic systems — architecture, implementation, testing and adversarial review. No institutional advisors or industry partners are claimed; a Catalyst objective is adding methodology, scholarly-communication and infrastructure expertise and validating against real researcher needs.
 
 ## 5. Where we are today
 
-Khwarizmi is a working system with a certified control plane: in production for its control-plane scope, and not yet a scaled commercial product.
+Working system, certified control plane — production for that scope, not a scaled product. The repository holds the controller, intent gateway, task/evidence/provenance model, allowlisted search/fetch with re-validation, contradiction/retraction governance, human-decision surfaces, budget envelopes with quarantine, and the journal-projecting vault.
 
-Repository: https://github.com/ace2013hieco-aa/khwarizmi
+Fault-injection and adversarial batteries included; every autonomy phase red-teamed in-tree. A held-out checker catches seeded unsupported claims same-pipeline review misses (11/12 vs 12/12, union 12/12), shipped as a test.
 
-The repository contains the deterministic controller, intent gateway, research-program/task model, evidence and provenance infrastructure, live allowlisted source-search/source-fetch with redirect re-validation, contradiction and retraction governance, human-decision surfaces, autonomy budget envelopes with quarantine, a journal-projecting vault, persistence and an append-only journal.
-
-The certified tip collects 4,440 tests per docs/SUITE-COUNT.md; 5 documented environmental reds at the certified tip (docs/MERGE-LOG-NUM-1.md), Ruff and Pyright clean, including seeded fault-injection and adversarial batteries, and every autonomy phase carries a red-team audit trail in-tree. An independent reviewer built on different checks catches seeded unsupported claims that same-pipeline review misses (measured 11/12 vs 12/12 with a held-out checker, union 12/12), and that measurement ships as a test.
-
-The important limitation is that this is not yet evidence of production adoption. The next step is to turn the existing control architecture into a researcher-facing workflow and validate it with real research tasks and users.
+Not production-adoption evidence. Next: a researcher-facing workflow validated on real tasks with real users.
 
 ## 6. Alternatives & competitors
 
-Today the problem is largely solved through a combination of conventional scholarly search, reference-management tools, spreadsheets, manual review and researcher judgement.
-
-AI-native alternatives include:
-
-* Elicit — research-agent, literature-review and systematic-review workflows. Elicit now provides documented, auditable evidence-synthesis workflows with source-linked claims.
-* Consensus — AI-powered academic search and synthesis across a large scholarly corpus.
-* ResearchRabbit — literature discovery, citation-network exploration and review organisation.
-* Scite — scholarly search and Smart Citations designed to identify whether research has subsequently been supported or contradicted.
-
-Khwarizmi is complementary rather than simply another paper-search product. Its differentiation is the **control plane around agentic research**: typed tasks, admission, provenance, deterministic authority, explicit failure states, contradiction/retraction governance, human gates and an auditable state machine. The long-term opportunity is to govern multiple research tools rather than replace every one of them.
+Status quo — scholarly search, reference managers, spreadsheets, manual judgement — plus AI alternatives: Elicit (auditable evidence synthesis with source-linked claims), Consensus (academic search and synthesis), ResearchRabbit (discovery, citation networks), Scite (support/contradiction citations). Khwarizmi complements them: the control plane around agentic research — typed tasks, admission, provenance, deterministic authority, failure states, contradiction/retraction governance, human gates, auditable state — governing tools, not replacing them.
 
 ## 7. Integration path
 
-Khwarizmi is built as a governance layer that wraps the tools researchers already use, not as another application to move into. Today it is a standalone CLI. This section names the first two integrations, what already exists for each, and what the grant would build.
+Khwarizmi wraps researchers' tools rather than replacing them; today a standalone CLI. Integrations use three existing surfaces. **Read:** `hermes vault project` emits labelled notes (authoritative or process-only); `hermes vault verify` refuses on journal/note mismatch. **Source:** code-owned provider registry; OpenAlex and PubMed live. **Decision:** one intent gateway with role checks; human verdicts need operator credential and recorded decision; no network API yet — a plugin proposes under the same check and gains no authority.
 
-**Three narrow interfaces.** Every integration uses the same three surfaces, which already exist in the repository:
+**Obsidian first:** vault layout (one folder, human areas refused), localhost service for gates/contradictions with credentialed verdicts, community plugin for in-vault approve/reject. Status: notes untested in Obsidian; service and plugin do not exist yet.
 
-* **Read surface (exists).** A deterministic projector turns the append-only journal into markdown notes with YAML frontmatter, stable IDs and alias-form wikilinks (`hermes vault project`). Each note is labelled authoritative or process-only, and `hermes vault verify` recomputes a manifest from the journal and refuses if the notes and the journal disagree.
-* **Source surface (exists).** Research sources sit behind a code-owned provider registry: each source needs an adapter, a failure-handling spec and contract tests. OpenAlex and PubMed are live today.
-* **Decision surface (library and CLI today, no network API yet).** Every change passes one intent gateway with a role check, and human verdicts require an operator credential and a recorded decision (`hermes gate`, `hermes operator`). A plugin would be an untrusted proposer under the same role check, so it gains no authority.
+**Zotero second:** read a collection's identifiers via its local read-only API; check metadata/retraction through governed providers; optionally write back e.g. `khwarizmi:retracted`. Zotero seeds; evidence enters only through governed fetch.
 
-**First target: Obsidian.** Obsidian is widely used for personal research notes, and the read surface already emits that note style. The integration has three parts:
+**Roadmap** (Phases 1–2 from §10's £9,000 + £6,000 lines). **Phase 1 (months 0–2):** decision service and Obsidian plugin — exit: resolve a contradiction and a retraction inside Obsidian with `hermes vault verify` still passing. **Phase 2 (months 2–4):** Zotero seed and tag write-back, pilot with 3–5 researchers — exit: review time and problem detection measured against manual process. **Phase 3 (months 4–6):** scoping with Digital Science (a scholarly-data source such as Dimensions behind the provider interface; replayable audit bundles to Figshare) — exit: a written integration plan agreed with Digital Science; no commitment is assumed.
 
-1. A documented vault layout. The projector writes only to a dedicated folder and refuses human-owned areas, so a researcher's own notes are never touched.
-2. A small local service on localhost that lists pending human gates and contradictions, streams journal events and accepts a credentialed verdict.
-3. An Obsidian community plugin that shows gates, contradictions and retractions inside the vault and lets the researcher approve or reject them there.
-
-Status: the notes follow Obsidian conventions but have not yet been tested inside Obsidian; the local service and the plugin do not exist yet.
-
-**Second target: Zotero.** Zotero is where many researchers curate their sources. Its desktop client offers a read-only local API on localhost (enabled in its settings), and its Web API accepts writes with a key. Khwarizmi would read the identifiers in a chosen collection, check metadata and retraction status through its governed providers, and optionally write a tag such as `khwarizmi:retracted` back through the Web API. Zotero seeds the work; evidence still enters only through governed fetch, so no governance step is bypassed.
-
-**Roadmap.** Phases 1 and 2 are funded from the £9,000 development and £6,000 validation lines in section 10.
-
-| Phase | Months | Deliverable | Exit check |
-| --- | --- | --- | --- |
-| 1 | 0-2 | Local decision service and Obsidian plugin | A researcher resolves a contradiction and a retraction from inside Obsidian, and `hermes vault verify` still passes |
-| 2 | 2-4 | Zotero collection seed and tag write-back; pilot with 3-5 researchers on their own collections | Review time and detection of provenance, contradiction and retraction problems measured against their manual process |
-| 3 | 4-6 | Scoping with Digital Science: a scholarly-data source such as Dimensions behind the same provider interface, and deposit of replayable audit bundles to Figshare | A written integration plan agreed with Digital Science; no commitment is assumed |
-
-**What does not change.** Researchers keep their tools and their notes. Models propose, deterministic code decides state, and humans decide verdicts. Integrations are additive and removable: uninstalling a plugin leaves the CLI and the journal authoritative.
+**Unchanged:** researchers keep tools and notes; models propose, code decides state, humans decide verdicts; integrations are additive and removable — uninstall leaves CLI and journal authoritative.
 
 ## 8. Where this goes
 
-The long-term vision is a **governed operating layer for agentic research**.
+Vision: a **governed operating layer for agentic research** — delegate programs without delegating responsibility, coordinating discovery, literature, data and compute tools under common governance. Model: B2B/B2Institution — team subscriptions, then institutional licensing, deployment and API. Objective: less **human review time per evidence-backed decision**, more integrity failures caught.
 
-Researchers should be able to delegate substantial research programs to agents without delegating responsibility for the resulting decisions. Khwarizmi would coordinate discovery tools, literature systems, data tools, computational workbenches and eventually institutional research infrastructure while maintaining a common governance and provenance layer.
-
-The commercial model would likely be B2B/B2Institution: researcher/team subscriptions initially, followed by institutional licensing, governed deployment and infrastructure/API offerings. Pricing would ultimately depend on whether the primary customer is an individual researcher, research group, university or research-intensive organisation.
-
-The first measurable objective is not "more AI-generated text." It is reducing the **human review time required to reach an evidence-backed research decision**, while increasing detection of provenance, contradiction and integrity failures.
-
-Recorded walkthrough (all three demos, narrated, exit 0 throughout): https://github.com/ace2013hieco-aa/khwarizmi/releases/download/demo-2026-10-11/Demo.mp4
+Recorded walkthrough (three demos, narrated, exit 0): https://github.com/ace2013hieco-aa/khwarizmi/releases/download/demo-2026-10-11/Demo.mp4
 
 ## 9. Fit with Digital Science
 
-Khwarizmi directly fits the 2026 Catalyst theme, **"Agentic Workflows You Can Trust."** Digital Science describes the opportunity as AI that acts on research while carrying provenance, governance and accountability through the workflow.
+Khwarizmi fits the 2026 theme, "Agentic Workflows You Can Trust." The initial wedge is evidence synthesis and research integrity, with adjacent uses in discovery and peer-review preparation. It does not automate scientific judgement; it governs the chain of actions and evidence leading to a decision. Target users are researchers and teams who use AI but remain accountable for what their agents do.
 
-The initial lifecycle wedge is **evidence synthesis and research integrity**, with adjacent applications in discovery and preparation for peer review. Khwarizmi does not attempt to automate scientific judgement itself. Instead, it governs the chain of actions and evidence leading to a research decision.
+Enhance, not compete. Digital Science supplies scholarly data, attention signals, repositories and reference management; Khwarizmi adds a replayable record of which evidence a decision depended on and who approved it. It holds no scholarly database, computes no attention scores, hosts no outputs and does not screen authors or manuscripts. Where a product already detects a problem, Khwarizmi consumes the signal, shows what depended on it and records the human decision. All four pilots are read-only, use public or non-commercial access routes and need no engineering from Digital Science.
 
-The target users are researchers and research teams who increasingly use AI but need to remain accountable for what their agents do.
-
-Digital Science is particularly relevant because it combines research infrastructure, scholarly data and products spanning the research lifecycle.
-
-The strongest collaboration opportunity would be to test Khwarizmi against real research workflows, integrate it with existing scholarly infrastructure, establish practical trust/audit metrics, and determine where a research-control layer creates value across the Digital Science ecosystem.
+Pilots (targets, not results; no partner or agreement exists today):
+Figshare, months 0–2: pin the dataset version and file checksum an analysis cites, via the public API, and detect later changes.Dimensions, months 2–4: trace the claims and decisions that depended on a source Dimensions flags (for example retracted), checked against researchers' manual audits. We ask for pilot API access and a call on which retraction fields it exposes.Altmetric, months 2–4: rank the decisions affected by a problem source by reach, using the free counts-only API with attribution.ReadCube, months 3–5: audit an exported systematic-review library for provenance, contradiction and retraction issues; we ask for introductions to 2–3 users.
 
 ## 10. Budget
 
-The maximum £25,000 would be used primarily to convert the existing technical prototype into a validated researcher-facing pilot:
+The £25,000 maximum funds a validated pilot:
 
-* £9,000 — product and workflow development: researcher-facing interface, workflow orchestration, integration surfaces and deployment tooling.
-* £6,000 — research validation: structured pilot studies with researchers, benchmark research tasks, failure-mode evaluation and usability testing.
-* £4,000 — trust and governance evaluation: adversarial testing, provenance/audit evaluation, integrity-failure benchmarks and independent technical review.
-* £3,000 — scholarly/research-domain expertise: external research-methodology and scholarly-communication advice.
-* £2,000 — infrastructure and operating costs: hosting, research-data/API access, testing environments and software services.
-* £1,000 — documentation and dissemination: public technical documentation, demonstrations and pilot materials.
+* £9,000 — interface, orchestration, integration, deployment.
+* £6,000 — pilot studies, benchmark tasks, failure-mode and usability evaluation.
+* £4,000 — adversarial, provenance/audit and integrity-failure evaluation, independent review.
+* £3,000 — research-methodology and scholarly-communication advice.
+* £2,000 — hosting, data/API access, test environments.
+* £1,000 — documentation, demos, pilot materials.
 
-The goal at the end of the grant would be a demonstrated multi-step research workflow with real users, measurable human-review savings, documented failure/escalation behaviour, and evidence that the governance model works outside synthetic tests.
+Goal: a real-user multi-step workflow with measured review savings, documented failure/escalation behaviour, and governance evidence beyond synthetic tests.
+
+## Technical Validation
+
+Synthetic control-plane baselines only — fail-closed handling, never scientific validity; replay reproduces the evidence path only. Headlines re-derived live at `258fe2b`: seeded-defect review union 12/12 (11/12 vs 12/12); end-to-end harness 51/51 with same-tree consecutive-run replay digest `219cf7c41971e3a3f6549339457d8d311728a33ee111a2a3f70077bdc97249ca` (equality across consecutive runs is the claim); hostile refusals 8/8; digest fold 5/5 fail-closed; closed-loop faults 3/3; suite 4425 passed + 15 skipped, 0 failed, all targets in §8/annex stay targets. Full methods + commands in annex §7.
 
 License: Apache-2.0 (LICENSE).

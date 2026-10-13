@@ -77,4 +77,16 @@ Human intervention minutes / research task; % of evidence chains accepted withou
 
 The headline target is: 50%+ reduction in human evidence-review time per research question, while maintaining ≥99% blocking of predefined integrity failures — stated as a target to be measured in the pilot, not an achieved result.
 
+## 7. Pre-pilot benchmark (measured baselines — not targets)
+
+Nothing here upgrades the headline target above: these are already-measured control-plane baselines at tree `258fe2b`, each re-derived live with its producing command. Scope is synthetic (seeded faults, hostile inputs, replay): they measure fail-closed handling, never scientific validity, and replay proves the evidence-handling path reproduces — not that any conclusion is correct.
+
+* Seeded-defect review: checker A 11/12, checker B 12/12, union 12/12 over 12 seeded defects; precision 1.0 on 4 cleans; 1 disagreement (`fo-03`). Method: `tests/cert_gate_rerun/test_reviewer_independence.py` (`3 passed in 0.05s`). Command: `PYTHONPATH=<wt>/src .venv/Scripts/python.exe scripts/run_tests.py tests/cert_gate_rerun/test_reviewer_independence.py -v`.
+* End-to-end harness: `scripts/demo_judge.py` exits 0 with `51/51 checks passed` on two consecutive runs, byte-identical replay digest `219cf7c41971e3a3f6549339457d8d311728a33ee111a2a3f70077bdc97249ca` (same-tree consecutive-run digest — equality across consecutive runs is the claim; 3.66 s / 3.49 s harness time, not researcher time).
+* Hostile-input refusals: `scripts/break_it.py` standalone `8/8 scenarios matched their reference-test assertions`, offline, no model.
+* Digest fold under 5 injected corruptions: all fail closed (`FORGED_IDENTITY` + `DEGRADED`, gate recomputed, duplicate decision refused at the schema, no resurrection, stable hashes). Method: `tests/test_q04_review_candidates.py::TestRecordSourceRetraction::test_digest_fold_fail_closed_deterministic` (`1 passed in 0.19s`).
+* Closed-loop seeded faults: 3/3 caught + recovery/golden/boundary legs green (`tests/test_p_auto_6_loop.py`, `6 passed in 1.40s`).
+* Explicitly absent: no contradiction/retraction precision/recall measurement exists (P7/N9 suites assert per-scenario fail-closed behavior only).
+* Suite baseline: `4425 passed, 15 skipped in 495.28s`, 0 failed; red set empty (subset of the 5 documented environmental reds in `docs/MERGE-LOG-NUM-1.md`, which may fire under load — 2026-10-12/13 runs at 258fe2b/dfd99ef); the documented `test_eval_plane.py` timeout flake did not fire and passes in isolation (`1 passed in 13.91s`); collect 4440 (`stamp --check` OK); B4 24/24; ruff clean; both pyrights 0 errors in repo .venv (other interpreters without pytest yield 108 import-resolution errors, not type errors).
+
 License: Apache-2.0 (LICENSE).
