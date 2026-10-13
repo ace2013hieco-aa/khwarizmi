@@ -54,6 +54,9 @@ Vision: a **governed operating layer for agentic research** — delegate program
 
 Recorded walkthrough (three demos, narrated, exit 0): https://github.com/ace2013hieco-aa/khwarizmi/releases/download/demo-2026-10-11/Demo.mp4
 
+Demo.mp4, narrated Beats 1–8 — see [CATALYST-DEMO-SCRIPT.md](CATALYST-DEMO-SCRIPT.md) for the beat→criterion map.
+The same companion carries the technical deep dive: the under-the-hood path per beat (exact module paths + key test names).
+
 ## 9. Fit with Digital Science
 
 Khwarizmi fits the 2026 theme, "Agentic Workflows You Can Trust." The initial wedge is evidence synthesis and research integrity, with adjacent uses in discovery and peer-review preparation. It does not automate scientific judgement; it governs the chain of actions and evidence leading to a decision. Target users are researchers and teams who use AI but remain accountable for what their agents do.
@@ -78,6 +81,6 @@ Goal: a real-user multi-step workflow with measured review savings, documented f
 
 ## Technical Validation
 
-Synthetic control-plane baselines only — fail-closed handling, never scientific validity; replay reproduces the evidence path only. Headlines re-derived live at `258fe2b`: seeded-defect review union 12/12 (11/12 vs 12/12); end-to-end harness 51/51 with same-tree consecutive-run replay digest `219cf7c41971e3a3f6549339457d8d311728a33ee111a2a3f70077bdc97249ca` (equality across consecutive runs is the claim); hostile refusals 8/8; digest fold 5/5 fail-closed; closed-loop faults 3/3; suite 4425 passed + 15 skipped, 0 failed, all targets in §8/annex stay targets. Full methods + commands in annex §7.
+Synthetic control-plane baselines only — fail-closed handling, never scientific validity; replay reproduces the evidence path only. Headlines re-derived live at `258fe2b`: seeded-defect review union 12/12 (11/12 vs 12/12); end-to-end harness 51/51 with same-tree consecutive-run replay digest `219cf7c41971e3a3f6549339457d8d311728a33ee111a2a3f70077bdc97249ca` (equality across consecutive runs is the claim); hostile refusals 8/8; digest fold 5/5 fail-closed; closed-loop faults 3/3; suite 4425 passed + 15 skipped, 0 failed, all targets in §8/annex stay targets. Full methods + commands in annex §7. The shipped recording's digest is `f360c174eb2bfc7ec158f56821b0e2e9b49edc452f4542f2a8e6b21d79e285cf` (`docs/judge-demo/TWO-RUN-PROOF.txt`); the `219cf7c4…` value above is this tree's re-derivation — same masking method, different tree, so the two hashes differ.
 
 License: Apache-2.0 (LICENSE).

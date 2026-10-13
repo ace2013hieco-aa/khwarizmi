@@ -5,7 +5,7 @@
   restack worktree `C:\Users\Ali Zoghi\AppData\Local\Temp\opencode\ds-1-remerge-wt`) — **LOCAL-ONLY, NO PUSH**
 - Task: DS-1-REMERGE — re-stack the DS-1 commits onto current main, verify, then land (merge gate only)
 - Verdict: **PASS** — `main` verified unmoved at `7407745`, clean cherry-pick re-stack (zero conflicts),
-  content-identity proven, clean fast-forward, hashes preserved; word count 1255 ≤ 1450; §9 dual hashes
+  content-identity proven, clean fast-forward, hashes preserved; application word count 1255 ≤ 1450; §9 dual hashes
   reproduce (`7b16313c46c2` director span, `e7f13585107d` audit span); stamp `--check` OK (4440);
   collect 4440; B4 24/24; ruff clean; pyright src 0/0/0; pyright tests 0 errors + 1 pre-existing warning
   (Test-Path-proven absolute `--pythonpath`; see §6 for the 108-env note); full suite 4437 passed / 3 skipped /
@@ -128,7 +128,7 @@ No `src/`, `tests/`, script, workflow, fixture, `.gitattributes` or governed-cor
 
 ## Gates (raw, on restacked tip `a19c238`, offline, `PYTHONPATH=<wt>\src`, no extra `-q`)
 
-- **Word count** (in-process `len(git-show bytes split)`) → `1255` (bytes 9850) ≤ 1450, margin 195. **PASS.**
+- **Application word count** (in-process `len(git-show bytes split)`) → `1255` (bytes 9850) ≤ 1450, margin 195. **PASS.**
   Per-commit: `dfd99ef 2617` → `e78e74b 2723` → `756d1ca 1697` → `6b6065b 1249` → `227fc59 1249` →
   tip `1255` (+6 = carried S-b fix; prior 1249 gate re-verified at `6716672`/`227fc59`, delta explained, no drift).
 - **§9 hashes** (in-process sha256, 12 hex) → director span `7b16313c46c2` (1737 bytes) **== cited**;
@@ -177,7 +177,7 @@ tests/test_eval_plane.py in isolation, restacked tip, ds-1-remerge-wt : 205 pass
 | content-identity fails | **PASS** — restacked == `eae2492` + `MERGE-LOG-MET-1.md` (both-directions diff = that 1 file; exclusion diff empty) |
 | red set superset of baseline | **PASS** — red set empty ⊆ baseline-5; flake isolation-proven |
 | `--check` drift | **PASS** — `--check` OK, collected 4440 = 4437+3 |
-| word count > 1450 | **PASS** — 1255 ≤ 1450 (margin 195) |
+| application word count > 1450 | **PASS** — 1255 ≤ 1450 (margin 195) |
 | stale main-bound worktree left behind | **PASS** — `main` bound only to `met-1-merge-wt` at the final tip, clean (see Hygiene) |
 | FAIL audit on the landing range | **PASS** — none (HARD RULE checked, scopes + dispositions above) |
 | push without a human hash-pin | **none performed** |
