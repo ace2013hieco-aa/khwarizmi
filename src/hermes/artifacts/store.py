@@ -17,6 +17,15 @@ from hermes.core import Clock, utc_now
 from hermes.persistence.repositories import ArtifactRepository
 
 
+class ArtifactIntegrityError(Exception):
+    """On-disk artifact bytes do not re-derive their content-addressed key.
+
+    Raised by :meth:`ArtifactStore.read_verified`: a fail-closed refusal of a
+    read, never a silent return of bytes that no longer hash to the key they
+    are stored under (EXT-1 R2 — read-path re-verification).
+    """
+
+
 def compute_content_hash(data: bytes) -> str:
     """SHA-256 of canonical bytes (IDR-009).
 
@@ -157,6 +166,30 @@ class ArtifactStore:
         """
         path = _sharded_path(self._root, content_hash)
         return path.read_bytes()
+
+    def read_verified(self, content_hash: str) -> bytes:
+        """Read content-addressed bytes, re-deriving the key before return.
+
+        The content-addressed key IS the SHA-256 of the bytes (IDR-008/009),
+        so a plain :meth:`read` trusts the file at the canonical path never to
+        be swapped under a live key. This read re-derives the hash over the
+        bytes it is about to hand back and refuses (``ArtifactIntegrityError``)
+        on any mismatch — the fail-closed equivalent of
+        :meth:`verify_integrity` for the content-addressed read, so a
+        post-admission byte swap at the canonical path is refused rather than
+        served (EXT-1 R2).
+
+        ``FileNotFoundError`` still propagates when no file exists at the
+        canonical path; the caller decides whether absence is a refusal or an
+        expected miss.
+        """
+        data = self.read(content_hash)
+        if compute_content_hash(data) != content_hash:
+            raise ArtifactIntegrityError(
+                f"artifact {content_hash[:12]}…: on-disk bytes do not "
+                f"re-derive the content hash — refusing a tampered read "
+                f"(EXT-1 R2)")
+        return data
 
     def read_by_id(self, artifact_id: str) -> bytes:
         """Read artifact content by artifact_id (DB lookup → filesystem read).

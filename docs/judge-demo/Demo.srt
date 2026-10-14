@@ -1,0 +1,44 @@
+1
+00:00:00,000 --> 00:00:29,000
+BEAT 1 - THE QUESTION
+one operator question enters one typed research program; [STUB]/[SKIP] legs labeled, never faked
+
+2
+00:00:29,000 --> 00:00:33,000
+BEAT 2 - THE FRAME IS HERMETIC
+prove the frame before believing anything that follows
+
+3
+00:00:33,000 --> 00:00:35,000
+BEAT 3 - THE LOOP RUNS
+the shipped closed-loop scenario runs hermetically: plan -> dispatch -> model-stub -> validate -> gate -> project
+
+4
+00:00:35,000 --> 00:00:38,000
+BEAT 4 - REFUSAL 1: AN AGENT PROPOSES AN INTERNAL-ONLY INTENT
+the model tier may propose; it may never decide - the gateway refuses a non-operator role outright
+
+5
+00:00:38,000 --> 00:00:41,000
+BEAT 5 - REFUSAL 2: AN OVERSIZE RATIONALE AT THE HUMAN GATE
+the human-authority boundary is bounded: a 5000-char rationale is refused BEFORE any write (4 KiB payload discipline)
+
+6
+00:00:41,000 --> 00:00:43,000
+BEAT 6 - THE REFUSAL BATTERY (ALL 8 SCENARIOS, LIVE)
+the hostile-input harness runs every scenario through the public surfaces, offline, no model
+
+7
+00:00:43,000 --> 00:00:59,000
+BEAT 7 - THE VAULT VERIFIES (AND REFUSES WHEN IT MUST)
+the journal projects into notes plus a derived-view manifest; verification recomputes the claim instead of trusting the file
+
+8
+00:00:59,000 --> 00:01:05,000
+BEAT 8 - SEEDED-ERROR NUMBERS (DERIVED FROM THE RUN, NOT TYPED IN)
+the closed-loop scenario seeds three faults and proves the shipped envelopes fire in-loop
+
+9
+00:01:05,000 --> 00:01:44,000
+[outro/hold 1:05-1:44 — owner to confirm]
+B8 ends 1:05; tail unassigned — owner to confirm

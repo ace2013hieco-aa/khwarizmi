@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from hermes.artifacts.store import ArtifactIntegrityError
 from hermes.core import utc_now
 from hermes.core.graph import (
     GRAPH_QUERY_VERSION,
@@ -110,6 +111,12 @@ from hermes.tools.providers.docling_provider import (
 from hermes.tools.providers.docling_provider import (
     resolver_for_store_key as docling_store_key_resolver,
 )
+
+# EXT-2-FIX (audit EXT-2-REDTEAM S1): the named refusal emitted when a
+# content-addressed read at the EXTRACT seam re-derives a key mismatch
+# (ArtifactIntegrityError from ArtifactStore.read_verified) — a tampered
+# on-disk artifact. Terminal (a retry re-reads the same bytes).
+ARTIFACT_INTEGRITY_REFUSED = "ARTIFACT_INTEGRITY_REFUSED"
 
 RECONCILE_DIGEST_VERSION = "4"  # Director-facing digest: v1 sections + the
                               # pending-proposals replay (IDR-040 §3 — the
@@ -5419,11 +5426,14 @@ class Controller:
             # Fail closed (returns False) until an experiment store lands.
             return False
 
-        # C2 — the INJECTED model call is the long execution; keep the task
-        # alive on the lease while it runs.
-        draft = self._run_with_heartbeat_refresh(
-            task_id, lambda: extract_fn(task, untrusted))
         try:
+            # C2 — the INJECTED model call is the long execution; keep the
+            # task alive on the lease while it runs. It sits INSIDE this try
+            # so a tampered read on the MODEL path (the untrusted view's
+            # payload reader) is refused the same way as the acceptance path
+            # below (EXT-2-FIX / audit EXT-2-REDTEAM S1).
+            draft = self._run_with_heartbeat_refresh(
+                task_id, lambda: extract_fn(task, untrusted))
             outcome = accept_extraction_output(
                 self._fenced, self._project_id, task_id, draft,
                 extracted_by=f"controller:{self._owner}",
@@ -5448,6 +5458,20 @@ class Controller:
                 reason="extraction output accepted")
             self._loops.observe_success(task_id)
             out.succeeded.append(task_id)
+        except ArtifactIntegrityError as exc:
+            # EXT-2-FIX (audit EXT-2-REDTEAM S1): a post-admission byte swap
+            # under a live content-addressed key raises ArtifactIntegrityError
+            # from ArtifactStore.read_verified — reached through the span/text
+            # resolvers or the untrusted view above. Route it to a NAMED,
+            # terminal refusal (the same refusal-as-data the handler seam
+            # produces at _run_handler) instead of letting it escape
+            # tick()/run() uncaught. Terminal, not retryable: a tampered
+            # artifact cannot heal by retrying — a re-read re-derives the
+            # same mismatch. No row is written on this path (refusal-as-data).
+            self._task_repo.transition_status(
+                task_id, TaskStatus.FAILED, caused_by="controller",
+                reason=f"extract refused ({ARTIFACT_INTEGRITY_REFUSED}): {exc}")
+            out.failed.append(task_id)
         except ExtractionOutputRejected as exc:
             # Retryable: deterministic validation rejected the output, 0 rows
             # written (S6). RETRYING (via FAILED→RETRYING, the ratified

@@ -5,10 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from hermes.artifacts.store import ArtifactStore, compute_content_hash
+from hermes.artifacts.store import (
+    ArtifactIntegrityError,
+    ArtifactStore,
+    compute_content_hash,
+)
 from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
 from hermes.persistence.repositories import ArtifactRepository
+from hermes.persistence.source_outcomes import SourceOutcomeRepository
 
 
 @pytest.fixture
@@ -159,6 +164,63 @@ class TestIntegrity:
         path = Path(store._root) / meta["storage_path"]
         path.write_bytes(b"corrupted!!")
         assert store.verify_integrity(meta["artifact_id"]) is False
+
+
+class TestReadPathReVerification:
+    """EXT-1 R2: the read path re-derives the content-addressed key and
+    fails closed on a post-admission byte swap, instead of serving bytes that
+    no longer hash to the key they are stored under."""
+
+    def test_read_verified_returns_intact_bytes(self, store_and_repo):
+        store, _repo = store_and_repo
+        data = b"intact content"
+        meta = store.write(data, "Type1", "p1")
+        assert store.read_verified(meta["content_hash"]) == data
+
+    def test_read_verified_refuses_tampered_bytes(self, store_and_repo):
+        store, _repo = store_and_repo
+        meta = store.write(b"original bytes", "Type1", "p1")
+        (Path(store._root) / meta["storage_path"]).write_bytes(b"swapped bytes!")
+        with pytest.raises(ArtifactIntegrityError):
+            store.read_verified(meta["content_hash"])
+        # read() stays the unchanged raw primitive; enforcement is opt-in at
+        # the decision-affecting call site (pinned below).
+        assert store.read(meta["content_hash"]) == b"swapped bytes!"
+
+    def test_payload_read_refuses_tampered_store_bytes(self, tmp_path):
+        """The production payload read (the ONE decision-affecting artifact
+        read) refuses a tampered on-disk body rather than returning it."""
+        conn = connect(":memory:")
+        migrate_to_latest(conn)
+        try:
+            store = ArtifactStore(
+                tmp_path / "artifacts", ArtifactRepository(conn))
+            data = b"fetched payload body"
+            meta = store.write(data, "source_payload", "p1")
+            ref = f"source_payload:{meta['content_hash']}"
+            repo = SourceOutcomeRepository(conn, store)
+            assert repo.read_payload_bytes(ref) == data
+            (Path(store._root) / meta["storage_path"]).write_bytes(b"tampered")
+            with pytest.raises(ArtifactIntegrityError):
+                repo.read_payload_bytes(ref)
+        finally:
+            conn.close()
+
+    def test_payload_read_missing_file_is_expected_miss(self, tmp_path):
+        """Absence stays an expected miss (None), not a refusal — only a
+        present-but-tampered body fails closed."""
+        conn = connect(":memory:")
+        migrate_to_latest(conn)
+        try:
+            store = ArtifactStore(
+                tmp_path / "artifacts", ArtifactRepository(conn))
+            meta = store.write(b"gone", "source_payload", "p1")
+            ref = f"source_payload:{meta['content_hash']}"
+            repo = SourceOutcomeRepository(conn, store)
+            (Path(store._root) / meta["storage_path"]).unlink()
+            assert repo.read_payload_bytes(ref) is None
+        finally:
+            conn.close()
 
 
 class TestAtomicWriteAndContainment:

@@ -487,6 +487,11 @@ class SourceOutcomeRepository:
         have stored content). The raw bytes are the caller's ONLY via this
         method; the handler context wraps them in ``UntrustedContent`` so no
         unenveloped fetched text reaches a judgment surface.
+
+        The bytes are re-verified against the content-addressed key before
+        they are returned (EXT-1 R2): a post-admission byte swap at the
+        canonical path raises ``ArtifactIntegrityError`` (a fail-closed
+        refusal — refusal-as-data), never a silent tampered read.
         """
         if not isinstance(ref, str) or ":" not in ref:
             return None
@@ -506,7 +511,10 @@ class SourceOutcomeRepository:
         if row is None:
             return None
         try:
-            return self._store.read(artifact_id)  # content-addressed
+            # Content-addressed read WITH re-derivation (EXT-1 R2): the store
+            # refuses bytes that no longer hash to the key. A missing file
+            # stays an expected miss; a tampered file is a refusal.
+            return self._store.read_verified(artifact_id)
         except FileNotFoundError:
             return None
     def _validate_identities(self, outcome: object, outcome_kind: str) -> None:
