@@ -4,7 +4,7 @@ Source: AUDIT-EXT-1-TRIAGE.md (audit/ext-1-triage@bc1a5da) — adjudication of t
 
 | # | Item | Verdict | Priority | Slice | Status |
 | --- | --- | --- | --- | --- | --- |
-| 1 | L3 N9 predicate state-drift | PARTIAL — frozen invariant (AGENTS.md); 4 certified sites vs ≥4 resolve paths without the predicate; no path-enumerating pin | P0 | EXT-3 | QUEUED |
+| 1 | L3 N9 predicate state-drift | PARTIAL — frozen invariant (AGENTS.md); 4 certified sites vs ≥4 resolve paths without the predicate; no path-enumerating pin | P0 | EXT-3 | LANDED-PIN (1a42183) / wiring GATE-BLOCKED |
 | 2 | R2 artifact read verification | PARTIAL — verify_integrity had zero production callers | P1 | EXT-2 | LANDED (863f4b1) |
 | 3 | L1/I4 journal growth + archival | VALID — no compaction/retention/archival; journal holes read as tampering | P2 | EXT-4 | QUEUED |
 | 4 | R3 CLI control-byte scrub | PARTIAL — unescaped reason column, no ANSI strip (cli.py:283-288) | P3 | EXT-5 | QUEUED |
