@@ -7,7 +7,8 @@ One bounded piece of agent work:
 1. resolve the profile **by name** from configuration (`config.py`) — there is no
    profile class anywhere in this package;
 2. build one model request per tick through the Model plane port, with the
-   profile's own output contract and the lease-generation tag;
+   profile's own output contract and the lease-generation tag — the prompt's
+   content envelopes come from the injected context assembler (LOOP-1);
 3. turn the model's *validated* structured output into intent drafts, each one
    checked against the profile's declared authority (allowlist, internal-only
    partition, Director-only rule) and against the 4 KiB payload cap;
@@ -79,6 +80,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from hermes.agents.runtime.assembly import (
+    ContextAssembler,
+    default_context_assembler,
+    proposal_envelopes,
+)
 from hermes.agents.runtime.checkpoint import (
     CheckpointStore,
     InMemoryCheckpointStore,
@@ -278,6 +284,7 @@ class AgentRuntime:
         orchestration: IntentApplier,
         capabilities: CapabilityPort | None = None,
         artifacts: ArtifactOverflowPort | None = None,
+        assembler: ContextAssembler | None = None,
         checkpoints: CheckpointStore | None = None,
         delegations: DelegationStore | None = None,
         profiles: Mapping[str, ProfileSpec] | None = None,
@@ -291,6 +298,8 @@ class AgentRuntime:
         self._orchestration = orchestration
         self._capabilities = capabilities
         self._artifacts = artifacts
+        self._assembler: ContextAssembler = (
+            assembler if assembler is not None else default_context_assembler)
         self._checkpoints: CheckpointStore = (checkpoints if checkpoints is not None
                                               else InMemoryCheckpointStore())
         self._profiles = dict(profiles if profiles is not None
@@ -968,7 +977,9 @@ class AgentRuntime:
 
     def _delegate_one(self, item: Mapping[str, Any], spec: ProfileSpec,
                       context: TaskContext, state: _RunState, run_id: str,
-                      tick: int, *, token: RunCancelToken | None = None) -> None:
+                      tick: int, *, token: RunCancelToken | None = None,
+                      context_envelopes: tuple[UntrustedContent, ...] | None = None
+                      ) -> None:
         """Plan, admit and run one child task — including the review child.
 
         The child inherits the parent's cancellation token: a cancel is a fact
@@ -1063,9 +1074,10 @@ class AgentRuntime:
         child_spec = self._profiles[child_profile]
         child_context = self._delegator.child_context(
             record,
-            context=(UntrustedContent(text=digest_of(dict(child_payload)),
+            context=(context_envelopes if context_envelopes is not None
+                     else (UntrustedContent(text=digest_of(dict(child_payload)),
                                       origin="runtime.delegation",
-                                      ref=record.delegation_id),),
+                                      ref=record.delegation_id),)),
             limits=context.limits,
             depth=context.depth + 1)
         child_set = self._run_spec(child_spec, child_context, start_tick=1,
@@ -1111,7 +1123,11 @@ class AgentRuntime:
     def _maybe_review(self, spec: ProfileSpec, context: TaskContext,
                       state: _RunState, run_id: str,
                       token: RunCancelToken | None = None) -> None:
-        """Review is a top-level act: a reviewer never reviews its own reviewer."""
+        """Review is a top-level act: a reviewer never reviews its own reviewer.
+
+        The child is handed the drafts themselves (`proposal_envelopes`), not a
+        digest of the spec that names them (LOOP-1).
+        """
         if not spec.review.required or context.depth != 0:
             return
         if not state.proposals:
@@ -1131,7 +1147,8 @@ class AgentRuntime:
                       "proposal_digests": [proposal.draft_digest()
                                            for proposal in state.proposals]},
              "task_type": "AGENT_TASK"},
-            spec, context, state, run_id, state.tick, token=token)
+            spec, context, state, run_id, state.tick, token=token,
+            context_envelopes=proposal_envelopes(tuple(state.proposals)))
 
     # ── input guards, bounds, checkpointing ──
 
@@ -1159,7 +1176,13 @@ class AgentRuntime:
 
     def _model_request(self, spec: ProfileSpec, context: TaskContext,
                        tick: int) -> ModelRequest:
-        prompt = list(context.context)
+        """One request per tick; the prompt is the assembler port's job.
+
+        The tick marker is appended here (it is loop state, not context); every
+        content envelope comes from `self._assembler(context)` — the run's
+        payloads, never a digest standing in for them (LOOP-1).
+        """
+        prompt = list(self._assembler(context))
         prompt.append(UntrustedContent(
             text=f"tick {tick} of {self._max_ticks(spec, context)}",
             origin="runtime.tick", ref=context.task_id))
@@ -1490,6 +1513,7 @@ def run(
     monotonic: Monotonic | None = None,
     supervisor: Supervisor | None = None,
     retry: RetryBudget | None = None,
+    assembler: ContextAssembler | None = None,
     token: RunCancelToken | None = None,
 ) -> ProposalSet:
     """`run(profile, task_context) -> ProposalSet` — the plane's one entry point.
@@ -1506,7 +1530,8 @@ def run(
     """
     runtime = AgentRuntime(
         model=model, orchestration=orchestration, capabilities=capabilities,
-        artifacts=artifacts, checkpoints=checkpoints, delegations=delegations,
+        artifacts=artifacts, assembler=assembler,
+        checkpoints=checkpoints, delegations=delegations,
         profiles=profiles, grants=grants, clock=clock, monotonic=monotonic,
         supervisor=supervisor, retry=retry)
     return runtime.run(profile, task_context, token=token)

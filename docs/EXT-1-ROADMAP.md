@@ -6,7 +6,7 @@ Source: AUDIT-EXT-1-TRIAGE.md (audit/ext-1-triage@bc1a5da) — adjudication of t
 | --- | --- | --- | --- | --- | --- |
 | 1 | L3 N9 predicate state-drift | PARTIAL — frozen invariant (AGENTS.md); 4 certified sites vs ≥4 resolve paths without the predicate; no path-enumerating pin | P0 | EXT-3 | LANDED-PIN (1a42183) / wiring GATE-BLOCKED |
 | 2 | R2 artifact read verification | PARTIAL — verify_integrity had zero production callers | P1 | EXT-2 | LANDED (863f4b1) |
-| 3 | L1/I4 journal growth + archival | VALID — no compaction/retention/archival; journal holes read as tampering | P2 | EXT-4 | QUEUED |
+| 3 | L1/I4 journal growth + archival | VALID — no compaction/retention/archival; journal holes read as tampering | P2 | EXT-4 | LANDED (df4a579) |
 | 4 | R3 CLI control-byte scrub | PARTIAL — unescaped reason column, no ANSI strip (cli.py:283-288) | P3 | EXT-5 | QUEUED |
 | 5 | R4 OPEN-contradiction bound | PARTIAL — no cumulative OPEN bound (LLM-flood path already blocked: internal-only kinds) | P3 | EXT-6 | QUEUED |
 | 6 | I6 batch verdict | design gate — changes certified human-authority shape (one verdict per cres_ id) | — | EXT-7 | BLOCKED-HUMAN |

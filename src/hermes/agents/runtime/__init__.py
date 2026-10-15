@@ -24,6 +24,8 @@ Module layout:
                   the crash-recovery NO_SIGNAL chain.
   projection.py — the B-5 read-side projection: pure, recomputed, never a
                   second durable log (carries the mechanical purity test).
+  assembly.py   — the context-assembly port: payload and review-draft
+                  envelopes for model prompts (LOOP-1) — pure, injected.
   run.py        — `run(profile, task_context) -> ProposalSet`: the bounded loop.
 
 Import direction (§2.3/§3.1): this package imports ports (`hermes.tools.models`,
