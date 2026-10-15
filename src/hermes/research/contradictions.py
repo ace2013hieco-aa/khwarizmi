@@ -38,6 +38,7 @@ __all__ = [
     "CONTRADICTION_TYPE_CLASSIFICATION_CONFLICT",
     "DEFAULT_MAX_PAIRS",
     "DETECTOR_TRUNCATED",
+    "MAX_OPEN_CONTRADICTIONS",
     "ContradictionError",
     "canonical_pair",
     "contradiction_id_of",
@@ -56,6 +57,49 @@ CONTRADICTION_TYPE_CLASSIFICATION_CONFLICT = "CLASSIFICATION_CONFLICT"
 # late groups are not starved); truncated groups are listed per group.
 DEFAULT_MAX_PAIRS = 500
 DETECTOR_TRUNCATED = "DETECTOR_TRUNCATED"
+
+# EXT-6 / R4 — cumulative OPEN-contradiction ceiling (project-scoped).
+#
+# The per-pass pair cap above bounds one pass's fan-out; it does not
+# bound what accumulates ACROSS passes. Because every OPEN contradiction
+# demands exactly one human verdict before the program can complete
+# (``completion.py`` OPEN_CONTRADICTION; "one contradiction, one
+# verdict"), an unbounded OPEN set is an unbounded human-adjudication
+# backlog — the availability/fatigue residue R4 identified. This is the
+# cumulative bound: the gateway refuses a net-new contradiction
+# admission (fail-closed, named code ``CONTRADICTION_BACKLOG``,
+# refusal-as-data) once a project's OPEN set is at this ceiling.
+#
+# Ceiling choice: exactly 2x the per-pass pair cap (C = 500). A maximal
+# pass FROM AN OPEN SET AT OR BELOW C cannot trip it — the 2x height buys
+# exactly one pass of headroom from empty — and it is cross-pass
+# accumulation (the actual residue) that the ceiling bounds.
+#
+# The true arithmetic, with K = OPEN rows at pass start: one maximal pass
+# emits C candidates and admits min(C, CEILING - K), so it trips the
+# ceiling iff K > 500, and the remainder is refused:
+#
+#     K=0    -> 500 admitted /   0 refused
+#     K=500  -> 500 admitted /   0 refused
+#     K=501  -> 499 admitted /   1 refused
+#     K=600  -> 400 admitted / 100 refused
+#     K=999  ->   1 admitted / 499 refused
+#     K=1000 ->   0 admitted / 500 refused
+#
+# Refusing the remainder is CORRECT fail-closed behaviour, not a defect:
+# the backlog is already at the ceiling, and the refused pairs are
+# surfaced as ``CONTRADICTION_BACKLOG`` data (never a silent drop) while
+# the drain stays open. The live census (EXT-6) measured max OPEN = 1
+# across 197 on-disk DBs, so this ceiling is far above real usage and
+# does not bind normal operation.
+#
+# What is NOT gated (deliberate): (a) resolution — the ratified human
+# verdict is the ONLY drain path and must keep working at any count;
+# (b) head-only supersession, which retires exactly one OPEN row in the
+# same transaction and so does not grow the set; (c) idempotent replay
+# of an already-recorded pair (zero effects). Only a net-new OPEN row is
+# refused, and existing OPEN rows are never touched by a refusal.
+MAX_OPEN_CONTRADICTIONS = 1000
 
 # Detector version: pinned per contradiction row for replay audit. A
 # detector change that alters the pair-selection rule MUST bump this;

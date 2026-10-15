@@ -119,6 +119,11 @@ CLASSIFICATION_REF = "CLASSIFICATION_REF"  # classification ref / action / candi
 PROPOSAL = "PROPOSAL"               # proposal not found / not pending / already decided differently
 EVIDENCE_REF = "EVIDENCE_REF"       # evidence artifact ref does not dereference in-project
 OPERATOR = "OPERATOR"               # operator credential is not ratified (A4)
+CONTRADICTION_BACKLOG = "CONTRADICTION_BACKLOG"  # project OPEN-contradiction
+#                                     ceiling reached (EXT-6/R4); a net-new
+#                                     contradiction admission is refused
+#                                     fail-closed until the backlog is triaged
+#                                     (resolution — the only drain — stays open)
 
 # IDR-045 C5 — provenance field bounds, single source of truth. Enforced
 # pre-write by ``_require_provenance_bounds`` (called from ``apply_intent``
@@ -2789,11 +2794,18 @@ def _validate_record_contradiction(
     effects; a differing supersede link on an existing row is refused.
     Optional head-only supersession retires the target in the same
     transaction (new row OPEN, target SUPERSEDED, both events).
+
+    Cumulative bound (EXT-6 / R4): a net-new admission is refused with
+    the named code ``CONTRADICTION_BACKLOG`` once the project's OPEN set
+    is at ``MAX_OPEN_CONTRADICTIONS`` — the human-adjudication backlog
+    cannot grow without bound. Supersession (net-zero) and resolution
+    (the only drain) are never gated.
     """
     import json as _json
 
     from hermes.research.contradictions import (
         CONTRADICTION_TYPE_CLASSIFICATION_CONFLICT,
+        MAX_OPEN_CONTRADICTIONS,
         ContradictionError,
         canonical_pair,
         contradiction_id_of,
@@ -2928,6 +2940,34 @@ def _validate_record_contradiction(
                     kind, STALE,
                     f"supersede target {supersedes_ref!r} is not the "
                     "current head — already superseded")
+        # EXT-6 / R4 — cumulative OPEN-contradiction ceiling (fail-closed,
+        # refusal-as-data — never a silent drop). Counted INSIDE the write
+        # transaction so a concurrent admission cannot drift past the
+        # ceiling. A net-new recording is refused once the project's OPEN
+        # set is at the ceiling: nothing is inserted and existing OPEN
+        # rows are untouched. Head-only supersession retires exactly one
+        # OPEN row in this same transaction (validated above), so it nets
+        # zero and is not gated. Resolution is a different intent and is
+        # never gated — the only drain path stays open at any count.
+        if not supersedes_ref:
+            open_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM contradictions "
+                "WHERE project_id = ? AND status = 'OPEN'",
+                (intent.project_id,)).fetchone()["n"]
+            if open_count >= MAX_OPEN_CONTRADICTIONS:
+                # The refusal is raised INSIDE the transaction; the
+                # ``except GatewayRejection`` handler below owns the
+                # rollback, so this adds no transaction-control call and
+                # the certified census figure (121) is unchanged.
+                raise _reject(
+                    kind, CONTRADICTION_BACKLOG,
+                    f"project {intent.project_id!r} already holds "
+                    f"{open_count} OPEN contradictions at the ceiling "
+                    f"({MAX_OPEN_CONTRADICTIONS}) — a new contradiction is "
+                    "refused until the backlog is triaged; resolve OPEN "
+                    "items through the ratified human-verdict path (each "
+                    "resolution frees one slot). Existing OPEN rows are "
+                    "untouched and resolution is never blocked")
         conn.execute(
             "INSERT INTO contradictions "
             "(contradiction_id, project_id, type, party_a, party_b, "
