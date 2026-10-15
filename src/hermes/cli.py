@@ -27,6 +27,7 @@ from .config import (
     default_config,
     load_config,
 )
+from .output import emit, emit_lines, run_boundary
 
 CHECK_STATUS = Literal["AVAILABLE", "OPTIONAL / NOT CONFIGURED", "REQUIRED / MISSING"]
 
@@ -115,7 +116,7 @@ def _doctor(args, cfg: HermesConfig | None) -> int:
             ],
             "config": asdict(cfg),
         }
-        print(json.dumps(doc, indent=2, sort_keys=True))
+        emit_lines(json.dumps(doc, indent=2, sort_keys=True).split("\n"))
         return 0
 
     lines: list[str] = [f"Hermes doctor — v{__version__}", "=" * 60]
@@ -123,12 +124,14 @@ def _doctor(args, cfg: HermesConfig | None) -> int:
                  for label, status, detail in checks[:3])
     lines.append("  ---")
     lines.append("  Configuration values:")
-    lines.append(config_to_string(cfg))
+    lines.extend(config_to_string(cfg).split("\n"))
     lines.extend(_status_line(label, status, detail)
                  for label, status, detail in checks[3:])
     lines.append("=" * 60)
-    print("\n".join(lines))
+    emit_lines(lines)
     return 0
+
+
 def _init(args, cfg: HermesConfig) -> int:
     """Initialize the Hermes database and artifact store."""
     from .persistence.database import connect
@@ -145,8 +148,8 @@ def _init(args, cfg: HermesConfig) -> int:
     version = migrate_to_latest(conn)
     conn.close()
 
-    print(f"Initialized Hermes database: {db_path} (schema v{version})")
-    print(f"Initialized artifact store:  {artifact_root}")
+    emit(f"Initialized Hermes database: {db_path} (schema v{version})")
+    emit(f"Initialized artifact store:  {artifact_root}")
     return 0
 
 
@@ -166,10 +169,10 @@ def _status(args, cfg: HermesConfig) -> int:
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
         if getattr(args, "as_json", False):
-            print("No database found. Run `hermes init` first.",
+            emit("No database found. Run `hermes init` first.",
                   file=sys.stderr)
         else:
-            print("No database found. Run `hermes init` first.")
+            emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -201,26 +204,26 @@ def _status(args, cfg: HermesConfig) -> int:
             ]
         }
         conn.close()
-        print(json.dumps(doc, indent=2, sort_keys=True))
+        emit_lines(json.dumps(doc, indent=2, sort_keys=True).split("\n"))
         return 0
 
     if not projects:
-        print("No projects found.")
+        emit("No projects found.")
         conn.close()
         return 0
 
     for p in projects:
-        print(f"  Project: {p['name']} ({p['project_id'][:8]}...)")
-        print(f"    Lifecycle: {p['lifecycle_state']}")
-        print(f"    Mode:      {p['operational_mode']}")
-        print(f"    Iteration: {p['iteration']}")
+        emit(f"  Project: {p['name']} ({p['project_id'][:8]}...)")
+        emit(f"    Lifecycle: {p['lifecycle_state']}")
+        emit(f"    Mode:      {p['operational_mode']}")
+        emit(f"    Iteration: {p['iteration']}")
 
         tasks = task_repo.list_for_project(p["project_id"])
         if tasks:
-            print(f"    Tasks ({len(tasks)}):")
+            emit(f"    Tasks ({len(tasks)}):")
             for t in tasks:
-                print(f"      {t['task_id'][:8]}... {t['task_type']:12s} {t['status']:14s} (iter {t['iteration']})")
-        print()
+                emit(f"      {t['task_id'][:8]}... {t['task_type']:12s} {t['status']:14s} (iter {t['iteration']})")
+        emit("")
 
     conn.close()
     return 0
@@ -240,7 +243,7 @@ def _audit(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.",
+        emit("No database found. Run `hermes init` first.",
               file=sys.stderr)
         return 1
 
@@ -269,24 +272,25 @@ def _audit(args, cfg: HermesConfig) -> int:
             if row.get("artifact_ids_json") is not None:
                 row["artifact_ids_json"] = _parse(row["artifact_ids_json"])
             payload.append(row)
-        print(json.dumps({"events": payload}, indent=2, sort_keys=True))
+        emit_lines(
+            json.dumps({"events": payload}, indent=2, sort_keys=True).split("\n"))
         conn.close()
         return 0
 
     if not events:
-        print("No events recorded.")
+        emit("No events recorded.")
         conn.close()
         return 0
 
-    print(f"Event journal ({len(events)} events):")
-    print("-" * 80)
+    emit(f"Event journal ({len(events)} events):")
+    emit("-" * 80)
     for e in events:
-        print(f"  #{e['event_id']:4d} | {e['event_type']:30s} | proj={e['project_id'] or '-':12s} | task={e['task_id'] or '-':12s}")
+        emit(f"  #{e['event_id']:4d} | {e['event_type']:30s} | proj={e['project_id'] or '-':12s} | task={e['task_id'] or '-':12s}")
         if e["from_state"] or e["to_state"]:
-            print(f"         {e['from_state'] or '-':14s} -> {e['to_state'] or '-':14s}")
+            emit(f"         {e['from_state'] or '-':14s} -> {e['to_state'] or '-':14s}")
         if e["reason"]:
-            print(f"         reason: {e['reason']}")
-    print("-" * 80)
+            emit(f"         reason: {e['reason']}")
+    emit("-" * 80)
     conn.close()
     return 0
 
@@ -306,9 +310,9 @@ def _project_create(args, cfg: HermesConfig) -> int:
     project = repo.create(project_id, args.name)
     conn.close()
 
-    print(f"Created project: {project['name']} (id: {project_id})")
-    print(f"  Lifecycle: {project['lifecycle_state']}")
-    print(f"  Mode:      {project['operational_mode']}")
+    emit(f"Created project: {project['name']} (id: {project_id})")
+    emit(f"  Lifecycle: {project['lifecycle_state']}")
+    emit(f"  Mode:      {project['operational_mode']}")
     return 0
 
 
@@ -319,7 +323,7 @@ def _project_show(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -328,23 +332,23 @@ def _project_show(args, cfg: HermesConfig) -> int:
     try:
         project = proj_repo.get(args.project_id)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         conn.close()
         return 1
 
-    print(f"Project: {project['name']}")
-    print(f"  ID:          {project['project_id']}")
-    print(f"  Lifecycle:   {project['lifecycle_state']}")
-    print(f"  Mode:        {project['operational_mode']}")
-    print(f"  Iteration:   {project['iteration']}")
-    print(f"  Created:     {project['created_at']}")
-    print(f"  Updated:     {project['updated_at']}")
+    emit(f"Project: {project['name']}")
+    emit(f"  ID:          {project['project_id']}")
+    emit(f"  Lifecycle:   {project['lifecycle_state']}")
+    emit(f"  Mode:        {project['operational_mode']}")
+    emit(f"  Iteration:   {project['iteration']}")
+    emit(f"  Created:     {project['created_at']}")
+    emit(f"  Updated:     {project['updated_at']}")
 
     task_repo = TaskRepository(conn)
     tasks = task_repo.list_for_project(args.project_id)
-    print(f"  Tasks: {len(tasks)}")
+    emit(f"  Tasks: {len(tasks)}")
     for t in tasks:
-        print(f"    {t['task_id'][:8]}... {t['task_type']:12s} {t['status']:14s}")
+        emit(f"    {t['task_id'][:8]}... {t['task_type']:12s} {t['status']:14s}")
 
     conn.close()
     return 0
@@ -357,7 +361,7 @@ def _task_show(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -366,22 +370,22 @@ def _task_show(args, cfg: HermesConfig) -> int:
     try:
         task = task_repo.get(args.task_id)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         conn.close()
         return 1
 
-    print(f"Task: {task['task_id']}")
-    print(f"  Type:        {task['task_type']}")
-    print(f"  Status:      {task['status']}")
-    print(f"  Attempt:     {task['attempt']}")
-    print(f"  Iteration:   {task['iteration']}")
-    print(f"  Idempotency: {task['idempotency_key'][:16]}...")
+    emit(f"Task: {task['task_id']}")
+    emit(f"  Type:        {task['task_type']}")
+    emit(f"  Status:      {task['status']}")
+    emit(f"  Attempt:     {task['attempt']}")
+    emit(f"  Iteration:   {task['iteration']}")
+    emit(f"  Idempotency: {task['idempotency_key'][:16]}...")
     if task.get("dependencies"):
-        print(f"  Deps:        {task['dependencies']}")
+        emit(f"  Deps:        {task['dependencies']}")
     if task.get("started_at"):
-        print(f"  Started:     {task['started_at']}")
+        emit(f"  Started:     {task['started_at']}")
     if task.get("completed_at"):
-        print(f"  Completed:   {task['completed_at']}")
+        emit(f"  Completed:   {task['completed_at']}")
 
     conn.close()
     return 0
@@ -394,7 +398,7 @@ def _events(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -407,12 +411,12 @@ def _events(args, cfg: HermesConfig) -> int:
         events = event_repo.list_all()
 
     if not events:
-        print("No events.")
+        emit("No events.")
         conn.close()
         return 0
 
     for e in events:
-        print(f"  #{e['event_id']:4d} | {e['event_type']:30s} | {e['from_state'] or '-':14s} -> {e['to_state'] or '-':14s} | {e['created_at']}")
+        emit(f"  #{e['event_id']:4d} | {e['event_type']:30s} | {e['from_state'] or '-':14s} -> {e['to_state'] or '-':14s} | {e['created_at']}")
 
     conn.close()
     return 0
@@ -426,16 +430,16 @@ def _pause(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found.")
+        emit("No database found.")
         return 1
 
     conn = connect(str(db_path))
     repo = ProjectRepository(conn)
     try:
         project = repo.transition_mode(args.project_id, OperationalMode.PAUSED, caused_by="operator")
-        print(f"Paused: {project['name']} (mode: {project['operational_mode']})")
+        emit(f"Paused: {project['name']} (mode: {project['operational_mode']})")
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         conn.close()
         return 1
     conn.close()
@@ -450,16 +454,16 @@ def _resume(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found.")
+        emit("No database found.")
         return 1
 
     conn = connect(str(db_path))
     repo = ProjectRepository(conn)
     try:
         project = repo.transition_mode(args.project_id, OperationalMode.ACTIVE, caused_by="operator")
-        print(f"Resumed: {project['name']} (mode: {project['operational_mode']})")
+        emit(f"Resumed: {project['name']} (mode: {project['operational_mode']})")
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         conn.close()
         return 1
     conn.close()
@@ -492,7 +496,7 @@ def _run(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -504,7 +508,7 @@ def _run(args, cfg: HermesConfig) -> int:
         outcomes = ctrl.run(max_ticks=args.ticks)
         notes = list(ctrl.notes)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         return 1
     finally:
         conn.close()
@@ -512,14 +516,14 @@ def _run(args, cfg: HermesConfig) -> int:
     def _sum(attr):
         return sum(len(getattr(o, attr)) for o in outcomes)
 
-    print(
+    emit(
         f"Ran {len(outcomes)} tick(s) for project {args.project_id}: "
         f"{_sum('dispatched')} dispatched, {_sum('succeeded')} succeeded, "
         f"{_sum('waiting_human')} waiting on human, {_sum('failed')} failed, "
         f"{_sum('unhandled')} unhandled."
     )
     for n in notes:
-        print(f"  note: {n}")
+        emit(f"  note: {n}")
     return 0
 
 
@@ -533,12 +537,12 @@ def _backup(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
     if cfg.sqlite.retain_last_n < 1:
         # B4 — retain 0 would delete the backup we are about to write:
         # refuse loudly instead of printing "Backup written" for a deleted file.
-        print(f"Error: sqlite.retain_last_n must be >= 1, "
+        emit(f"Error: sqlite.retain_last_n must be >= 1, "
               f"got {cfg.sqlite.retain_last_n}")
         return 1
 
@@ -549,13 +553,13 @@ def _backup(args, cfg: HermesConfig) -> int:
             artifact_root=cfg.artifacts.artifact_root)
         retain_last_n(cfg.sqlite.backup_dir, cfg.sqlite.retain_last_n)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         return 1
     finally:
         conn.close()
-    print(f"Backup written: {result.backup_path}")
+    emit(f"Backup written: {result.backup_path}")
     if result.artifact_store_path:
-        print(f"  artifact store snapshot: {result.artifact_store_path}")
+        emit(f"  artifact store snapshot: {result.artifact_store_path}")
     return 0
 
 
@@ -570,10 +574,10 @@ def _restore(args, cfg: HermesConfig) -> int:
     db_path = Path(cfg.sqlite.database_path)
     backup_path = Path(args.backup_path)
     if not backup_path.exists():
-        print(f"Backup not found: {backup_path}")
+        emit(f"Backup not found: {backup_path}")
         return 1
     if not db_path.exists():
-        print(f"No live database at {db_path} — nothing to restore onto.")
+        emit(f"No live database at {db_path} — nothing to restore onto.")
         return 1
 
     try:
@@ -581,9 +585,9 @@ def _restore(args, cfg: HermesConfig) -> int:
             backup_path, db_path,
             live_artifact_root=cfg.artifacts.artifact_root)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         return 1
-    print(f"Restored {backup_path} onto {db_path} "
+    emit(f"Restored {backup_path} onto {db_path} "
           f"(schema migrated on next open).")
     return 0
 
@@ -602,7 +606,7 @@ def _gate_resolve(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -614,22 +618,22 @@ def _gate_resolve(args, cfg: HermesConfig) -> int:
                 project_id = TaskRepository(conn).get(args.task_id)[
                     "project_id"]
             except NotFoundError:
-                print(f"Error: task {args.task_id!r} not found.")
+                emit(f"Error: task {args.task_id!r} not found.")
                 return 1
         out = Controller(conn, project_id=project_id).resolve_human_gate(
             task_id=args.task_id, verdict=args.verdict,
             operator_id=args.operator, operator_token=args.token)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports
-        print(f"Error: {e}")
+        emit(f"Error: {e}")
         return 1
     finally:
         conn.close()
 
     if out["rejected"]:
         detail = out.get("detail") or ""
-        print(f"Refused ({out.get('code')}): {detail}".rstrip())
+        emit(f"Refused ({out.get('code')}): {detail}".rstrip())
         return 1
-    print(f"Gate {args.task_id} resolved: {args.verdict} "
+    emit(f"Gate {args.task_id} resolved: {args.verdict} "
           f"(operator {args.operator}).")
     return 0
 
@@ -645,7 +649,7 @@ def _operator_register(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
 
     conn = connect(str(db_path))
@@ -654,12 +658,12 @@ def _operator_register(args, cfg: HermesConfig) -> int:
         row = OperatorCredentialRepository(conn).register(
             args.operator_id, args.token, args.name or "")
     except ValueError as e:
-        print(f"Refused (OPERATOR): {e}")
+        emit(f"Refused (OPERATOR): {e}")
         return 1
     finally:
         conn.close()
 
-    print(f"Registered operator {row['operator_id']} "
+    emit(f"Registered operator {row['operator_id']} "
           f"({row['name'] or 'unnamed'}).")
     return 0
 
@@ -682,7 +686,7 @@ def _vault_project(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
     conn = connect(str(db_path))
     try:
@@ -692,11 +696,11 @@ def _vault_project(args, cfg: HermesConfig) -> int:
                                       cursor=cursor)
         write_cursor(args.vault_root, new_cursor)
     except ProjectionRefused as exc:
-        print(f"Refused [{exc.code}]: {exc.detail}")
+        emit(f"Refused [{exc.code}]: {exc.detail}")
         return 1
     finally:
         conn.close()
-    print(f"Projected {args.project_id} into {args.vault_root}: cursor "
+    emit(f"Projected {args.project_id} into {args.vault_root}: cursor "
           f"{cursor} -> {new_cursor}, {len(written)} note(s) written; "
           "manifest .projection-manifest.json written.")
     return 0
@@ -715,23 +719,24 @@ def _vault_verify(args, cfg: HermesConfig) -> int:
 
     db_path = Path(cfg.sqlite.database_path)
     if not db_path.exists():
-        print("No database found. Run `hermes init` first.")
+        emit("No database found. Run `hermes init` first.")
         return 1
     conn = connect(str(db_path))
     try:
         report = verify_manifest(conn, args.project_id, args.vault_root)
     except ProjectionRefused as exc:
-        print(f"Refused [{exc.code}]: {exc.detail}")
+        emit(f"Refused [{exc.code}]: {exc.detail}")
         return 1
     finally:
         conn.close()
     if getattr(args, "as_json", False):
-        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        emit_lines(
+            json.dumps(report.to_dict(), indent=2, sort_keys=True).split("\n"))
     else:
         for line in report.lines():
-            print(line)
+            emit(line)
     if not report.ok:
-        print("Vault manifest does not match the journal — the derived view "
+        emit("Vault manifest does not match the journal — the derived view "
               "is refused.", file=sys.stderr)
         return 1
     return 0
@@ -854,19 +859,16 @@ def _load_config_or_default(config_arg: Path | None) -> HermesConfig:
                 # B4 — never SILENTLY disable operator settings on a typo'd
                 # config: the fallback is loud (stderr) and the operator can
                 # see exactly what was rejected and what is running instead.
-                print(f"warning: ignoring invalid config {c}: {exc}",
+                emit(f"warning: ignoring invalid config {c}: {exc}",
                       file=sys.stderr)
-                print("  running on built-in defaults", file=sys.stderr)
+                emit("  running on built-in defaults", file=sys.stderr)
                 return default_config()
     return default_config()
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    cfg = _load_config_or_default(getattr(args, "config", None))
-
+def _dispatch(args: argparse.Namespace, cfg: HermesConfig,
+              parser: argparse.ArgumentParser) -> int:
+    """Route one parsed command to its handler (the CLI's emit boundary)."""
     cmd = args.command
     if cmd is None:
         parser.print_help()
@@ -889,13 +891,13 @@ def main(argv: list[str] | None = None) -> int:
             return _project_create(args, cfg)
         if pc == "show":
             return _project_show(args, cfg)
-        print("Usage: hermes project {create|show} ...")
+        emit("Usage: hermes project {create|show} ...")
         return 0
     if cmd == "task":
         tc = getattr(args, "task_command", None)
         if tc == "show":
             return _task_show(args, cfg)
-        print("Usage: hermes task show <task_id>")
+        emit("Usage: hermes task show <task_id>")
         return 0
     if cmd == "events":
         return _events(args, cfg)
@@ -909,7 +911,7 @@ def main(argv: list[str] | None = None) -> int:
             return _vault_project(args, cfg)
         if vc == "verify":
             return _vault_verify(args, cfg)
-        print("Usage: hermes vault {project|verify} <project_id> "
+        emit("Usage: hermes vault {project|verify} <project_id> "
               "--vault-root <path>")
         return 0
     if cmd == "run":
@@ -918,18 +920,29 @@ def main(argv: list[str] | None = None) -> int:
         gc = getattr(args, "gate_command", None)
         if gc == "resolve":
             return _gate_resolve(args, cfg)
-        print("Usage: hermes gate resolve <task_id> "
+        emit("Usage: hermes gate resolve <task_id> "
               "--verdict APPROVED|REJECTED --operator <id> --token <token>")
         return 0
     if cmd == "operator":
         oc = getattr(args, "operator_command", None)
         if oc == "register":
             return _operator_register(args, cfg)
-        print("Usage: hermes operator register <operator_id> "
+        emit("Usage: hermes operator register <operator_id> "
               "--token <token> [--name <name>]")
         return 0
     parser.print_help()
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    cfg = _load_config_or_default(getattr(args, "config", None))
+    # The emit boundary (EXT-5 / R3): a line the boundary cannot prove free
+    # of terminal control sequences refuses loudly — fixed refusal line on
+    # stderr (stdout stays parseable), nonzero exit — never raw bytes.
+    return run_boundary(lambda: _dispatch(args, cfg, parser))
 
 
 if __name__ == "__main__":

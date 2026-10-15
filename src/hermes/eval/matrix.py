@@ -56,6 +56,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
+from hermes.output import emit_lines, run_boundary
+
 __all__ = [
     "PLANE_CAPABILITY",
     "PLANE_GOVERNANCE",
@@ -710,8 +712,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     The runner writes the report to ``stdout`` (default) or to a file
     named by ``--report-path`` (a path the caller supplies, never the
-    repo journal). Exit code is 0 iff every case passed.
+    repo journal). Exit code is 0 iff every case passed. stdout goes
+    through the emit boundary (EXT-5 / R3), so a line that cannot be
+    proven free of terminal control sequences refuses loudly instead of
+    reaching the terminal raw.
     """
+    return run_boundary(lambda: _run(argv))
+
+
+def _run(argv: Sequence[str] | None = None) -> int:
     import argparse  # local import: stdlib only
     parser = argparse.ArgumentParser(
         prog="hermes.eval.matrix",
@@ -735,7 +744,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         with open(args.report_path, "w", encoding="utf-8") as fh:
             fh.write(text)
     else:
-        print(text)
+        emit_lines(text.split("\n"))
     return 0 if report.is_clean() else 1
 
 

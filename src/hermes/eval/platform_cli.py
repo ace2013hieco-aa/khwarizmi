@@ -43,6 +43,7 @@ from hermes.eval.ops import (
     authenticate,
     verify_backup,
 )
+from hermes.output import emit, emit_lines, run_boundary
 
 __all__ = [
     "cmd_auth",
@@ -77,7 +78,7 @@ def cmd_matrix(argv: Sequence[str]) -> int:
         with open(args.report_path, "w", encoding="utf-8") as fh:
             fh.write(text)
     else:
-        print(text)
+        emit_lines(text.split("\n"))
     return 0 if report.is_clean() else 1
 
 
@@ -103,9 +104,9 @@ def cmd_auth(argv: Sequence[str]) -> int:
         refusal = outcome.refusal
         assert refusal is not None  # type-invariant: is_refusal() ↔ refusal set
         if args.format == "json":
-            print(json.dumps(refusal.as_dict(), sort_keys=True))
+            emit(json.dumps(refusal.as_dict(), sort_keys=True))
         else:
-            print(f"REFUSED {refusal.code}: {refusal.detail}")
+            emit(f"REFUSED {refusal.code}: {refusal.detail}")
         return 1
     ctx = outcome.value
     body = {
@@ -117,10 +118,10 @@ def cmd_auth(argv: Sequence[str]) -> int:
         "project_id": ctx.project_id,
     }
     if args.format == "json":
-        print(json.dumps(body, sort_keys=True))
+        emit(json.dumps(body, sort_keys=True))
     else:
         for key, value in sorted(body.items()):
-            print(f"{key}: {value}")
+            emit(f"{key}: {value}")
     return 0
 
 
@@ -136,21 +137,23 @@ def cmd_extensions(argv: Sequence[str]) -> int:
     if args.name is None:
         items = list_extensions()
         if args.format == "json":
-            print(json.dumps({"extensions": [
+            emit_lines(json.dumps({"extensions": [
                 {"name": n, "summary": EXTENSION_POINTS[n].summary}
                 for n in items
-            ]}, indent=2))
+            ]}, indent=2).split("\n"))
         else:
-            print("Frozen extension points:")
+            emit("Frozen extension points:")
             for n in items:
-                print(f"  - {n}: {EXTENSION_POINTS[n].summary}")
+                emit(f"  - {n}: {EXTENSION_POINTS[n].summary}")
         return 0
     if args.name not in EXTENSION_POINTS:
-        print(json.dumps({"error": "unknown_extension",
-                          "name": args.name,
-                          "available": list(EXTENSION_POINTS)}, indent=2))
+        emit_lines(json.dumps({"error": "unknown_extension",
+                               "name": args.name,
+                               "available": list(EXTENSION_POINTS)},
+                              indent=2).split("\n"))
         return 2
-    print(describe_extension(args.name, as_json=(args.format == "json")))
+    emit_lines(describe_extension(
+        args.name, as_json=(args.format == "json")).split("\n"))
     return 0
 
 
@@ -171,9 +174,9 @@ def cmd_verify_backup(argv: Sequence[str]) -> int:
     if outcome.is_refusal():
         refusal = outcome.refusal
         assert refusal is not None  # type-invariant
-        print(json.dumps(refusal.as_dict(), sort_keys=True))
+        emit(json.dumps(refusal.as_dict(), sort_keys=True))
         return 1
-    print(json.dumps({
+    emit(json.dumps({
         "verified": True,
         "path": args.path,
         "sha256_hex": args.sha256,
@@ -200,10 +203,10 @@ def cmd_redact_demo(argv: Sequence[str]) -> int:
     }
     redacted = redact(payload)
     if args.format == "json":
-        print(json.dumps(redacted, indent=2, default=str))
+        emit_lines(json.dumps(redacted, indent=2, default=str).split("\n"))
     else:
         for key, value in sorted(redacted.items()):
-            print(f"{key}: {value!r}")
+            emit(f"{key}: {value!r}")
     return 0
 
 
@@ -240,11 +243,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     command = raw[0]
     rest = raw[1:]
     if command not in _COMMANDS:
-        print(f"unknown command: {command!r}; available: "
+        emit(f"unknown command: {command!r}; available: "
               f"{sorted(_COMMANDS)}", file=sys.stderr)
         return 2
     cmd = _COMMANDS[command]
-    return cmd(rest)
+    # The emit boundary (EXT-5 / R3): refuse loudly rather than emit a line
+    # that cannot be proven free of terminal control sequences.
+    return run_boundary(lambda: cmd(rest))
 
 
 if __name__ == "__main__":  # pragma: no cover
