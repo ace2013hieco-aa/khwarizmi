@@ -138,6 +138,19 @@ class Supervisor:
             return None
         return self._monotonic() - deadline
 
+    def remaining(self, deadline: float | None) -> float | None:
+        """Seconds left before `deadline`, clamped at zero (or `None`).
+
+        A reporting helper. The unit a run's bound crosses a checkpoint in is the
+        absolute instant itself, not this duration: a duration re-bases against
+        each entry's own start and would hand a repeatedly-resumed run the full
+        declared bound every time (LOOP-4 M1). `remaining` is therefore used to
+        *describe* a bound, never to reconstruct one.
+        """
+        if deadline is None:
+            return None
+        return max(0.0, deadline - self._monotonic())
+
     def expired(self, deadline: float | None) -> bool:
         return deadline is not None and self._monotonic() >= deadline
 
@@ -165,12 +178,23 @@ class Supervisor:
         *,
         retryable: Callable[[Any], bool],
         budget: RetryBudget | None = None,
+        deadline: float | None = None,
     ) -> tuple[Any, tuple[int, ...]]:
         """Call `action(attempt)` until it is not retryable or the budget ends.
 
         Returns the last result and every attempt number made, so a run can
         record *how many* attempts a proposal cost without the supervisor
         keeping state of its own.
+
+        The wait between attempts is bounded twice over (LOOP-4 E5). The budget
+        bounds it by construction: `RetryBudget.delays()` is a finite,
+        deterministic schedule (`base * 2**i` for `max_retries` entries), so the
+        most a run can spend sleeping is `base * (2**max_retries - 1)`. The run's
+        own `deadline` bounds it again: this never sleeps *past* the instant the
+        run must stop, because that would spend the run's bound on waiting rather
+        than on work — a delay that would cross the deadline ends the retry
+        sequence instead of being slept through, and the caller's next supervisor
+        check reports the expiry.
         """
         plan = budget if budget is not None else self._retry
         result: Any = None
@@ -180,7 +204,10 @@ class Supervisor:
             result = action(attempt)
             if not retryable(result) or not plan.allows(attempt):
                 break
-            self.sleep(plan.delays()[attempt - 1])
+            delay = plan.delays()[attempt - 1]
+            if deadline is not None and self._monotonic() + delay >= deadline:
+                break
+            self.sleep(delay)
         return result, tuple(attempts)
 
     # ── the trace ──

@@ -46,12 +46,14 @@ __all__ = [
     "PAYLOAD_ORIGIN",
     "PROPOSAL_ORIGIN",
     "REFUSAL_ORIGIN",
+    "RETRY_ORIGIN",
     "REVIEW_ORIGIN",
     "ContextAssembler",
     "assemble_payload_envelopes",
     "default_context_assembler",
     "feedback_envelopes",
     "proposal_envelopes",
+    "retry_envelope",
     "review_envelopes",
 ]
 
@@ -73,6 +75,13 @@ REFUSAL_ORIGIN = "runtime.refusal"
 #: judgment, carried into the next round as data. Same discipline as the two
 #: feedback origins — the next round reads it, never obeys it.
 REVIEW_ORIGIN = "runtime.review_verdict"
+
+#: The origin a **retry note** carries (LOOP-4 E5): why the previous attempt at
+#: the same call was refused. A retry used to re-issue the identical request, so
+#: the second attempt could only fail the way the first did. Same discipline as
+#: every other loop-state origin — data the next attempt reads, never an
+#: instruction it obeys.
+RETRY_ORIGIN = "runtime.retry"
 
 
 class ContextAssembler(Protocol):
@@ -207,6 +216,34 @@ def proposal_envelopes(proposals: tuple[Proposal, ...]
         envelopes.append(UntrustedContent(text=text, origin=PROPOSAL_ORIGIN,
                                           ref=digest))
     return tuple(envelopes)
+
+
+def retry_envelope(code: str, detail: str, *, attempt: int) -> UntrustedContent:
+    """Render a retryable refusal as data for the next attempt (LOOP-4 E5).
+
+    A retry re-issued the *identical* request, so a second attempt could only
+    fail the way the first did: the runtime knew why the call was refused and
+    withheld it from the only party that could act on it. This carries the
+    refusal's code and its (untrusted) detail text, labelled `RETRY_ORIGIN` and
+    attributed to the attempt that produced it, so the next attempt is asked an
+    informed question instead of the same one.
+
+    Pure and deterministic, like every renderer here — the same refusal renders
+    the same envelope. The text is data: a model refusal's detail is the
+    provider's own message, and nothing in the runtime reads it as an
+    instruction. An oversized detail keeps the code and carries
+    `detail_omitted_bytes` instead of a torn body, exactly as a feedback or
+    verdict envelope does.
+    """
+    document: dict[str, Any] = {"attempt": attempt, "code": code, "detail": detail}
+    text = canonical_json(document)
+    if len(text.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        omitted = len(str(detail).encode("utf-8"))
+        document["detail"] = ""
+        document["detail_omitted_bytes"] = omitted
+        text = canonical_json(document)
+    return UntrustedContent(text=text, origin=RETRY_ORIGIN,
+                            ref=f"retry:{attempt}:{code}")
 
 
 def review_envelopes(verdicts: Sequence[ReviewVerdict]

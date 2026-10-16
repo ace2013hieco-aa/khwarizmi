@@ -34,9 +34,14 @@ Five rules, mechanically
   `task_id` and `idempotency_key` are supplied or *derived by rule* here; a draft
   that tries to author any of them is refused (`MALFORMED_PAYLOAD`).
 * **Bounds are honoured, never approached.** `max_ticks`, `max_proposals`,
-  `max_tool_calls`, `max_model_calls_per_tick`, `deadline_seconds` and the
-  delegation depth and child-run budget all stop the loop; the loop has no
-  unbounded branch.
+  `max_tool_calls`, `max_model_calls_per_tick` and `deadline_seconds` each stop
+  the loop; the delegation depth and the child-run budget are *refusal* bounds —
+  the delegation that exceeds one is refused and recorded, and the run carries on
+  within its tick budget. Either way the loop has no unbounded branch. (The
+  distinction is deliberate: a bound on the run's own work ends the run, while a
+  bound on a *delegation* declines that one child and leaves the parent's other
+  work intact — see `_delegate_one`. `Termination` therefore has no
+  `DELEGATION_LIMIT`, LOOP-4 E6.)
 * **Attribution comes from the lease.** Every proposal, refusal, trace event,
   checkpoint and delegation record carries the run's `lease_generation`, taken
   from the injected `TaskContext` — never from a settable ambient variable (B-4).
@@ -70,19 +75,47 @@ untrusted data the next round reads — never an instruction it obeys.
 Feedback is loop state, composed after the port (LOOP-2)
 -------------------------------------------------------
 A tick's model prompt is the context assembler's envelopes (LOOP-1), then this
-run's retained tool feedback, then any consumed review verdicts (LOOP-3), then the
-tick marker. The trailing three are facts about the *run* rather than about its
+run's retained tool feedback, then any consumed review verdicts (LOOP-3), then —
+on a retry — the refusal that ended the previous attempt (LOOP-4 E5), then the
+tick marker. The trailing four are facts about the *run* rather than about its
 context, so they are composed after the port rather than smuggled into the context
 — the context digest a resume is checked against is therefore still a digest of
 the run's inputs alone. A retained result is evidence-shaped data (artifact refs,
 the payload's size and digest, a refusal or failure signal); nothing in it is ever
 an instruction, and no observation payload's text enters a prompt.
 
+A retry is informed, and never sleeps past the run's bound (LOOP-4 E5)
+---------------------------------------------------------------------
+A retry used to re-issue the *identical* request, so a second attempt could only
+fail the way the first did. The refusal that ended attempt N-1 is now rendered
+into attempt N's prompt as an origin-marked data envelope (`runtime.retry`) — the
+same seam LOOP-2 gave tool feedback, applied to the model plane's own answer. The
+wait between attempts is bounded by the retry budget (a finite, deterministic
+schedule) and again by the run's deadline: the supervisor never sleeps *past* the
+instant the run must stop, because that would spend the run's bound on waiting
+rather than on work.
+
 A cancel is observed in four places, never only at the top of a tick: before a
 model call, before each capability call in a batch, whenever a tick is about to
 report the run's stop, and after the terminal act (the review). A cancel that
 lands during the run's last piece of work is therefore recorded as the run's
 terminal state — a cancelled run is never reported as `SUCCEEDED`.
+
+The deadline is the *run's* bound, not the attempt's (LOOP-4 E2/E3/M1)
+-----------------------------------------------------------------
+`deadline_seconds` is resolved once per run into a monotonic instant, held on the
+run's state, and checked at the same four places the cancel is — including the
+terminal act, which used to drop it. It is also carried across a resume, and it
+is carried as an *absolute instant*: the checkpoint records the run's deadline
+instant once, and `resume` re-enters the run with that very instant, so
+"bounded in time" is a statement about the run and not about one attempt at it.
+An instant — not a remaining duration — is what makes this true across repeated
+resumes: a duration re-bases against each entry's own start, so a run that keeps
+crashing before it makes progress would keep being handed the full declared
+bound. With the instant fixed, every later resume computes a strictly smaller
+remaining and eventually resumes already-expired. The instant is a monotonic
+reading, and so is meaningful within one process — which is the scope this plane
+claims, since its recovery is process-local and derived (see `supervisor.py`).
 
 The wire shape a profile's contract expects:
 
@@ -111,6 +144,7 @@ from hermes.agents.runtime.assembly import (
     default_context_assembler,
     feedback_envelopes,
     proposal_envelopes,
+    retry_envelope,
     review_envelopes,
 )
 from hermes.agents.runtime.checkpoint import (
@@ -321,6 +355,11 @@ class _RunState:
     #: The content identities of the verdicts already consumed — the stability set
     #: the re-draft loop terminates on when a reviewer's judgment stops moving.
     seen_verdicts: set[str] = field(default_factory=set)
+    #: The run's absolute monotonic deadline, or `None` when it declared none
+    #: (LOOP-4 E2/E3/M1). Derived once per *run* — not once per attempt — and
+    #: carried across a resume as the same absolute instant, so the bound belongs
+    #: to the run rather than to whichever entry happened to be executing.
+    deadline: float | None = None
 
     def refuse(self, code: str, detail: str, *, tick: int, kind: str = ""
                ) -> RuntimeRefusal:
@@ -438,7 +477,7 @@ class AgentRuntime:
                            tick=working.tick)
             working.terminate(TaskStatus.FAILED.value, guard)
             self._close(spec, context, working, run_id, resumed_from_generation,
-                        token=token)
+                        deadline=None, token=token)
             return self._assemble(spec, context, working, run_id,
                                   resumed_from_tick=start_tick - 1)
 
@@ -447,15 +486,16 @@ class AgentRuntime:
                    lease_generation=context.lease_generation,
                    detail={"profile": spec.name, "depth": context.depth,
                            "start_tick": start_tick})
+        # The deadline is the *run's* bound, resolved once and kept on the state
+        # (LOOP-4 E2/E3/M1): a resume inherits the run's absolute deadline instant
+        # rather than a fresh one, and every act below — including the terminal
+        # act — is checked against this same instant.
+        deadline = self._run_deadline(spec, context, working)
         # The opening checkpoint: a crash during the first tick still leaves a
         # record to classify, which is what makes the NO_SIGNAL chain reachable.
         self._write_checkpoint(spec, context, working, run_id,
                                resumed_from_generation=resumed_from_generation)
 
-        deadline = self._supervisor.deadline(
-            context.limits.deadline_seconds
-            if context.limits.deadline_seconds is not None
-            else spec.termination.deadline_seconds)
         max_ticks = self._max_ticks(spec, context)
         # LOOP-3: the run is a bounded sequence of drafting rounds, each closed by
         # one review. `max_review_rounds` caps the sequence; a passing review, an
@@ -486,7 +526,8 @@ class AgentRuntime:
                                   Termination.TICK_LIMIT.value)
             if not self._close(spec, context, working, run_id,
                                resumed_from_generation, round_index=round_index,
-                               max_rounds=max_rounds, token=token):
+                               max_rounds=max_rounds, deadline=deadline,
+                               token=token):
                 break
             # A failing review with a round left owes another drafting round: the
             # verdict is retained (and re-injected as data), so reopen the run and
@@ -501,23 +542,27 @@ class AgentRuntime:
     def _close(self, spec: ProfileSpec, context: TaskContext, state: _RunState,
                run_id: str, resumed_from_generation: str, *,
                round_index: int = 1, max_rounds: int = 1,
+               deadline: float | None = None,
                token: RunCancelToken | None = None) -> bool:
         """Review (when configured), then — unless a round is owed — the checkpoint.
 
-        The review is the run's terminal act, so the cancel check brackets it: a
-        cancel already observed skips it, and a cancel that lands *while* it runs
-        becomes the run's terminal state — never a silent `SUCCEEDED`.
+        The review is the run's terminal act and the longest-running part of the
+        run, so the supervisor check brackets it with the *run's own deadline* as
+        well as the cancel: a cancel already observed skips it, and a cancel **or
+        a deadline expiry** that lands while it runs becomes the run's terminal
+        state — never a silent `SUCCEEDED` (LOOP-4 E2; the deadline used to be
+        dropped here by passing `None`).
 
         Returns `True` when a failing verdict with a round remaining must be
         re-drafted: the verdict is retained (LOOP-3) and no terminal record is
         written, because the run is still in flight. Returns `False` when the run
         is finished and its terminal checkpoint is on file.
         """
-        verdict = self._supervisor.check(token, None)
+        verdict = self._supervisor.check(token, deadline)
         if not verdict and state.state == TaskStatus.SUCCEEDED.value:
             review = self._maybe_review(spec, context, state, run_id,
                                         round_index=round_index, token=token)
-            verdict = self._supervisor.check(token, None)
+            verdict = self._supervisor.check(token, deadline)
             if review is not None:
                 state.review_verdicts.append(review)
                 if (not verdict and state.state == TaskStatus.SUCCEEDED.value
@@ -606,7 +651,7 @@ class AgentRuntime:
 
         retained = len(state.feedback)
         if not self._tool_phase(structured, spec, context, state, run_id, tick,
-                                token):
+                                deadline=deadline, token=token):
             # A capability that failed (or was refused) stops the run: the state
             # says so, rather than falling through to the tick-limit SUCCEEDED.
             state.terminate(TaskStatus.FAILED.value, Termination.TOOL_FAILED.value)
@@ -711,11 +756,28 @@ class AgentRuntime:
                    lease_generation=context.lease_generation,
                    detail={"tier": spec.model_policy.tier,
                            "call_budget": call_budget})
+        # A retry is *informed* (LOOP-4 E5): the refusal that ended attempt N-1
+        # is rendered into attempt N's prompt as an origin-marked data envelope,
+        # so the second call is not the same question asked twice. The first
+        # attempt is the plain request.
+        refused: list[ModelRefusal] = []
+
+        def attempt_request(attempt: int) -> ModelProposal | ModelRefusal:
+            if attempt == 1 or not refused:
+                result = self._model.invoke(request)
+            else:
+                result = self._model.invoke(self._model_request(
+                    spec, context, state, tick, retry_refusal=refused[-1],
+                    retry_attempt=attempt - 1))
+            if isinstance(result, ModelRefusal):
+                refused.append(result)
+            return result
+
         result, attempts = self._supervisor.attempt(
-            lambda attempt: self._model.invoke(request),
+            attempt_request,
             retryable=lambda item: (isinstance(item, ModelRefusal)
                                     and item.code in RETRYABLE_MODEL_REFUSALS),
-            budget=budget)
+            budget=budget, deadline=deadline)
 
         if isinstance(result, ModelRefusal):
             state.refuse(result.code, f"model refusal: {result.detail}", tick=tick)
@@ -763,6 +825,7 @@ class AgentRuntime:
                      model_ref: str) -> tuple[str, ...]:
         """Validate every draft, then emit the survivors as intents."""
         drafts, refusals = self._validate_drafts(structured, spec, context, tick)
+        evidence_refs = self._evidence_refs(state)
         for refusal in refusals:
             state.refusals.append(refusal)
             self._emit(kind="PROPOSAL_REFUSED", run_id=run_id, tick=tick,
@@ -796,10 +859,24 @@ class AgentRuntime:
                            detail={"code": refusal.code, "kind": kind.value})
                 continue
             proposal = self._emit_intent(intent, rationale, spec, context, state,
-                                        run_id, tick, model_ref, artifact_ref)
+                                        run_id, tick, model_ref, artifact_ref,
+                                        capability_refs=evidence_refs)
             state.proposals.append(proposal)
             digests.append(proposal.draft_digest())
         return tuple(digests)
+
+    def _evidence_refs(self, state: _RunState) -> tuple[str, ...]:
+        """The calls whose retained evidence a draft is being drafted on (E8).
+
+        A draft is authored *before* its own tick's capability calls run, so what
+        actually informed it is the evidence the run had already retained — the
+        very records the prompt carried (`feedback_envelopes`). The refs are the
+        calls' **derived** invocation keys, so the link is to the exact calls and
+        never to an authored identity (§2.3). Sorted and de-duplicated: a set, so
+        equal evidence yields an equal tuple, exactly like the evidence set itself.
+        """
+        return tuple(sorted({record.invocation_ref for record in state.feedback
+                             if record.invocation_ref}))
 
     def _validate_drafts(self, structured: Mapping[str, Any], spec: ProfileSpec,
                          context: TaskContext, tick: int
@@ -945,7 +1022,8 @@ class AgentRuntime:
 
     def _emit_intent(self, intent: Intent, rationale: str, spec: ProfileSpec,
                      context: TaskContext, state: _RunState, run_id: str, tick: int,
-                     model_ref: str, artifact_ref: str) -> Proposal:
+                     model_ref: str, artifact_ref: str,
+                     capability_refs: tuple[str, ...] = ()) -> Proposal:
         """Emit one intent through the Orchestration API and record its verdict."""
         self._emit(kind="INTENT_EMITTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
@@ -969,6 +1047,7 @@ class AgentRuntime:
             agent_profile=spec.agent_profile,
             lease_generation=context.lease_generation,
             model=model_ref,
+            capability_refs=capability_refs,
             artifact_ref=artifact_ref,
             admission=admission,
             admission_detail=detail,
@@ -997,11 +1076,14 @@ class AgentRuntime:
 
     def _tool_phase(self, structured: Mapping[str, Any], spec: ProfileSpec,
                     context: TaskContext, state: _RunState, run_id: str,
-                    tick: int, token: RunCancelToken | None = None) -> bool:
+                    tick: int, *, deadline: float | None = None,
+                    token: RunCancelToken | None = None) -> bool:
         """Run the declared capability calls. False stops the run.
 
-        A cancel that lands mid-batch stops the batch: no further capability call
-        starts once the cancel is observed (R4 probe 3b).
+        A cancel *or a deadline expiry* that lands mid-batch stops the batch: no
+        further capability call starts once the run's supervisor says stop (R4
+        probe 3b; LOOP-4 G8 — the batch used to read `token.cancelled` directly
+        and never observe the deadline, the one place in the run that did).
         """
         items = structured.get("tool_calls")
         if not items:
@@ -1027,9 +1109,9 @@ class AgentRuntime:
                              tick=tick)
                 return True
         for index, item in enumerate(items):
-            if token is not None and token.cancelled:
+            if self._supervisor.check(token, deadline):
                 # The batch stops here; the tick's teardown records the
-                # cancellation as the run's terminal state.
+                # cancellation (or the expiry) as the run's terminal state.
                 break
             if not self._one_tool_call(item, index, spec, context, state, run_id,
                                        tick):
@@ -1039,11 +1121,29 @@ class AgentRuntime:
     def _one_tool_call(self, item: Mapping[str, Any], index: int,
                        spec: ProfileSpec, context: TaskContext, state: _RunState,
                        run_id: str, tick: int) -> bool:
+        """Run one declared capability call. `False` stops the run.
+
+        One severity rule, stated here and applied at every site (LOOP-4 E7):
+
+        * **A call the plane actually invoked, and that refused or failed, stops
+          the run.** The work the run declared could not be done, and reporting a
+          proposal set built beside it would misstate what happened.
+        * **A malformed call — a shape the contract forbids (no `capability_id`,
+          arguments that are not a mapping, an unknown key) — is refused and
+          skipped, and the batch carries on.** The model's mistake is data, and
+          one bad field must not end a run whose other calls and drafts are fine.
+          A capability outside the profile's declared tools is refused *before it
+          is ever invoked*, so it is the benign case too.
+
+        Before LOOP-4 the two malformed-call sites here were fatal while every
+        other malformed-output site was benign, with nothing stating which was
+        which; the rule above is what makes them consistent.
+        """
         capability_id = str(item.get("capability_id", ""))
         if not capability_id:
             state.refuse(MALFORMED_PAYLOAD, "a tool call needs a capability_id",
                          tick=tick)
-            return False
+            return True
         self._emit(kind="TOOL_REQUESTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"capability_id": capability_id})
@@ -1081,7 +1181,7 @@ class AgentRuntime:
         if not isinstance(arguments, Mapping):
             state.refuse(MALFORMED_PAYLOAD, "tool call arguments must be a mapping",
                          tick=tick)
-            return False
+            return True
         request = InvokeRequest(
             capability_id=capability_id,
             arguments=dict(arguments),
@@ -1402,18 +1502,44 @@ class AgentRuntime:
     def _max_ticks(self, spec: ProfileSpec, context: TaskContext) -> int:
         return context.limits.max_ticks or spec.termination.max_ticks
 
+    def _run_deadline(self, spec: ProfileSpec, context: TaskContext,
+                      state: _RunState) -> float | None:
+        """The run's absolute deadline — resolved once, then carried (E2/E3/M1).
+
+        A fresh run derives it from the declared bound (the context's limit, else
+        the profile's). A resumed run already carries one: `resume` seeded it from
+        the *absolute* instant the checkpoint recorded, so re-entering the run
+        continues its original bound instead of granting a fresh one — which is
+        what makes "bounded in time" a statement about the run rather than about
+        one attempt at it. Because the carried value is an instant rather than a
+        duration, it is not re-based against this entry's start: every later
+        resume computes a strictly smaller remaining and eventually resumes
+        already-expired.
+        """
+        if state.deadline is None:
+            state.deadline = self._supervisor.deadline(
+                context.limits.deadline_seconds
+                if context.limits.deadline_seconds is not None
+                else spec.termination.deadline_seconds)
+        return state.deadline
+
     def _max_proposals(self, spec: ProfileSpec, context: TaskContext) -> int:
         return context.limits.max_proposals or spec.termination.max_proposals
 
     def _model_request(self, spec: ProfileSpec, context: TaskContext,
-                       state: _RunState, tick: int) -> ModelRequest:
+                       state: _RunState, tick: int, *,
+                       retry_refusal: ModelRefusal | None = None,
+                       retry_attempt: int = 0) -> ModelRequest:
         """One request per tick; the prompt is the assembler port's job.
 
         The prompt is the port's envelopes, then this run's retained tool feedback
-        (LOOP-2), then any consumed review verdicts (LOOP-3), then the tick marker.
-        All three trailing halves are *loop state*, not context: they are composed
-        after the port, so the assembler keeps owning what a run's own context
-        contributes and the runtime adds only what happened during the run.
+        (LOOP-2), then any consumed review verdicts (LOOP-3), then — on a retry —
+        the refusal that ended the previous attempt (LOOP-4 E5), then the tick
+        marker. All four trailing halves are *loop state*, not context: they are
+        composed after the port, so the assembler keeps owning what a run's own
+        context contributes and the runtime adds only what happened during the
+        run — which is also why the context digest a resume is checked against
+        stays a digest of the run's inputs alone.
         Payloads reach the model as content, never as a digest standing in for them
         (LOOP-1); the same is true of an observation's artifacts, which travel as
         their own refs, and of a reviewer's verdict, which travels as data.
@@ -1421,6 +1547,10 @@ class AgentRuntime:
         prompt = list(self._assembler(context))
         prompt.extend(feedback_envelopes(state.feedback))
         prompt.extend(review_envelopes(state.review_verdicts))
+        if retry_refusal is not None:
+            prompt.append(retry_envelope(retry_refusal.code,
+                                         retry_refusal.detail,
+                                         attempt=retry_attempt))
         prompt.append(UntrustedContent(
             text=f"tick {tick} of {self._max_ticks(spec, context)}",
             origin="runtime.tick", ref=context.task_id))
@@ -1455,6 +1585,7 @@ class AgentRuntime:
             tick=state.tick,
             state=state.state,
             termination=state.termination,
+            deadline_mono=state.deadline,
             context=context.to_mapping(),
             context_digest=context.digest(),
             proposals=tuple(state.proposals),
@@ -1642,6 +1773,13 @@ class AgentRuntime:
             profile=spec.name,
             lease_generation=target,
             tick=checkpoint.tick,
+            # The run's own bound, continued rather than restarted (E3/M1): the
+            # checkpoint carries the run's *absolute* deadline instant, so the
+            # resumed run keeps the very same instant — never a fresh full bound
+            # per attempt, and never a duration re-based against this entry's
+            # start. An anchor already at or before now resumes expired (fails
+            # closed on the first supervisor check).
+            deadline=checkpoint.deadline_mono,
             proposals=[self._refresh(proposal)
                        for proposal in checkpoint.proposals],
             refusals=list(checkpoint.refusals),

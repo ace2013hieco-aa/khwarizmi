@@ -103,6 +103,14 @@ class Termination(str, Enum):
 
     A *run diagnostic*, never a state transition: the run's state remains a
     `TaskStatus` value and this plane decides no transition (§2.3).
+
+    Every member here is *reachable*: each one is written by a site in `run.py`.
+    A bound that is refused rather than terminal does **not** belong here — the
+    child-run budget and the delegation depth refuse the delegation that exceeds
+    them and let the run continue (bounded by its tick budget), so they have no
+    member. `DELEGATION_LIMIT` was declared and never written, and has been
+    removed rather than left as vocabulary a reader would have to disprove
+    (LOOP-4 E6).
     """
 
     PROPOSAL_LIMIT = "PROPOSAL_LIMIT"
@@ -113,7 +121,6 @@ class Termination(str, Enum):
     TIMEOUT = "TIMEOUT"
     MODEL_REFUSED = "MODEL_REFUSED"
     TOOL_FAILED = "TOOL_FAILED"
-    DELEGATION_LIMIT = "DELEGATION_LIMIT"
     PORT_FAILURE = "PORT_FAILURE"
 
 
@@ -439,6 +446,13 @@ class Proposal:
     agent_profile: str
     lease_generation: str
     model: str = ""
+    #: The *derived* invocation keys of the calls whose retained evidence this
+    #: draft was drafted on (LOOP-4 E8) — the provenance link from a draft back
+    #: to the observations that informed it. The field was declared, round-tripped
+    #: and never written, so a proposal set could not say what backed a draft.
+    #: Populated by rule from the run's retained feedback (never authored by a
+    #: model), and deliberately excluded from `draft_digest()`: where a draft came
+    #: from is provenance, not draft identity.
     capability_refs: tuple[str, ...] = ()
     artifact_ref: str = ""
     admission: str = Admission.PENDING.value
@@ -852,6 +866,19 @@ class Checkpoint:
     tick: int = 0
     state: str = TaskStatus.RUNNING.value
     termination: str = ""
+    #: The run's deadline as an *absolute* monotonic instant (LOOP-4 E3/M1).
+    #: Set once, when the run first resolves its bound, and carried unchanged
+    #: through every later entry — the opening checkpoint re-records this same
+    #: instant rather than re-basing a duration against its own start, so a crash
+    #: before progress cannot grant the run a fresh bound. A resume computes
+    #: `remaining = deadline_mono - now`; an anchor at or before `now` resumes
+    #: already-expired (fails closed). `None` means the run declared no deadline.
+    #: Deliberately an instant and not a remaining duration: a duration re-bases
+    #: against each entry's own start, which is the unbounded-resume defect M1
+    #: names. The instant is a monotonic reading and so is meaningful within one
+    #: process — the plane's own scope, since its recovery is process-local and
+    #: derived (see `supervisor.py`).
+    deadline_mono: float | None = None
     context: Mapping[str, Any] = field(default_factory=dict)
     context_digest: str = ""
     proposals: tuple[Proposal, ...] = ()
@@ -886,6 +913,7 @@ class Checkpoint:
             "tick": self.tick,
             "state": self.state,
             "termination": self.termination,
+            "deadline_mono": self.deadline_mono,
             "context": dict(self.context),
             "context_digest": self.context_digest,
             "proposals": [proposal.to_mapping() for proposal in self.proposals],
@@ -922,6 +950,9 @@ class Checkpoint:
             tick=int(data.get("tick", 0)),
             state=str(data.get("state", TaskStatus.RUNNING.value)),
             termination=str(data.get("termination", "")),
+            deadline_mono=(
+                None if data.get("deadline_mono") is None
+                else float(data["deadline_mono"])),
             context=dict(data.get("context") or {}),
             context_digest=str(data.get("context_digest", "")),
             proposals=tuple(Proposal.from_mapping(item)
