@@ -531,6 +531,10 @@ class ProposalSet:
     delegations: tuple["DelegationRecord", ...] = ()
     tool_calls: int = 0
     resumed_from_tick: int = 0
+    #: Consumed review verdicts, in round order (LOOP-3). Reported, never an
+    #: authority: it is what makes an exhausted-rounds run *say* it was reviewed
+    #: and rejected, instead of ending beside an inert verdict.
+    review_verdicts: tuple["ReviewVerdict", ...] = ()
 
     def is_terminal(self) -> bool:
         return self.state in _TERMINAL_STATES
@@ -538,9 +542,10 @@ class ProposalSet:
     def digest(self) -> str:
         """The run's terminal-state digest (drafts + state + termination).
 
-        Deliberately excludes admission verdicts, delegation outcomes and the
-        resume marker: those describe *this process's* passage, while the digest
-        is the claim "the same run reached the same terminal state".
+        Deliberately excludes admission verdicts, delegation outcomes, review
+        verdicts and the resume marker: those describe *this process's* passage,
+        while the digest is the claim "the same run reached the same terminal
+        state".
         """
         return digest_of({
             "run_id": self.run_id,
@@ -655,6 +660,68 @@ def evidence_digests(records: Iterable[ToolFeedback]) -> tuple[str, ...]:
     accumulated evidence is a set comparison and not an order-sensitive one.
     """
     return tuple(sorted({record.evidence_digest() for record in records}))
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewVerdict:
+    """One consumed review verdict — data the next round reads (LOOP-3).
+
+    The review child run used to be the run's terminal act with its verdict
+    thrown away: `_maybe_review` ran the child, recorded a delegation, and never
+    looked at what the reviewer said, so a disagreement ended the run with an
+    inert verdict beside unrevised drafts (LOOP-0 triage G4). This record is what
+    makes the verdict *consequential*: a failing verdict is retained, rendered as
+    an origin-marked data envelope (`assembly.review_envelopes`), and carried into
+    a bounded re-draft round — the same retention discipline LOOP-2 gave tool
+    feedback, applied to a reviewer's judgment.
+
+    It is data, never an authority. `passed` is derived from the review child's
+    own proposal set (a reviewer that raised nothing found nothing to object to —
+    the documented `stop_when: no_proposals` reading), `objections` names the
+    draft digests the reviewer contested, and `detail` is the reviewer's own
+    free text — carried as untrusted content, never as an instruction the runtime
+    obeys. Nothing here approves, records, resolves or mutates anything durable:
+    it only tells the next round that its drafts were rejected and why.
+
+    `evidence_digest()` is the verdict's **content** identity and deliberately
+    excludes `round`, `verdict_ref` and `child_run_id` (the moment and the child
+    that produced it), so the *same* verdict recurring in a later round digests
+    the same — which is what lets a re-draft loop terminate on evidence
+    stability instead of spinning (LOOP-3 round termination).
+    """
+
+    round: int
+    reviewer: str
+    passed: bool = False
+    objections: tuple[str, ...] = ()
+    detail: str = ""
+    verdict_ref: str = ""
+    child_run_id: str = ""
+
+    def evidence_digest(self) -> str:
+        """Content identity of the verdict — never of the round that produced it."""
+        return digest_of({
+            "reviewer": self.reviewer,
+            "passed": self.passed,
+            "objections": list(self.objections),
+        })
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in _field_names(self)}
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> "ReviewVerdict":
+        unknown = sorted(set(data) - set(_field_names(cls)))
+        if unknown:
+            raise RuntimeFormatError(f"unknown ReviewVerdict keys: {unknown}")
+        return cls(
+            round=int(data["round"]),
+            reviewer=str(data["reviewer"]),
+            passed=bool(data.get("passed", False)),
+            objections=tuple(str(item) for item in (data.get("objections") or ())),
+            detail=str(data.get("detail", "")),
+            verdict_ref=str(data.get("verdict_ref", "")),
+            child_run_id=str(data.get("child_run_id", "")))
 
 
 # ═══════════════════════ B-2 derived records ═══════════════════════
@@ -791,6 +858,7 @@ class Checkpoint:
     refusals: tuple[RuntimeRefusal, ...] = ()
     delegations: tuple[DelegationRecord, ...] = ()
     feedback: tuple[ToolFeedback, ...] = ()
+    review_verdicts: tuple[ReviewVerdict, ...] = ()
     tool_calls: int = 0
     misses: int = 0
     last_heartbeat: str = ""
@@ -824,6 +892,8 @@ class Checkpoint:
             "refusals": [refusal.to_mapping() for refusal in self.refusals],
             "delegations": [record.to_mapping() for record in self.delegations],
             "feedback": [record.to_mapping() for record in self.feedback],
+            "review_verdicts": [verdict.to_mapping()
+                                for verdict in self.review_verdicts],
             "tool_calls": self.tool_calls,
             "misses": self.misses,
             "last_heartbeat": self.last_heartbeat,
@@ -862,6 +932,8 @@ class Checkpoint:
                               for item in (data.get("delegations") or ())),
             feedback=tuple(ToolFeedback.from_mapping(item)
                            for item in (data.get("feedback") or ())),
+            review_verdicts=tuple(ReviewVerdict.from_mapping(item)
+                                  for item in (data.get("review_verdicts") or ())),
             tool_calls=int(data.get("tool_calls", 0)),
             misses=int(data.get("misses", 0)),
             last_heartbeat=str(data.get("last_heartbeat", "")),

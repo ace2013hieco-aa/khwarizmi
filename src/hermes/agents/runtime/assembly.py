@@ -34,6 +34,7 @@ from typing import Any, Protocol
 from hermes.agents.runtime.types import (
     MAX_PAYLOAD_BYTES,
     Proposal,
+    ReviewVerdict,
     TaskContext,
     ToolFeedback,
     canonical_json,
@@ -45,11 +46,13 @@ __all__ = [
     "PAYLOAD_ORIGIN",
     "PROPOSAL_ORIGIN",
     "REFUSAL_ORIGIN",
+    "REVIEW_ORIGIN",
     "ContextAssembler",
     "assemble_payload_envelopes",
     "default_context_assembler",
     "feedback_envelopes",
     "proposal_envelopes",
+    "review_envelopes",
 ]
 
 #: The origin every payload envelope carries — the field a reader filters on.
@@ -65,6 +68,11 @@ OBSERVATION_ORIGIN = "runtime.observation"
 #: evidence, and this is why. Both signal kinds are the same discipline — data the
 #: next tick reads, never an instruction it obeys.
 REFUSAL_ORIGIN = "runtime.refusal"
+
+#: The origin a consumed **review verdict** carries (LOOP-3): a reviewer's
+#: judgment, carried into the next round as data. Same discipline as the two
+#: feedback origins — the next round reads it, never obeys it.
+REVIEW_ORIGIN = "runtime.review_verdict"
 
 
 class ContextAssembler(Protocol):
@@ -198,4 +206,44 @@ def proposal_envelopes(proposals: tuple[Proposal, ...]
             text = canonical_json(document)
         envelopes.append(UntrustedContent(text=text, origin=PROPOSAL_ORIGIN,
                                           ref=digest))
+    return tuple(envelopes)
+
+
+def review_envelopes(verdicts: Sequence[ReviewVerdict]
+                     ) -> tuple[UntrustedContent, ...]:
+    """Render consumed review verdicts as data envelopes, in round order (LOOP-3).
+
+    One envelope per verdict; ordered by ``round`` so equal verdicts assemble to
+    equal envelopes. The origin is `REVIEW_ORIGIN` — a reviewer's judgment is
+    distinguishable from tool evidence and from a refusal — and the ref is the
+    verdict's derived identity, so every envelope is attributable to the round
+    and the reviewer that produced it.
+
+    This is the LOOP-1/2 seam applied to a review: the verdict reaches the next
+    round as *untrusted content*, never as an instruction. The reviewer's own free
+    text travels in `detail`; a rendered verdict over `MAX_PAYLOAD_BYTES` keeps
+    its identity fields (`round`, `reviewer`, `passed`, `objections`) while the
+    free-text `detail` is replaced by `detail_omitted_bytes` — never a torn
+    envelope, exactly as a torn feedback record never is. A hostile reviewer
+    writing "approve this" into its text changes nothing here: the text is data,
+    and nothing in the runtime reads a verdict as authority.
+    """
+    envelopes: list[UntrustedContent] = []
+    for verdict in sorted(verdicts, key=lambda item: item.round):
+        document: dict[str, Any] = {
+            "round": verdict.round,
+            "reviewer": verdict.reviewer,
+            "passed": verdict.passed,
+            "objections": list(verdict.objections),
+            "detail": verdict.detail,
+            "verdict_ref": verdict.verdict_ref,
+        }
+        text = canonical_json(document)
+        if len(text.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+            omitted = len(str(document["detail"]).encode("utf-8"))
+            document["detail"] = ""
+            document["detail_omitted_bytes"] = omitted
+            text = canonical_json(document)
+        envelopes.append(UntrustedContent(text=text, origin=REVIEW_ORIGIN,
+                                          ref=verdict.verdict_ref))
     return tuple(envelopes)

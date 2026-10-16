@@ -52,16 +52,31 @@ actually finished. That is the same contract a mid-tick crash already has, and i
 is what makes "kill it and resume" reproduce the uninterrupted terminal set at
 every crash point rather than at most of them.
 
+A review verdict is loop state too, and it is *consumed* (LOOP-3)
+-----------------------------------------------------------------
+LOOP-0 triage G4: the review child ran, its verdict was thrown away, and
+`max_review_rounds` was parsed but never read — so a reviewer's disagreement left
+the run `SUCCEEDED` beside unrevised drafts. LOOP-3 reads the child's own proposal
+set as a verdict (a reviewer that raised nothing found nothing to object to —
+`stop_when: no_proposals`) and makes a *failing* verdict consequential: it is
+retained as a `ReviewVerdict`, carried into the next round as an origin-marked
+data envelope, and re-drives drafting inside a bound of `max_review_rounds`
+rounds. The default cap is 1, so an undeclared profile behaves exactly as before.
+Rounds terminate on the cap *and* on the verdict's evidence stability, so no
+infinite review loop is possible. A verdict revises DRAFTS only: it never
+approves, records, resolves or mutates anything durable, and a reviewer's text is
+untrusted data the next round reads — never an instruction it obeys.
+
 Feedback is loop state, composed after the port (LOOP-2)
 -------------------------------------------------------
 A tick's model prompt is the context assembler's envelopes (LOOP-1), then this
-run's retained tool feedback, then the tick marker. The last two are facts about
-the *run* rather than about its context, so they are composed after the port
-rather than smuggled into the context — the context digest a resume is checked
-against is therefore still a digest of the run's inputs alone. A retained result
-is evidence-shaped data (artifact refs, the payload's size and digest, a refusal
-or failure signal); nothing in it is ever an instruction, and no observation
-payload's text enters a prompt.
+run's retained tool feedback, then any consumed review verdicts (LOOP-3), then the
+tick marker. The trailing three are facts about the *run* rather than about its
+context, so they are composed after the port rather than smuggled into the context
+— the context digest a resume is checked against is therefore still a digest of
+the run's inputs alone. A retained result is evidence-shaped data (artifact refs,
+the payload's size and digest, a refusal or failure signal); nothing in it is ever
+an instruction, and no observation payload's text enters a prompt.
 
 A cancel is observed in four places, never only at the top of a tick: before a
 model call, before each capability call in a batch, whenever a tick is about to
@@ -96,6 +111,7 @@ from hermes.agents.runtime.assembly import (
     default_context_assembler,
     feedback_envelopes,
     proposal_envelopes,
+    review_envelopes,
 )
 from hermes.agents.runtime.checkpoint import (
     CheckpointStore,
@@ -129,10 +145,10 @@ from hermes.agents.runtime.types import (
     Admission,
     Checkpoint,
     DelegationRecord,
-    DelegationState,
     Proposal,
     ProposalSet,
     RecoveryVerdict,
+    ReviewVerdict,
     RuntimeFormatError,
     RuntimeRefusal,
     TaskContext,
@@ -298,6 +314,13 @@ class _RunState:
     #: The *content* identities of everything observed so far — the evidence set
     #: `stop_when: converged` is a statement about (LOOP-2).
     evidence: set[str] = field(default_factory=set)
+    #: Consumed review verdicts, in round order (LOOP-3). Each is carried into the
+    #: next round as an origin-marked data envelope; a failing one may re-drive
+    #: drafting while rounds remain.
+    review_verdicts: list[ReviewVerdict] = field(default_factory=list)
+    #: The content identities of the verdicts already consumed — the stability set
+    #: the re-draft loop terminates on when a reviewer's judgment stops moving.
+    seen_verdicts: set[str] = field(default_factory=set)
 
     def refuse(self, code: str, detail: str, *, tick: int, kind: str = ""
                ) -> RuntimeRefusal:
@@ -434,45 +457,73 @@ class AgentRuntime:
             if context.limits.deadline_seconds is not None
             else spec.termination.deadline_seconds)
         max_ticks = self._max_ticks(spec, context)
-        for tick in range(start_tick, max_ticks + 1):
-            working.tick = tick
-            stop = self._tick(spec, context, working, run_id, tick, token, deadline)
-            if (stop and working.state == TaskStatus.SUCCEEDED.value
-                    and self._review_pending(spec, context, working)):
-                # The terminal act (the review child run) has not happened yet, so
-                # no terminal-shaped record may be written for this tick: a crash
-                # inside the review must resume as a *replay* of the tick, not as
-                # a no-op read of a run whose review never ran (R4 probe 1b).
+        # LOOP-3: the run is a bounded sequence of drafting rounds, each closed by
+        # one review. `max_review_rounds` caps the sequence; a passing review, an
+        # exhausted cap, or a reviewer whose judgment stops moving ends it.
+        max_rounds = self._review_rounds(spec)
+        round_index = 1
+        tick = start_tick
+        while True:
+            while tick <= max_ticks:
+                working.tick = tick
+                stop = self._tick(spec, context, working, run_id, tick, token,
+                                  deadline)
+                if (stop and working.state == TaskStatus.SUCCEEDED.value
+                        and self._review_pending(spec, context, working,
+                                                 round_index)):
+                    # The review act has not happened yet, so no terminal-shaped
+                    # record may be written for this tick: a crash inside the
+                    # review must resume as a *replay* of the tick, not as a no-op
+                    # read of a run whose review never ran (R4 probe 1b).
+                    break
+                self._write_checkpoint(spec, context, working, run_id,
+                                       resumed_from_generation=resumed_from_generation)
+                if stop:
+                    break
+                tick += 1
+            if working.termination == "":
+                working.terminate(TaskStatus.SUCCEEDED.value,
+                                  Termination.TICK_LIMIT.value)
+            if not self._close(spec, context, working, run_id,
+                               resumed_from_generation, round_index=round_index,
+                               max_rounds=max_rounds, token=token):
                 break
-            self._write_checkpoint(spec, context, working, run_id,
-                                   resumed_from_generation=resumed_from_generation)
-            if stop:
-                break
-        else:
-            working.terminate(TaskStatus.SUCCEEDED.value,
-                              Termination.TICK_LIMIT.value)
-
-        if working.termination == "":
-            working.terminate(TaskStatus.SUCCEEDED.value,
-                              Termination.TICK_LIMIT.value)
-        self._close(spec, context, working, run_id, resumed_from_generation,
-                    token=token)
+            # A failing review with a round left owes another drafting round: the
+            # verdict is retained (and re-injected as data), so reopen the run and
+            # let the next ticks draft again.
+            round_index += 1
+            tick = working.tick + 1
+            working.state = TaskStatus.RUNNING.value
+            working.termination = ""
         return self._assemble(spec, context, working, run_id,
                               resumed_from_tick=start_tick - 1)
 
     def _close(self, spec: ProfileSpec, context: TaskContext, state: _RunState,
-               run_id: str, resumed_from_generation: str,
-               token: RunCancelToken | None = None) -> None:
-        """Review (when configured), then the terminal checkpoint.
+               run_id: str, resumed_from_generation: str, *,
+               round_index: int = 1, max_rounds: int = 1,
+               token: RunCancelToken | None = None) -> bool:
+        """Review (when configured), then — unless a round is owed — the checkpoint.
 
         The review is the run's terminal act, so the cancel check brackets it: a
         cancel already observed skips it, and a cancel that lands *while* it runs
         becomes the run's terminal state — never a silent `SUCCEEDED`.
+
+        Returns `True` when a failing verdict with a round remaining must be
+        re-drafted: the verdict is retained (LOOP-3) and no terminal record is
+        written, because the run is still in flight. Returns `False` when the run
+        is finished and its terminal checkpoint is on file.
         """
         verdict = self._supervisor.check(token, None)
         if not verdict and state.state == TaskStatus.SUCCEEDED.value:
-            self._maybe_review(spec, context, state, run_id, token=token)
+            review = self._maybe_review(spec, context, state, run_id,
+                                        round_index=round_index, token=token)
             verdict = self._supervisor.check(token, None)
+            if review is not None:
+                state.review_verdicts.append(review)
+                if (not verdict and state.state == TaskStatus.SUCCEEDED.value
+                        and self._round_continues(state, review, round_index,
+                                                  max_rounds)):
+                    return True
         if verdict and state.state == TaskStatus.SUCCEEDED.value:
             self._interrupt(state, state.tick, verdict,
                             detail=f"run {verdict.lower()} during the terminal act")
@@ -481,6 +532,40 @@ class AgentRuntime:
                    detail={"state": state.state, "termination": state.termination})
         self._write_checkpoint(spec, context, state, run_id, terminal=True,
                                resumed_from_generation=resumed_from_generation)
+        return False
+
+    def _review_rounds(self, spec: ProfileSpec) -> int:
+        """How many drafting→review rounds this run may take (LOOP-3).
+
+        `max_review_rounds` is now READ and enforced: it caps the re-draft cycle a
+        failing review can drive. The default (1) is conservative — exactly one
+        review and no re-draft — which is the pre-LOOP-3 behaviour, so a profile
+        that declares no review (or the default cap) never loops. A profile that
+        is not reviewed has exactly one round.
+        """
+        if not spec.review.required:
+            return 1
+        return max(1, spec.review.max_review_rounds)
+
+    def _round_continues(self, state: _RunState, review: ReviewVerdict,
+                         round_index: int, max_rounds: int) -> bool:
+        """True when a failing verdict owes another drafting round (LOOP-3).
+
+        Two bounds stop the loop, never one. The **round cap** is the declared
+        `max_review_rounds`. **Evidence stability** is the LOOP-2 discipline: the
+        verdict's content identity (`ReviewVerdict.evidence_digest`) is the
+        reviewer's judgment, and a judgment that recurs unchanged means another
+        round would re-draft against the same objection — convergence, not
+        progress. Together they make an infinite review loop impossible: rounds
+        are finite by the cap, and each consumes a *new* verdict.
+        """
+        if review.passed or round_index >= max_rounds:
+            return False
+        digest = review.evidence_digest()
+        if digest in state.seen_verdicts:
+            return False
+        state.seen_verdicts.add(digest)
+        return True
 
     # ── one tick ──
 
@@ -1080,12 +1165,14 @@ class AgentRuntime:
                       context: TaskContext, state: _RunState, run_id: str,
                       tick: int, *, token: RunCancelToken | None = None,
                       context_envelopes: tuple[UntrustedContent, ...] | None = None
-                      ) -> None:
+                      ) -> ProposalSet | None:
         """Plan, admit and run one child task — including the review child.
 
         The child inherits the parent's cancellation token: a cancel is a fact
         about the *run*, so a child that ignored it would put the child's work
-        outside the run's stated bound (R4 probe 3a).
+        outside the run's stated bound (R4 probe 3a). Returns the child's own
+        `ProposalSet` (what the reviewer *said*, for LOOP-3's verdict) or `None`
+        when the delegation was refused before any child ran.
         """
         child_profile = str(item.get("profile", ""))
         child_payload = item.get("spec") or {}
@@ -1114,7 +1201,7 @@ class AgentRuntime:
             self._emit(kind="DELEGATION_REFUSED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"profile": child_profile, "code": refusal_code})
-            return
+            return None
 
         slot = len(state.delegations)
         planned = self._delegator.plan(
@@ -1132,7 +1219,7 @@ class AgentRuntime:
             self._emit(kind="DELEGATION_REFUSED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"profile": child_profile, "code": planned.code})
-            return
+            return None
         record = planned
         self._emit(kind="DELEGATION_PLANNED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
@@ -1156,7 +1243,7 @@ class AgentRuntime:
                 detail=refusal.detail)
             if isinstance(refused, DelegationRecord):
                 state.delegations.append(refused)
-            return
+            return None
 
         intent = Intent(kind=IntentKind.INSERT_TASK, proposed_by=spec.agent_profile,
                         project_id=context.project_id, payload=command,
@@ -1170,7 +1257,7 @@ class AgentRuntime:
                 detail=proposal.admission_detail or "the spine refused the child")
             if isinstance(refused, DelegationRecord):
                 state.delegations.append(refused)
-            return
+            return None
 
         child_spec = self._profiles[child_profile]
         child_context = self._delegator.child_context(
@@ -1199,16 +1286,23 @@ class AgentRuntime:
                    detail={"child_task_id": record.child_task_id,
                            "child_run_id": child_set.run_id,
                            "child_state": child_set.state})
+        return child_set
 
     # ── review (a child run, declared as configuration) ──
 
     def _review_pending(self, spec: ProfileSpec, context: TaskContext,
-                        state: _RunState) -> bool:
-        """True when `_close` will run a review child for this state.
+                        state: _RunState, round_index: int = 1) -> bool:
+        """True when `_close` will run a review child for this round.
 
         One predicate for both users: the loop (which must not put a terminal
         record on file while the review is outstanding) and the close act (which
         runs it). Deliberately read-only — it never refuses and never emits.
+
+        LOOP-3: a review is pending until a *verdict for this round* exists, not
+        merely until a reviewer has ever run. That is what lets a re-draft round
+        be reviewed in turn — the first round's completed review no longer
+        suppresses the second's — while keeping the R4-probe-1b rule for the
+        single-round case (no terminal record while the review is outstanding).
         """
         if not spec.review.required or context.depth != 0:
             return False
@@ -1217,39 +1311,75 @@ class AgentRuntime:
         reviewer = spec.review.reviewer_profile
         if reviewer not in self._profiles:
             return False
-        return not any(record.profile == reviewer
-                       and record.state == DelegationState.DONE.value
-                       for record in state.delegations)
+        return all(verdict.round != round_index
+                   for verdict in state.review_verdicts)
 
     def _maybe_review(self, spec: ProfileSpec, context: TaskContext,
-                      state: _RunState, run_id: str,
-                      token: RunCancelToken | None = None) -> None:
-        """Review is a top-level act: a reviewer never reviews its own reviewer.
+                      state: _RunState, run_id: str, *, round_index: int = 1,
+                      token: RunCancelToken | None = None
+                      ) -> ReviewVerdict | None:
+        """Run the review child for this round and return its *consumed* verdict.
 
+        Review is a top-level act: a reviewer never reviews its own reviewer.
         The child is handed the drafts themselves (`proposal_envelopes`), not a
         digest of the spec that names them (LOOP-1).
+
+        LOOP-3 turns the child's own proposal set into a `ReviewVerdict`: a
+        reviewer that raised nothing found nothing to object to (the documented
+        `stop_when: no_proposals` reading) and its verdict *passes*; a reviewer
+        that raised proposals *fails* the round and names them as objections.
+        `None` means no review ran (not required, depth > 0, no proposals, an
+        undeclared reviewer, or a reviewer already done this run).
         """
         if not spec.review.required or context.depth != 0:
-            return
+            return None
         if not state.proposals:
-            return
+            return None
         reviewer = spec.review.reviewer_profile
         if reviewer not in self._profiles:
             state.refuse(MALFORMED_PAYLOAD,
                          f"review profile {reviewer!r} is not declared",
                          tick=state.tick)
-            return
-        if not self._review_pending(spec, context, state):
-            return
-        self._delegate_one(
+            return None
+        if not self._review_pending(spec, context, state, round_index):
+            return None
+        child_set = self._delegate_one(
             {"profile": reviewer,
              "spec": {"run_id": run_id,
-                      "review_round": 1,
+                      "review_round": round_index,
                       "proposal_digests": [proposal.draft_digest()
                                            for proposal in state.proposals]},
              "task_type": "AGENT_TASK"},
             spec, context, state, run_id, state.tick, token=token,
             context_envelopes=proposal_envelopes(tuple(state.proposals)))
+        return self._review_verdict(reviewer, round_index, run_id, child_set)
+
+    def _review_verdict(self, reviewer: str, round_index: int, run_id: str,
+                        child_set: ProposalSet | None) -> ReviewVerdict:
+        """Turn a review child's output into a consumed verdict (LOOP-3).
+
+        The verdict is derived, never authored: `passed` is the review child's own
+        proposal set being empty, `objections` are the draft digests it raised,
+        and `verdict_ref` is a derived identity over `(run_id, round, reviewer)`
+        — the same discipline LOOP-2 gave tool feedback. The reviewer's free text
+        is carried verbatim as `detail` (untrusted data); nothing here reads it as
+        an instruction or an authority, and the caller never uses the verdict to
+        approve, record or resolve anything durable.
+        """
+        proposals = child_set.proposals if child_set is not None else ()
+        objections = tuple(proposal.draft_digest() for proposal in proposals)
+        detail = "; ".join(
+            f"{proposal.intent.kind.value}: {proposal.rationale}"
+            for proposal in proposals if proposal.rationale)
+        return ReviewVerdict(
+            round=round_index,
+            reviewer=reviewer,
+            passed=not objections,
+            objections=objections,
+            detail=detail,
+            verdict_ref=digest_of({"run_id": run_id, "round": round_index,
+                                   "reviewer": reviewer}),
+            child_run_id=(child_set.run_id if child_set is not None else ""))
 
     # ── input guards, bounds, checkpointing ──
 
@@ -1280,15 +1410,17 @@ class AgentRuntime:
         """One request per tick; the prompt is the assembler port's job.
 
         The prompt is the port's envelopes, then this run's retained tool feedback
-        (LOOP-2), then the tick marker. Both trailing halves are *loop state*, not
-        context: they are composed after the port, so the assembler keeps owning
-        what a run's own context contributes and the runtime adds only what
-        happened during the run. Payloads reach the model as content, never as a
-        digest standing in for them (LOOP-1); the same is true of an observation's
-        artifacts, which travel as their own refs.
+        (LOOP-2), then any consumed review verdicts (LOOP-3), then the tick marker.
+        All three trailing halves are *loop state*, not context: they are composed
+        after the port, so the assembler keeps owning what a run's own context
+        contributes and the runtime adds only what happened during the run.
+        Payloads reach the model as content, never as a digest standing in for them
+        (LOOP-1); the same is true of an observation's artifacts, which travel as
+        their own refs, and of a reviewer's verdict, which travels as data.
         """
         prompt = list(self._assembler(context))
         prompt.extend(feedback_envelopes(state.feedback))
+        prompt.extend(review_envelopes(state.review_verdicts))
         prompt.append(UntrustedContent(
             text=f"tick {tick} of {self._max_ticks(spec, context)}",
             origin="runtime.tick", ref=context.task_id))
@@ -1330,6 +1462,7 @@ class AgentRuntime:
             delegations=tuple(state.delegations),
             tool_calls=state.tool_calls,
             feedback=tuple(state.feedback),
+            review_verdicts=tuple(state.review_verdicts),
             misses=existing.misses if existing is not None else 0,
             last_heartbeat=stamp,
             created_at=(existing.created_at if existing is not None else stamp),
@@ -1363,6 +1496,7 @@ class AgentRuntime:
             delegations=tuple(state.delegations),
             tool_calls=state.tool_calls,
             resumed_from_tick=resumed_from_tick,
+            review_verdicts=tuple(state.review_verdicts),
         )
 
     # ── resume + recovery ──
@@ -1458,6 +1592,7 @@ class AgentRuntime:
                 delegations=checkpoint.delegations,
                 tool_calls=checkpoint.tool_calls,
                 resumed_from_tick=checkpoint.tick,
+                review_verdicts=checkpoint.review_verdicts,
             )
         if spec is None:
             return RuntimeRefusal(
@@ -1516,6 +1651,9 @@ class AgentRuntime:
                          for proposal in checkpoint.proposals},
             feedback=list(checkpoint.feedback),
             evidence=set(evidence_digests(checkpoint.feedback)),
+            review_verdicts=list(checkpoint.review_verdicts),
+            seen_verdicts={verdict.evidence_digest()
+                           for verdict in checkpoint.review_verdicts},
         )
         return self._run_spec(
             spec, context, token=token, state=state,
