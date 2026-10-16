@@ -18,6 +18,14 @@ only (``[[stable-id|human alias]]``); cursor = max event_id projected;
 re-running a cursor range changes zero bytes; the projector never mutates
 the journal (read-only SELECTs; no persistence imports, no new schema).
 
+Body text is a display surface too (VAULT-1): every transcribed field is
+rendered through the shared operator-output boundary's `scrub`
+(`hermes.output`, EXT-5), so a journal byte that would repaint a terminal is
+shown as its visible escape (``\\x1b``) in the note instead of raw. That
+escapes, never refuses — a derived note always renders, and the manifest
+digest is taken over the escaped body, so journal and manifest agree by
+construction.
+
 Every run also writes the derived-view manifest
 (``.projection-manifest.json``, see ``hermes.vault.manifest``): the cursor
 range, one digest per note the journal claims in that range, and the
@@ -34,6 +42,8 @@ import logging
 import os
 import re
 from typing import Any
+
+from hermes.output import scrub
 
 __all__ = [
     "AUTHORITATIVE_EVENT_TYPES",
@@ -444,15 +454,45 @@ def _header_value(value: object) -> str:
     return encoded.replace("[", r"\u005b").replace("]", r"\u005d")
 
 
+# ── VAULT-1 body-renderer census (every path that writes note text) ──
+# Exactly two renderers transcribe journal bytes into a note body, and both
+# go through the operator-output boundary's pure `scrub` (`hermes.output`,
+# EXT-5): `_single_line` (event_type, task_id, from_state, to_state, reason,
+# payload, caused_by) and `_task_alias` (a see-link's display alias). Every
+# other writer is inert by construction, so re-scrubbing it would be dead
+# code:
+#   - `_header_value` -> `json.dumps` (ensure_ascii) emits only printable
+#     ASCII, so no forbidden code point can survive it;
+#   - the `# {summary}` head and the `> Derived view` banner are closed
+#     static literals (`_EVENT_SUMMARIES` or the `Event recorded` default);
+#   - `note_filename` / `note_stem` / `_slug` reduce to `[a-z0-9-]` + ints;
+#   - `write_cursor` writes a decimal int;
+#   - `_escape_links` only adds backslashes and `_assert_stable_links` only
+#     refuses — neither can introduce a forbidden code point.
+
+
 def _single_line(text: str) -> str:
-    """Render one transcript line: real newlines become visible markers.
+    """Render one transcript line: structure first, then the output boundary.
 
     The body must never grow structure the projector did not put there — a
     hostile reason/task_id containing a fake label line stays one transcribed
-    line (A2/F).
+    line, so a real newline becomes the visible ``\\n`` marker THIS projector
+    adds (A2/F). The result then passes through the shared operator-output
+    boundary's pure `scrub`: every C0/C1/DEL and Bidi_Control code point is
+    **escaped visibly** (``\\x1b``, ``\\u202e``) instead of being written raw,
+    so merely opening a note cannot repaint a terminal that renders it
+    (VAULT-1).
+
+    The boundary's fail-closed `_guard` is deliberately NOT used here: a
+    derived note must always render — escape visibly, never refuse a note.
+    `scrub` is a pure per-code-point map, so it is the identity on ordinary
+    text, and the manifest digest (taken over the rendered body) stays
+    consistent by construction. The journal bytes themselves are never
+    touched: this is a rendering boundary, not a write path.
     """
-    return text.replace("\r\n", "\\n").replace("\r", "\\n").replace(
-        "\n", "\\n")
+    one_line = (text.replace("\r\n", "\\n").replace("\r", "\\n")
+                .replace("\n", "\\n"))
+    return scrub(one_line)
 
 
 def _escape_links(text: str) -> str:
@@ -534,8 +574,15 @@ def _render(row: dict[str, Any], *, authoritative: bool,
 
 
 def _task_alias(task_id: str) -> str:
-    """Display alias with link syntax neutralized (a task id can be hostile)."""
-    alias = re.sub(r"[\[\]|\r\n]+", " ", task_id).strip()
+    """Display alias: link syntax neutralized, control bytes escaped.
+
+    A task id can be hostile: ``[ ] |`` and real newlines fold to spaces
+    (link syntax), and the surviving text then goes through the same
+    operator-output boundary `scrub` as every other transcribed body field
+    (VAULT-1) — the alias is rendered text too, so a control or bidi code
+    point in it must not reach the note raw.
+    """
+    alias = scrub(re.sub(r"[\[\]|\r\n]+", " ", task_id)).strip()
     return f"task {alias}" if alias else "task"
 
 
