@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from dataclasses import fields as dataclass_fields
 from enum import Enum
@@ -558,6 +559,104 @@ class ProposalSet:
         return tuple(refusal.code for refusal in self.refusals)
 
 
+# ═══════════════════════ tool feedback (LOOP-2) ═══════════════════════
+
+#: The tool-phase outcomes a feedback record may carry. A strict subset of this
+#: plane's own trace vocabulary (`TRACE_KINDS`, asserted by the suite), so a
+#: retained result and the trace event that recorded it speak the same word —
+#: the feedback plane invents no new one.
+FEEDBACK_OUTCOMES: tuple[str, ...] = ("TOOL_OBSERVED", "TOOL_FAILED",
+                                      "TOOL_SKIPPED")
+
+
+@dataclass(frozen=True, slots=True)
+class ToolFeedback:
+    """One retained tool-phase result — evidence, never an instruction (LOOP-2).
+
+    The loop used to drop this: `TOOL_OBSERVED` carried the artifact refs onto the
+    trace and the `Observation` itself was discarded, so every tick asked the
+    model the same question and `converged` could only ever mean "the model
+    repeated itself". A record is what makes the next tick *informed*.
+
+    What it deliberately does **not** carry is the observation payload's text.
+    Fetched text is untrusted content whose certified route to a judgment surface
+    is its artifact handle (the Orchestration API dereferences it at its own write
+    boundary); inlining it into a model prompt would add injection surface without
+    adding a decision input. The record therefore carries the handles, the
+    payload's size and digest, and the plane's own refusal/failure signal — all of
+    it data, none of it instruction or authority.
+
+    `evidence_digest()` is the record's **content** identity. It excludes the tick,
+    the call index and the derived invocation key precisely so that the same
+    evidence observed twice digests the same — which is what makes "the
+    observation set stopped moving" a checkable predicate rather than a guess.
+    """
+
+    tick: int
+    index: int
+    capability_id: str
+    outcome: str = "TOOL_OBSERVED"
+    refusal_code: str = ""
+    failure: str = ""
+    detail: str = ""
+    artifacts: tuple[str, ...] = ()
+    payload_bytes: int = 0
+    payload_digest: str = ""
+    invocation_ref: str = ""
+
+    def evidence_digest(self) -> str:
+        """Content identity of this evidence — never of the moment it arrived.
+
+        `detail` is excluded on purpose: it is the plane's explanatory message and
+        may embed a per-call derivation (the call's own key, for instance), while
+        the *evidence* is what was called and what came back. The refusal code and
+        the failure kind are in, because those are what a next tick must react to.
+        """
+        return digest_of({
+            "capability_id": self.capability_id,
+            "outcome": self.outcome,
+            "refusal_code": self.refusal_code,
+            "failure": self.failure,
+            "artifacts": list(self.artifacts),
+            "payload_bytes": self.payload_bytes,
+            "payload_digest": self.payload_digest,
+        })
+
+    def is_observation(self) -> bool:
+        """True when the call was allowed and returned — the evidence case."""
+        return self.outcome == "TOOL_OBSERVED"
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in _field_names(self)}
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> "ToolFeedback":
+        unknown = sorted(set(data) - set(_field_names(cls)))
+        if unknown:
+            raise RuntimeFormatError(f"unknown ToolFeedback keys: {unknown}")
+        return cls(
+            tick=int(data["tick"]),
+            index=int(data["index"]),
+            capability_id=str(data["capability_id"]),
+            outcome=str(data.get("outcome", "TOOL_OBSERVED")),
+            refusal_code=str(data.get("refusal_code", "")),
+            failure=str(data.get("failure", "")),
+            detail=str(data.get("detail", "")),
+            artifacts=tuple(str(ref) for ref in (data.get("artifacts") or ())),
+            payload_bytes=int(data.get("payload_bytes", 0)),
+            payload_digest=str(data.get("payload_digest", "")),
+            invocation_ref=str(data.get("invocation_ref", "")))
+
+
+def evidence_digests(records: Iterable[ToolFeedback]) -> tuple[str, ...]:
+    """The distinct content identities in `records`, sorted — the evidence *set*.
+
+    Sorted and de-duplicated, so comparing one tick's evidence to the run's
+    accumulated evidence is a set comparison and not an order-sensitive one.
+    """
+    return tuple(sorted({record.evidence_digest() for record in records}))
+
+
 # ═══════════════════════ B-2 derived records ═══════════════════════
 
 
@@ -691,6 +790,7 @@ class Checkpoint:
     proposals: tuple[Proposal, ...] = ()
     refusals: tuple[RuntimeRefusal, ...] = ()
     delegations: tuple[DelegationRecord, ...] = ()
+    feedback: tuple[ToolFeedback, ...] = ()
     tool_calls: int = 0
     misses: int = 0
     last_heartbeat: str = ""
@@ -723,6 +823,7 @@ class Checkpoint:
             "proposals": [proposal.to_mapping() for proposal in self.proposals],
             "refusals": [refusal.to_mapping() for refusal in self.refusals],
             "delegations": [record.to_mapping() for record in self.delegations],
+            "feedback": [record.to_mapping() for record in self.feedback],
             "tool_calls": self.tool_calls,
             "misses": self.misses,
             "last_heartbeat": self.last_heartbeat,
@@ -759,6 +860,8 @@ class Checkpoint:
                            for item in (data.get("refusals") or ())),
             delegations=tuple(DelegationRecord.from_mapping(item)
                               for item in (data.get("delegations") or ())),
+            feedback=tuple(ToolFeedback.from_mapping(item)
+                           for item in (data.get("feedback") or ())),
             tool_calls=int(data.get("tool_calls", 0)),
             misses=int(data.get("misses", 0)),
             last_heartbeat=str(data.get("last_heartbeat", "")),

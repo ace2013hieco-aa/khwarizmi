@@ -1,4 +1,4 @@
-"""Context assembly — the deterministic prompt-envelope port (LOOP-1).
+"""Context assembly — the deterministic prompt-envelope port (LOOP-1, LOOP-2).
 
 The model prompt used to be ``context.context`` plus a tick marker, so
 ``TaskContext.payload`` — the stage identity, the methodology id, the
@@ -7,6 +7,13 @@ child's whole prompt was a digest of the spec that named it. This module is the
 injection seam that fixes that: the runtime calls ONE port, `ContextAssembler`,
 to turn a run's `TaskContext` into the `UntrustedContent` envelopes a model
 call carries.
+
+LOOP-2 adds the other half of the same seam: `feedback_envelopes` renders the
+tool-phase results a run has retained (`ToolFeedback`) as envelopes, so the next
+tick sees what the last one observed and why a refused call was refused. It is a
+pure function of the records, like everything else here — the runtime composes
+it *after* the port, which is what keeps "what a prompt contains" answerable in
+one place.
 
 Deterministic by construction: every function here is a pure function of its
 arguments — no clock, no model, no I/O, no ambient state — and payload keys are
@@ -21,23 +28,27 @@ never a model or capability port — the module holds no dependency it could cal
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from hermes.agents.runtime.types import (
     MAX_PAYLOAD_BYTES,
     Proposal,
     TaskContext,
+    ToolFeedback,
     canonical_json,
 )
 from hermes.security.boundaries import UntrustedContent
 
 __all__ = [
+    "OBSERVATION_ORIGIN",
     "PAYLOAD_ORIGIN",
     "PROPOSAL_ORIGIN",
+    "REFUSAL_ORIGIN",
     "ContextAssembler",
     "assemble_payload_envelopes",
     "default_context_assembler",
+    "feedback_envelopes",
     "proposal_envelopes",
 ]
 
@@ -46,6 +57,14 @@ PAYLOAD_ORIGIN = "runtime.payload"
 
 #: The origin every review-draft envelope carries.
 PROPOSAL_ORIGIN = "runtime.review"
+
+#: The origin a retained tool **observation** carries — evidence the run saw.
+OBSERVATION_ORIGIN = "runtime.observation"
+
+#: The origin a refusal or failure **signal** carries: the call produced no
+#: evidence, and this is why. Both signal kinds are the same discipline — data the
+#: next tick reads, never an instruction it obeys.
+REFUSAL_ORIGIN = "runtime.refusal"
 
 
 class ContextAssembler(Protocol):
@@ -94,6 +113,53 @@ def default_context_assembler(context: TaskContext
     run's inputs.
     """
     return tuple(context.context) + assemble_payload_envelopes(context)
+
+
+def feedback_envelopes(feedback: Sequence[ToolFeedback]
+                       ) -> tuple[UntrustedContent, ...]:
+    """Render retained tool feedback as data envelopes, in arrival order (LOOP-2).
+
+    One envelope per record; ordered by ``(tick, index)`` so equal feedback
+    assembles to equal envelopes. The origin is the record's own outcome —
+    `runtime.observation` for evidence the run actually observed,
+    `runtime.refusal` for a refusal or a failure signal — and the ref is the
+    call's *derived* identity (the same key the invocation carried), so every
+    envelope is attributable to the run, the tick and the capability it came from.
+
+    Two bounds, both explicit. The record carries no observation payload: only its
+    size and digest travel, because the payload's certified route to a judgment
+    surface is its artifact handle. And an envelope over `MAX_PAYLOAD_BYTES` keeps
+    its identity fields — the refusal code and the outcome in particular — while
+    the free-text `detail` is replaced by `detail_omitted_bytes`; a torn envelope
+    is never emitted, exactly as a torn review body never is.
+    """
+    envelopes: list[UntrustedContent] = []
+    for record in sorted(feedback, key=lambda item: (item.tick, item.index)):
+        document: dict[str, Any] = {
+            "tick": record.tick,
+            "index": record.index,
+            "capability_id": record.capability_id,
+            "outcome": record.outcome,
+            "refusal_code": record.refusal_code,
+            "failure": record.failure,
+            "detail": record.detail,
+            "artifacts": list(record.artifacts),
+            "payload_bytes": record.payload_bytes,
+            "payload_digest": record.payload_digest,
+            "invocation_ref": record.invocation_ref,
+        }
+        text = canonical_json(document)
+        if len(text.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+            omitted = len(str(document["detail"]).encode("utf-8"))
+            document["detail"] = ""
+            document["detail_omitted_bytes"] = omitted
+            text = canonical_json(document)
+        envelopes.append(UntrustedContent(
+            text=text,
+            origin=(OBSERVATION_ORIGIN if record.is_observation()
+                    else REFUSAL_ORIGIN),
+            ref=record.invocation_ref))
+    return tuple(envelopes)
 
 
 def proposal_envelopes(proposals: tuple[Proposal, ...]

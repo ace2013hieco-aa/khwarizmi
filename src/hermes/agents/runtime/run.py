@@ -52,6 +52,17 @@ actually finished. That is the same contract a mid-tick crash already has, and i
 is what makes "kill it and resume" reproduce the uninterrupted terminal set at
 every crash point rather than at most of them.
 
+Feedback is loop state, composed after the port (LOOP-2)
+-------------------------------------------------------
+A tick's model prompt is the context assembler's envelopes (LOOP-1), then this
+run's retained tool feedback, then the tick marker. The last two are facts about
+the *run* rather than about its context, so they are composed after the port
+rather than smuggled into the context — the context digest a resume is checked
+against is therefore still a digest of the run's inputs alone. A retained result
+is evidence-shaped data (artifact refs, the payload's size and digest, a refusal
+or failure signal); nothing in it is ever an instruction, and no observation
+payload's text enters a prompt.
+
 A cancel is observed in four places, never only at the top of a tick: before a
 model call, before each capability call in a batch, whenever a tick is about to
 report the run's stop, and after the terminal act (the review). A cancel that
@@ -76,13 +87,14 @@ they describe what the run asks for, not what a proposal is.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from hermes.agents.runtime.assembly import (
     ContextAssembler,
     default_context_assembler,
+    feedback_envelopes,
     proposal_envelopes,
 )
 from hermes.agents.runtime.checkpoint import (
@@ -125,11 +137,13 @@ from hermes.agents.runtime.types import (
     RuntimeRefusal,
     TaskContext,
     Termination,
+    ToolFeedback,
     TraceEvent,
     canonical_json,
     child_idempotency_key_of,
     child_task_id_of,
     digest_of,
+    evidence_digests,
     size_of,
     tool_idempotency_key_of,
 )
@@ -239,6 +253,30 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
     )
 
 
+def _tool_feedback(tick: int, index: int, capability_id: str, *,
+                   outcome: str, refusal_code: str = "", failure: str = "",
+                   detail: str = "", artifacts: tuple[str, ...] = (),
+                   payload: UntrustedContent | None = None,
+                   invocation_ref: str = "") -> ToolFeedback:
+    """One retained tool-phase result (LOOP-2) — measured, never inlined.
+
+    The observation payload's *size and digest* are the whole of what a next tick
+    learns about it: its text stays behind the artifact handles, which is the
+    certified route for fetched content to reach a judgment surface. The
+    invocation ref is the call's derived key, so a feedback envelope is
+    attributable back to the exact call it came from — and never carries a
+    random or authored identity (§2.3).
+    """
+    text = payload.text if payload is not None else ""
+    return ToolFeedback(
+        tick=tick, index=index, capability_id=capability_id, outcome=outcome,
+        refusal_code=refusal_code, failure=failure, detail=detail,
+        artifacts=tuple(artifacts),
+        payload_bytes=len(text.encode("utf-8")),
+        payload_digest=(digest_of(text) if payload is not None else ""),
+        invocation_ref=invocation_ref)
+
+
 @dataclass
 class _RunState:
     """Mutable working state inside one `run()` call (never persisted as such)."""
@@ -254,6 +292,12 @@ class _RunState:
     tool_calls: int = 0
     child_runs: int = 0
     seen_drafts: set[str] = field(default_factory=set)
+    #: Retained tool-phase results, in arrival order (LOOP-2). Every tick's model
+    #: request carries them, so tick N is asked with what ticks 1..N-1 observed.
+    feedback: list[ToolFeedback] = field(default_factory=list)
+    #: The *content* identities of everything observed so far — the evidence set
+    #: `stop_when: converged` is a statement about (LOOP-2).
+    evidence: set[str] = field(default_factory=set)
 
     def refuse(self, code: str, detail: str, *, tick: int, kind: str = ""
                ) -> RuntimeRefusal:
@@ -475,6 +519,7 @@ class AgentRuntime:
             return True
         structured, drafted = produced
 
+        retained = len(state.feedback)
         if not self._tool_phase(structured, spec, context, state, run_id, tick,
                                 token):
             # A capability that failed (or was refused) stops the run: the state
@@ -487,8 +532,10 @@ class AgentRuntime:
         raised = len(drafted)
         novel = sum(1 for digest in drafted if digest not in state.seen_drafts)
         state.seen_drafts.update(drafted)
+        evidence_stable = self._absorb_evidence(state, state.feedback[retained:])
 
-        termination = self._tick_termination(spec, context, state, raised, novel)
+        termination = self._tick_termination(spec, context, state, raised, novel,
+                                             evidence_stable)
         if termination is None:
             return False
         # The run is about to report its terminal state: a cancel (or a deadline
@@ -503,8 +550,24 @@ class AgentRuntime:
         state.terminate(TaskStatus.SUCCEEDED.value, termination)
         return True
 
+    def _absorb_evidence(self, state: _RunState,
+                         observed: Sequence[ToolFeedback]) -> bool:
+        """Absorb one tick's feedback; True when the evidence stopped moving.
+
+        The run's evidence is a *set* of content identities (`evidence_digest()`),
+        so "stable" means this tick introduced no evidence the run had not already
+        observed — which is the LOOP-2 meaning of convergence, and a statement
+        about the evidence rather than about the model's phrasing. A run that has
+        never observed anything has no evidence to stabilise, which is exactly why
+        the pre-LOOP-2 draft-digest signal survives as the secondary trip.
+        """
+        fresh = set(evidence_digests(observed)) - state.evidence
+        state.evidence.update(evidence_digests(observed))
+        return bool(state.evidence) and not fresh
+
     def _tick_termination(self, spec: ProfileSpec, context: TaskContext,
-                          state: _RunState, raised: int, novel: int
+                          state: _RunState, raised: int, novel: int,
+                          evidence_stable: bool = False
                           ) -> str | None:
         """Why this tick stops the run, or `None` when the run continues.
 
@@ -513,14 +576,25 @@ class AgentRuntime:
         proposal set for its declared review to consider (the review itself is the
         close act), instead of falling through to the tick limit with a
         configuration knob that does nothing (R4 probe 5d).
+
+        `converged` means the run's **evidence stopped moving** (LOOP-2). The
+        draft-digest signal it used to be — which only ever said "the model
+        repeated itself" — is now the *secondary* trip, and it applies only where
+        there is no evidence to stabilise: a run that has never observed anything
+        (no tool call returned, no refusal was recorded). When evidence exists, it
+        governs — a moving evidence set is not convergence, however repetitive the
+        drafts are.
         """
         policy = spec.termination.stop_when
         if policy == "proposals_raised" and raised:
             return Termination.STOP_WHEN.value
         if policy == "no_proposals" and raised == 0:
             return Termination.NO_PROPOSALS.value
-        if policy == "converged" and raised and novel == 0:
-            return Termination.STOP_WHEN.value
+        if policy == "converged" and raised:
+            if evidence_stable:
+                return Termination.STOP_WHEN.value
+            if novel == 0 and not state.evidence:
+                return Termination.STOP_WHEN.value
         if policy == "review_complete" and raised:
             return Termination.STOP_WHEN.value
         if len(state.proposals) >= self._max_proposals(spec, context):
@@ -547,7 +621,7 @@ class AgentRuntime:
         budget = RetryBudget(
             max_retries=min(self._supervisor.retry.max_retries, call_budget - 1),
             base_delay_seconds=self._supervisor.retry.base_delay_seconds)
-        request = self._model_request(spec, context, tick)
+        request = self._model_request(spec, context, state, tick)
         self._emit(kind="MODEL_REQUESTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"tier": spec.model_policy.tier,
@@ -896,6 +970,14 @@ class AgentRuntime:
             self._emit(kind="TOOL_SKIPPED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"capability_id": capability_id, "code": refusal.code})
+            # The refusal is what shapes the next tick's proposal space (LOOP-2):
+            # the model is told *which* capability its profile does not open, and
+            # why — the authority decision itself stays where it was made.
+            state.feedback.append(_tool_feedback(
+                tick, index, capability_id, outcome="TOOL_SKIPPED",
+                refusal_code=refusal.code, detail=refusal.detail,
+                invocation_ref=tool_idempotency_key_of(run_id, tick, index,
+                                                       capability_id)))
             return True
         if self._capabilities is None:
             refusal = state.refuse(
@@ -904,6 +986,11 @@ class AgentRuntime:
             self._emit(kind="TOOL_SKIPPED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"capability_id": capability_id, "code": refusal.code})
+            state.feedback.append(_tool_feedback(
+                tick, index, capability_id, outcome="TOOL_SKIPPED",
+                refusal_code=refusal.code, detail=refusal.detail,
+                invocation_ref=tool_idempotency_key_of(run_id, tick, index,
+                                                       capability_id)))
             return True
         arguments = item.get("arguments") or {}
         if not isinstance(arguments, Mapping):
@@ -932,6 +1019,10 @@ class AgentRuntime:
             self._emit(kind="TOOL_FAILED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"capability_id": capability_id, "code": result.code})
+            state.feedback.append(_tool_feedback(
+                tick, index, capability_id, outcome="TOOL_FAILED",
+                refusal_code=code, detail=f"{result.code}: {result.detail}",
+                invocation_ref=request.idempotency_key))
             return False
         if not isinstance(result, Observation) or not result.ok():
             failure = getattr(result, "failure", None)
@@ -944,11 +1035,21 @@ class AgentRuntime:
                        lease_generation=context.lease_generation,
                        detail={"capability_id": capability_id,
                                "failure": str(getattr(failure, "value", failure))})
+            state.feedback.append(_tool_feedback(
+                tick, index, capability_id, outcome="TOOL_FAILED",
+                failure=str(getattr(failure, "value", failure)), detail=detail,
+                invocation_ref=request.idempotency_key))
             return False
         self._emit(kind="TOOL_OBSERVED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"capability_id": capability_id,
                            "artifacts": list(result.artifacts)})
+        # The evidence itself is retained — refs, size and digest — so the next
+        # tick knows what this one observed instead of asking again (LOOP-2).
+        state.feedback.append(_tool_feedback(
+            tick, index, capability_id, outcome="TOOL_OBSERVED",
+            artifacts=tuple(result.artifacts), payload=result.payload,
+            invocation_ref=request.idempotency_key))
         return True
 
     # ── delegation ──
@@ -1175,14 +1276,19 @@ class AgentRuntime:
         return context.limits.max_proposals or spec.termination.max_proposals
 
     def _model_request(self, spec: ProfileSpec, context: TaskContext,
-                       tick: int) -> ModelRequest:
+                       state: _RunState, tick: int) -> ModelRequest:
         """One request per tick; the prompt is the assembler port's job.
 
-        The tick marker is appended here (it is loop state, not context); every
-        content envelope comes from `self._assembler(context)` — the run's
-        payloads, never a digest standing in for them (LOOP-1).
+        The prompt is the port's envelopes, then this run's retained tool feedback
+        (LOOP-2), then the tick marker. Both trailing halves are *loop state*, not
+        context: they are composed after the port, so the assembler keeps owning
+        what a run's own context contributes and the runtime adds only what
+        happened during the run. Payloads reach the model as content, never as a
+        digest standing in for them (LOOP-1); the same is true of an observation's
+        artifacts, which travel as their own refs.
         """
         prompt = list(self._assembler(context))
+        prompt.extend(feedback_envelopes(state.feedback))
         prompt.append(UntrustedContent(
             text=f"tick {tick} of {self._max_ticks(spec, context)}",
             origin="runtime.tick", ref=context.task_id))
@@ -1223,6 +1329,7 @@ class AgentRuntime:
             refusals=tuple(state.refusals),
             delegations=tuple(state.delegations),
             tool_calls=state.tool_calls,
+            feedback=tuple(state.feedback),
             misses=existing.misses if existing is not None else 0,
             last_heartbeat=stamp,
             created_at=(existing.created_at if existing is not None else stamp),
@@ -1407,6 +1514,8 @@ class AgentRuntime:
             tool_calls=checkpoint.tool_calls,
             seen_drafts={proposal.draft_digest()
                          for proposal in checkpoint.proposals},
+            feedback=list(checkpoint.feedback),
+            evidence=set(evidence_digests(checkpoint.feedback)),
         )
         return self._run_spec(
             spec, context, token=token, state=state,
