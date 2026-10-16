@@ -9,7 +9,7 @@ Source: AUDIT-EXT-1-TRIAGE.md (audit/ext-1-triage@bc1a5da) — adjudication of t
 | 3 | L1/I4 journal growth + archival | VALID — no compaction/retention/archival; journal holes read as tampering | P2 | EXT-4 | LANDED (df4a579) |
 | 4 | R3 CLI control-byte scrub | PARTIAL — unescaped reason column, no ANSI strip (cli.py:283-288) | P3 | EXT-5 | LANDED (c22441e) |
 | 5 | R4 OPEN-contradiction bound | PARTIAL — no cumulative OPEN bound (LLM-flood path already blocked: internal-only kinds) | P3 | EXT-6 | LANDED (4fad0a6) |
-| 6 | I6 batch verdict | design gate — changes certified human-authority shape (one verdict per cres_ id) | — | EXT-7 | BLOCKED-HUMAN |
+| 6 | I6 batch verdict | design gate — changes certified human-authority shape (one verdict per cres_ id) | — | EXT-7 | PARKED (human 2026-10-15; revisit on flood pain) |
 | 7 | L4 hash-versioning | PARTIAL — artifact content_hash unversioned; fc_/cx_ preimages carry schema_version | P4 | EXT-8 | LANDED (c9bc798) |
 | 8 | I1 mTLS/backpressure | design gate — inapplicable to single-host CLI topology | P4 | EXT-8 | LANDED (c9bc798) |
 | 9 | I2 epistemic gate | DESIGN-BY-CERTIFIED-CONTRACT — determinism owns control | P4 | EXT-8 | LANDED (c9bc798) |
