@@ -6,11 +6,12 @@ The lifecycle state machine is one of three orthogonal axes (v4 §6):
   - Axis 3: Task status (§6.3, per-node) — core/task_status.py
 
 Illegal transitions are impossible through the public API. There is no
-public setter for lifecycle state. The only mutation path is
-``request_transition()`` which validates against the v4 §6.1 table and
-returns a ``(from_state, to_state)`` pair — the caller (repository) is
-responsible for the atomic DB write + event append within a single
-transaction (IDR-013).
+public setter for lifecycle state. Validation is pure
+(``validate_transition`` against the v4 §6.1 table); the only mutation
+path is ``ProjectRepository.transition_lifecycle``, which performs the
+atomic DB write + event append within a single transaction (IDR-013).
+No lifecycle driver ships this release: nothing in the controller tick
+reads or advances lifecycle state.
 
 v4 §6.1 adds two edges missing from v3: any non-terminal state may
 transition to FAILED (unrecoverable failure) or ABANDONED (human-approved

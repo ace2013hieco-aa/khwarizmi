@@ -34,7 +34,7 @@ uv venv --python 3.14; uv sync
 - Replay proves byte/evidence determinism only: never scientific validity, never admissibility of retracted sources.
 - No scientific-reproducibility claim. A green demo or suite is not evidence about any hypothesis.
 - Vault notes, digests, rankings, and diagrams are derived views, never authority.
-- Completion is denied while a contradiction is OPEN; only a ratified human verdict resolves it.
+- Completion is denied while a contradiction is OPEN; only a ratified human verdict closes it (acknowledgment, not reconciliation — the verdict decides nothing between the parties and invalidates neither).
 - Causal DIRECT/PARTIAL claims are inadmissible (no experiment registry); INFERRED/SPECULATIVE is the downgrade path.
 - Platform planes (R1-R7/W/O) are landed but unreachable, except O2: not certified capabilities. Execution engines are external; hermes doctor probes the environment (runtime, config, database, sandbox runner, lockfile), not the engines.
 

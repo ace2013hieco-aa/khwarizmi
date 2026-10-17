@@ -386,10 +386,14 @@ class FailureClassificationRepository:
     # ── the real resolver bundle (D5) ──
 
     def _evidence_resolver(self, project_id: str, ref: str) -> bool:
-        """Project-scoped evidence resolution (D5): the ref must be a typed
-        artifact ref (``<type>:<content_hash>``) whose row exists and is
-        reachable from a task of the project via §14 ``derived_from`` edges
-        (the ``_source_artifact_resolves`` two-hop pattern). A
+        """Project-scoped evidence resolution (D5) — intentionally strict:
+        the ref must be a typed artifact ref (``<type>:<content_hash>``)
+        whose artifact row belongs to the citing project (the same
+        two-query shape as ``_verify_evidence_owned``). Shared evidence
+        that is only edge-reachable from this project
+        (``_source_artifact_resolves`` cross-project edges) is not citable
+        here — cross-project citation fails closed (P2-15; deliberately
+        stricter than the source slice's resolver). A
         ``failure_classification`` ref is refused — advisory, never evidence
         (D8). A currently retracted source (N9 — S5 retraction state) does
         not resolve as admissible evidence."""

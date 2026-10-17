@@ -3083,10 +3083,13 @@ def _contradiction_resolution_id(contradiction_id: str) -> str:
 def _validate_contradiction_resolution(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
 ) -> IntentResult:
-    """CONTRADICTION_RESOLUTION — the ratified HUMAN verdict resolving an
+    """CONTRADICTION_RESOLUTION — the ratified HUMAN verdict closing an
     OPEN contradiction (CHG-1, internal-only — the human has no agent
     profile; the deterministic layer ingests the operator verdict through
-    the record_contradiction_resolution precedent, IDR-040 §3).
+    the record_contradiction_resolution precedent, IDR-040 §3). The
+    verdict acknowledges the conflict — it decides nothing between the
+    parties and invalidates neither; both parties remain valid under the
+    frozen N1 rule.
 
     Validated at admission: ratified operator credential, a recorded
     HumanDecision binding the deterministic ``resolution_id`` (verified

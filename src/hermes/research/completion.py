@@ -32,9 +32,12 @@ ladder row:
 - the refutation state — a confirmatory hypothesis whose ladder record is
   REFUTED has NOT been satisfied (refutation routes to revision, §6.1, never
   to completion);
-- the contradiction state — an OPEN classification conflict touching the
+- the contradiction state — a classification conflict touching the
   program's classifications routes to adjudication (CHG-1), never to
-  completion.
+  completion; the conflict set is re-derived at read time (stored OPEN
+  rows plus a fresh pure-detector pass over the current classification
+  rows), so a conflict admitted after the last detector pass cannot be
+  invisible (no completion blind window).
 
 The predicate is pure and project-scoped: it performs read-only queries
 against the project's own rows, uses no clock and no randomness, writes
@@ -181,7 +184,18 @@ def _passed_gate_requirements(
 def _open_program_contradictions(
     conn: sqlite3.Connection, project_id: str, program_id: str,
 ) -> list[str]:
-    """OPEN contradiction IDs touching the program's classifications.
+    """Contradiction IDs blocking completion for this program.
+
+    The blocking set is re-derived at read time, never trusted from
+    storage alone: stored rows with status OPEN (the recorded, not-yet-
+    adjudicated conflicts) PLUS freshly recomputed conflicts — the pure
+    production detector re-run over the current digest-valid
+    classification rows — so a conflict that appears after the last
+    detector pass cannot be invisible (the P1-10 blind window). A
+    recomputed pair re-blocks only when no contradiction row for its
+    identity exists: a pair already adjudicated (RESOLVED) or retired
+    (SUPERSEDED) stays non-blocking, mirroring the stored OPEN-only
+    rule.
 
     A contradiction touches the program unless proven otherwise: either
     party's classification metadata naming this program suffices (both
@@ -193,19 +207,29 @@ def _open_program_contradictions(
     invalidated party (retired; the S5 follow-on supersedes eagerly).
     Deterministic (contradiction_id ASC).
     """
-    rows = conn.execute(
-        "SELECT contradiction_id, party_a, party_b FROM contradictions "
-        "WHERE project_id = ? AND status = 'OPEN' "
+    stored = conn.execute(
+        "SELECT contradiction_id, party_a, party_b, status "
+        "FROM contradictions WHERE project_id = ? "
         "ORDER BY contradiction_id ASC",
         (project_id,),
     ).fetchall()
+    stored_ids = {row["contradiction_id"] for row in stored}
     touching = []
-    for row in rows:
+    for row in stored:
+        if row["status"] != "OPEN":
+            continue
         if _contradiction_touches_program(
                 conn, project_id, program_id,
                 row["party_a"], row["party_b"]):
             touching.append(row["contradiction_id"])
-    return touching
+    for candidate in _fresh_program_conflicts(conn, project_id):
+        if candidate["contradiction_id"] in stored_ids:
+            continue
+        if _contradiction_touches_program(
+                conn, project_id, program_id,
+                candidate["party_a"], candidate["party_b"]):
+            touching.append(candidate["contradiction_id"])
+    return sorted(touching)
 
 
 def _contradiction_touches_program(
@@ -235,6 +259,39 @@ def _contradiction_touches_program(
     if any(m.get("invalidation_marker") == "INVALIDATED" for m in metas):
         return False
     return any(m.get("program_ref") == program_id for m in metas)
+
+
+def _fresh_program_conflicts(
+    conn: sqlite3.Connection, project_id: str,
+) -> list[dict]:
+    """The pure production detector re-run over the CURRENT
+    digest-valid classification rows (the P1-10 blind-window closure).
+
+    Read-only, same transaction, deterministic: reuses the production
+    candidate-row derivation (``detector_candidate_rows`` over the
+    ``classifications_digest`` of the project's rows — the exact inputs
+    the controller's detector pass consumes) and the pure N1 pair rule
+    (``detect_classification_conflicts``), never a reimplementation.
+    Output is sorted by ``contradiction_id``; the per-pass pair budget
+    is the production detector's own (``DEFAULT_MAX_PAIRS``).
+    """
+    from hermes.persistence.failure_classifications import (
+        FailureClassificationRepository,
+        classifications_digest,
+    )
+    from hermes.research.contradiction_candidates import (
+        detector_candidate_rows,
+    )
+    from hermes.research.contradictions import (
+        detect_classification_conflicts,
+    )
+
+    digest = classifications_digest(
+        FailureClassificationRepository(conn).classifications_for_project(
+            project_id))
+    rows = detector_candidate_rows(
+        conn, project_id, digest.get("items", []))
+    return detect_classification_conflicts(rows)
 
 
 def _refuted_hypothesis_refs(
@@ -349,8 +406,10 @@ def can_complete_research(
                 "resolve the gate through the ratified operator/handler "
                 "verdict path so the GatePassed event is recorded"))
 
-    # 4. No OPEN contradiction may touch the program's classifications:
-    # an unresolved classification conflict routes to adjudication
+    # 4. No open classification conflict may touch the program's
+    # classifications — stored OPEN rows AND conflicts freshly
+    # recomputed over the current classification rows (no blind
+    # window): an unresolved conflict routes to adjudication
     # (§6.1 style), never to completion.
     for contradiction_id in _open_program_contradictions(
             conn, project_id, program_id):
