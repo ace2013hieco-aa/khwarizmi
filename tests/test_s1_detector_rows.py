@@ -217,11 +217,16 @@ class TestC4Retraction:
                outcome_id="art-out1", task_id="t1")
         a, b = _pair(db)
         assert _rows_by_id(db)[a]["evidence"] == ["art-ev1"]
+        import hashlib
         _append_event_to_db(
             db, frozen_clock(CLOCK),
             EventType.HUMAN_DECISION_RECEIVED.value,
             project_id="p1", correlation_id="hd-1", caused_by="operator",
-            reason="operator decision", payload={"decision": "RETRACT"})
+            reason="operator decision",
+            payload={"decision": "RETRACT_SOURCE",
+                     "source_ref": "source_result:evhash1",
+                     "reason_digest": hashlib.sha256(
+                         "retracted".encode("utf-8")).hexdigest()})
         apply_intent(db, Intent(
             kind=IntentKind.RETRACT_SOURCE, proposed_by="DETERMINISTIC",
             project_id="p1", justification="s1",

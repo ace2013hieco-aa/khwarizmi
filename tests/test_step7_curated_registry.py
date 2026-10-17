@@ -996,12 +996,20 @@ class TestSupersession:
 # ═══════════════════════ D. Retraction (S5 integration) ═══════════════════════
 
 
-def _record_s5_human_decision(db, ref="hd-s5", project="p1"):
+def _record_s5_human_decision(db, ref="hd-s5", project="p1",
+                              source_ref="src-a"):
+    """Record the S5 retraction decision BOUND to its command
+    (RETRACT-1/P0-3): kind + source + the digest of ``_retract``'s fixed
+    reason."""
+    import hashlib
     _append_event_to_db(
         db, frozen_clock(CLOCK),
         EventType.HUMAN_DECISION_RECEIVED.value,
         project_id=project, correlation_id=ref, caused_by="operator",
-        reason="operator decision", payload={"decision": "RETRACT"})
+        reason="operator decision",
+        payload={"decision": "RETRACT_SOURCE", "source_ref": source_ref,
+                 "reason_digest": hashlib.sha256(
+                     b"retracted").hexdigest()})
 
 
 def _retract(db, source_ref, decision_ref="hd-s5", project="p1"):
@@ -1038,7 +1046,8 @@ class TestRetraction:
 
     def test_direct_evidence_retraction_invalidates(self, db):
         r, seed = self._admit_with_source(db)
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(
+            db, source_ref=f"source_result:{seed['evidence_hash']}")
         _retract(db, f"source_result:{seed['evidence_hash']}")
         row = db.execute(
             "SELECT status, invalidation_event_ref FROM "
@@ -1060,7 +1069,7 @@ class TestRetraction:
         # a different source artifact
         insert_artifact(db, "art-other", "source_result",
                         content_hash="otherhash")
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(db, source_ref="source_result:otherhash")
         _retract(db, "source_result:otherhash")
         row = db.execute(
             "SELECT status FROM curated_knowledge_entries "
@@ -1094,7 +1103,7 @@ class TestRetraction:
             "ORDER BY evidence_artifact_id", (r.entity_id,)).fetchall()
         assert len(basis) == 2
         # retract just one
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(db, source_ref="source_result:sh1")
         _retract(db, "source_result:sh1")
         row = db.execute(
             "SELECT status FROM curated_knowledge_entries "
@@ -1144,7 +1153,7 @@ class TestRetraction:
             (r.entity_id,)).fetchall()
         assert [b["evidence_artifact_id"] for b in basis] == ["art-down"]
         # retract the UPSTREAM source — the cone reaches art-down
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(db, source_ref="source_result:upstreamhash")
         _retract(db, "source_result:upstreamhash")
         row = db.execute(
             "SELECT status FROM curated_knowledge_entries "
@@ -1205,7 +1214,7 @@ class TestRetraction:
         r2 = curate(db, seed2, decision_event_ref="tr-2")
         assert r1.entity_id != r2.entity_id
         # retract the shared evidence
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(db, source_ref="source_result:sharedhash")
         _retract(db, "source_result:sharedhash")
         for rid in (r1.entity_id, r2.entity_id):
             row = db.execute(
@@ -1222,7 +1231,8 @@ class TestRetraction:
         # p2's own source artifact (distinct hash) + its own human decision
         insert_artifact(db, "art-src-p2", "source_result",
                         content_hash="p2srchash", project="p2")
-        _record_s5_human_decision(db, ref="hd-p2", project="p2")
+        _record_s5_human_decision(db, ref="hd-p2", project="p2",
+                                  source_ref="source_result:p2srchash")
         _retract(db, "source_result:p2srchash", decision_ref="hd-p2",
                  project="p2")
         # p1's entry is untouched
@@ -1233,7 +1243,8 @@ class TestRetraction:
 
     def test_repeated_retraction_idempotent(self, db):
         _r, seed = self._admit_with_source(db)
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(
+            db, source_ref=f"source_result:{seed['evidence_hash']}")
         _retract(db, f"source_result:{seed['evidence_hash']}")
         # repeat → duplicate
         r2 = _retract(db, f"source_result:{seed['evidence_hash']}")
@@ -1246,7 +1257,8 @@ class TestRetraction:
 
     def test_source_retracted_additive_payload(self, db):
         r, seed = self._admit_with_source(db)
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(
+            db, source_ref=f"source_result:{seed['evidence_hash']}")
         _retract(db, f"source_result:{seed['evidence_hash']}")
         ev = db.execute(
             "SELECT payload_json FROM events WHERE event_type = "
@@ -1269,7 +1281,8 @@ class TestRetraction:
 
     def test_invalidated_excluded_from_active_reads(self, db):
         r, seed = self._admit_with_source(db)
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(
+            db, source_ref=f"source_result:{seed['evidence_hash']}")
         _retract(db, f"source_result:{seed['evidence_hash']}")
         from hermes.persistence.repositories import CuratedKnowledgeRepository
         repo = CuratedKnowledgeRepository(db)
@@ -1294,7 +1307,8 @@ class TestRetraction:
         from hermes.persistence.event_validation import EventValidationError
 
         r, seed = self._admit_with_source(db)
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(
+            db, source_ref=f"source_result:{seed['evidence_hash']}")
 
         real_append = gw._append_event_to_db
 
@@ -1358,7 +1372,8 @@ class TestReplay:
         db.execute(
             "UPDATE artifacts SET artifact_type = 'source_result' "
             "WHERE artifact_id = ?", (seed["evidence_id"],))
-        _record_s5_human_decision(db)
+        _record_s5_human_decision(
+            db, source_ref=f"source_result:{seed['evidence_hash']}")
         _retract(db, f"source_result:{seed['evidence_hash']}")
         inv = db.execute(
             "SELECT payload_json FROM events WHERE event_type = "

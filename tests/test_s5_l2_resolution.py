@@ -121,12 +121,19 @@ def _resolve(db, value, edge_type="cites"):
     return _l2_resolve_upstream(db, value, edge_type, {})
 
 
-def _record_decision(db, ref="hd-1", project="p1"):
+def _record_decision(db, ref="hd-1", project="p1", *, source_ref="src-a",
+                     reason="source retracted by publisher"):
+    """Record the retraction decision BOUND to its command
+    (RETRACT-1/P0-3): kind + source + reason digest."""
+    import hashlib
     _append_event_to_db(
         db, frozen_clock(CLOCK),
         EventType.HUMAN_DECISION_RECEIVED.value,
         project_id=project, correlation_id=ref, caused_by="operator",
-        reason="operator decision", payload={"decision": "RETRACT"})
+        reason="operator decision",
+        payload={"decision": "RETRACT_SOURCE", "source_ref": source_ref,
+                 "reason_digest": hashlib.sha256(
+                     reason.encode("utf-8")).hexdigest()})
 
 
 def _retract(db, source_ref="src-a", decision_ref="hd-1", project="p1",

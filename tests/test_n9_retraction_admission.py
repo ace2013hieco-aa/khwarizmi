@@ -199,11 +199,17 @@ def _impl(db, evidence_ref, task_id, **kw):
 
 
 def _retract(db, source_ref, *, decision_ref="hd-1"):
+    import hashlib
+    # The decision BINDS this command (RETRACT-1/P0-3): kind + source +
+    # a digest over the cited reason; the gateway verifies it fail-closed.
     _append_event_to_db(
         db, frozen_clock(CLOCK),
         EventType.HUMAN_DECISION_RECEIVED.value,
         project_id="p1", correlation_id=decision_ref, caused_by="operator",
-        reason="operator decision", payload={"decision": "RETRACT"})
+        reason="operator decision",
+        payload={"decision": "RETRACT_SOURCE", "source_ref": source_ref,
+                 "reason_digest": hashlib.sha256(
+                     b"retracted").hexdigest()})
     return apply_intent(db, Intent(
         kind=IntentKind.RETRACT_SOURCE, proposed_by="DETERMINISTIC",
         project_id="p1", justification="n9 test",

@@ -659,7 +659,7 @@ class TestS5FollowOn:
         _ = _conflicting_pair(db)
         cid = _make(db).detect_contradictions()["recorded"][0]
         assert _status(db, cid) == "OPEN"
-        _record_decision(db)
+        _record_decision(db, source_ref="source_result:evhash1")
         _retract(db, source_ref="source_result:evhash1")
         assert _status(db, cid) == "SUPERSEDED"
         ev = db.execute(
@@ -690,12 +690,19 @@ def _insert_artifact_simple(db, artifact_id):
         (artifact_id, f"ch-{artifact_id}", CLOCK))
 
 
-def _record_decision(db, ref="hd-1", project="p1"):
+def _record_decision(db, ref="hd-1", project="p1", *, source_ref="src-a"):
+    """Record the retraction decision BOUND to its command
+    (RETRACT-1/P0-3): kind + source + the digest of the cited reason
+    (``_retract``'s fixed reason)."""
+    import hashlib
     _append_event_to_db(
         db, frozen_clock(CLOCK),
         EventType.HUMAN_DECISION_RECEIVED.value,
         project_id=project, correlation_id=ref, caused_by="operator",
-        reason="operator decision", payload={"decision": "RETRACT"})
+        reason="operator decision",
+        payload={"decision": "RETRACT_SOURCE", "source_ref": source_ref,
+                 "reason_digest": hashlib.sha256(
+                     b"retracted").hexdigest()})
 
 
 def _retract(db, source_ref="src-a", decision_ref="hd-1", project="p1"):

@@ -97,14 +97,27 @@ def _insert_task(db, task_id, status="SUCCEEDED", deps=()):
     return row
 
 
-def _record_human_decision(db, ref="hd-1"):
-    """Record a ratified HumanDecision event (the v6 §7/S5 authority)."""
+def _record_human_decision(db, ref="hd-1", *, source_ref="src-a",
+                          reason="source retracted by publisher",
+                          decision="RETRACT_SOURCE"):
+    """Record a ratified HumanDecision event (the v6 §7/S5 authority).
+
+    The payload BINDS the command it authorizes (RETRACT-1/P0-3): the
+    decision kind, the source and a digest over the cited reason. A
+    decision for another intent, source or reason never authorizes a
+    retraction.
+    """
+    import hashlib
+
     from hermes.persistence.repositories import _append_event_to_db
     _append_event_to_db(
         db, frozen_clock(CLOCK),
         EventType.HUMAN_DECISION_RECEIVED.value,
         project_id="p1", correlation_id=ref, caused_by="operator",
-        reason="operator decision", payload={"decision": "RETRACT"})
+        reason="operator decision",
+        payload={"decision": decision, "source_ref": source_ref,
+                 "reason_digest": hashlib.sha256(
+                     reason.encode("utf-8")).hexdigest()})
 
 
 def _retract(db, source_ref="src-a", decision_ref="hd-1",
@@ -213,7 +226,7 @@ class TestBasicRetraction:
         assert count == 3  # src-a + down-1 + the new ResearchDecision
 
     def test_hash_ref_form_resolves(self, db):
-        _record_human_decision(db)
+        _record_human_decision(db, source_ref="source_result:abc123")
         _insert_artifact(db, "src-h", content_hash="abc123")
         result = _retract(db, source_ref="source_result:abc123")
         assert result.entity_id == "src-h"
@@ -385,21 +398,21 @@ class TestBoundaries:
         assert n == 0
 
     def test_nonexistent_source_rejected(self, db):
-        _record_human_decision(db)
+        _record_human_decision(db, source_ref="nope")
         with pytest.raises(GatewayRejection) as exc:
             _retract(db, source_ref="nope")
         assert exc.value.code == EVIDENCE_REF
 
     def test_cross_project_source_rejected(self, db):
         ProjectRepository(db, frozen_clock(CLOCK)).create("p2", "Other")
-        _record_human_decision(db)
+        _record_human_decision(db, source_ref="foreign-src")
         _insert_artifact(db, "foreign-src", project_id="p2")
         with pytest.raises(GatewayRejection) as exc:
             _retract(db, source_ref="foreign-src")
         assert exc.value.code == EVIDENCE_REF
 
     def test_non_source_artifact_type_rejected(self, db):
-        _record_human_decision(db)
+        _record_human_decision(db, source_ref="claim-1")
         _insert_artifact(db, "claim-1", artifact_type="research_claim")
         with pytest.raises(GatewayRejection) as exc:
             _retract(db, source_ref="claim-1")
@@ -407,9 +420,9 @@ class TestBoundaries:
 
     def test_bad_hash_prefix_rejected(self, db):
         # The human-decision dereference runs FIRST (fail-closed ordering):
-        # with a recorded decision in place the malformed source ref is
-        # what trips the rejection.
-        _record_human_decision(db)
+        # with a decision binding that ref in place, the malformed source
+        # ref is what trips the rejection.
+        _record_human_decision(db, source_ref="not_a_type:abc")
         with pytest.raises(GatewayRejection) as exc:
             _retract(db, source_ref="not_a_type:abc")
         assert exc.value.code == MALFORMED_PAYLOAD
@@ -424,7 +437,7 @@ class TestBoundaries:
 
     def test_second_different_retraction_is_stale(self, db):
         _record_human_decision(db, "hd-1")
-        _record_human_decision(db, "hd-2")
+        _record_human_decision(db, "hd-2", reason="different reason")
         _insert_artifact(db, "src-a")
         _retract(db, decision_ref="hd-1")
         with pytest.raises(GatewayRejection) as exc:
@@ -448,6 +461,101 @@ class TestBoundaries:
             "SELECT status FROM tasks WHERE task_id = 't-run'"
         ).fetchone()["status"]
         assert status == "RUNNING"
+
+
+# ═══════════ E'. Decision binding — RETRACT-1 closes P0-3 ═══════════
+
+
+def _assert_no_retraction_effects(db):
+    """A refused decision binding writes NOTHING (refusal-as-data)."""
+    assert db.execute(
+        "SELECT COUNT(*) c FROM events WHERE event_type = ?",
+        (EventType.SOURCE_RETRACTED.value,)).fetchone()["c"] == 0
+    assert db.execute(
+        "SELECT COUNT(*) c FROM artifacts "
+        "WHERE artifact_type = 'ResearchDecision'").fetchone()["c"] == 0
+
+
+class TestDecisionBinding:
+    """Existence of a HumanDecisionReceived row is not authority: the
+    payload must BIND the command (decision kind + source_ref +
+    reason_digest), fail-closed with ``PROPOSAL`` for every mismatch."""
+
+    def test_classification_decision_never_authorizes_retraction(self, db):
+        """The triage probe (P0-3): a classification verdict recorded in
+        the project used to satisfy the retraction dereference."""
+        from hermes.persistence.repositories import _append_event_to_db
+        _append_event_to_db(
+            db, frozen_clock(CLOCK),
+            EventType.HUMAN_DECISION_RECEIVED.value,
+            project_id="p1", correlation_id="hd-classify",
+            caused_by="operator", reason="operator classification verdict",
+            payload={"decision": "RECORD_CLASSIFICATION",
+                     "classification_ref": "fc_abc"})
+        _insert_artifact(db, "src-a")
+        with pytest.raises(GatewayRejection) as exc:
+            _retract(db, decision_ref="hd-classify")
+        assert exc.value.code == PROPOSAL
+        assert "RECORD_CLASSIFICATION" in str(exc.value)
+        _assert_no_retraction_effects(db)
+
+    def test_decision_kind_mismatch_refused(self, db):
+        _record_human_decision(db, "hd-legacy", decision="RETRACT")
+        _insert_artifact(db, "src-a")
+        with pytest.raises(GatewayRejection) as exc:
+            _retract(db, decision_ref="hd-legacy")
+        assert exc.value.code == PROPOSAL
+        assert "not a RETRACT_SOURCE verdict" in str(exc.value)
+        _assert_no_retraction_effects(db)
+
+    def test_decision_source_mismatch_refused(self, db):
+        _record_human_decision(db, "hd-other", source_ref="src-b")
+        _insert_artifact(db, "src-a")
+        with pytest.raises(GatewayRejection) as exc:
+            _retract(db, source_ref="src-a", decision_ref="hd-other")
+        assert exc.value.code == PROPOSAL
+        assert "binds source 'src-b'" in str(exc.value)
+        _assert_no_retraction_effects(db)
+
+    def test_decision_reason_digest_mismatch_refused(self, db):
+        _record_human_decision(db, "hd-edited", reason="a different reason")
+        _insert_artifact(db, "src-a")
+        with pytest.raises(GatewayRejection) as exc:
+            # default reason "source retracted by publisher"
+            _retract(db, decision_ref="hd-edited")
+        assert exc.value.code == PROPOSAL
+        assert "reason_digest mismatch" in str(exc.value)
+        _assert_no_retraction_effects(db)
+
+    def test_decision_without_binding_fields_refused(self, db):
+        """The pre-RETRACT-1 fixture shape (bound to nothing) is refused."""
+        from hermes.persistence.repositories import _append_event_to_db
+        _append_event_to_db(
+            db, frozen_clock(CLOCK),
+            EventType.HUMAN_DECISION_RECEIVED.value,
+            project_id="p1", correlation_id="hd-bare", caused_by="operator",
+            reason="operator decision",
+            payload={"decision": "RETRACT_SOURCE"})
+        _insert_artifact(db, "src-a")
+        with pytest.raises(GatewayRejection) as exc:
+            _retract(db, decision_ref="hd-bare")
+        assert exc.value.code == PROPOSAL
+        _assert_no_retraction_effects(db)
+
+    def test_bound_decision_admits_unchanged(self, db):
+        """Positive control: a matching decision admits exactly as before
+        (one SourceRetracted event + one ResearchDecision artifact)."""
+        _record_human_decision(db)
+        _insert_artifact(db, "src-a")
+        result = _retract(db)
+        assert result.duplicate is False
+        assert result.entity_id == "src-a"
+        assert db.execute(
+            "SELECT COUNT(*) c FROM events WHERE event_type = ?",
+            (EventType.SOURCE_RETRACTED.value,)).fetchone()["c"] == 1
+        assert db.execute(
+            "SELECT COUNT(*) c FROM artifacts "
+            "WHERE artifact_type = 'ResearchDecision'").fetchone()["c"] == 1
 
 
 # ════════════════════════ F. Event integrity ════════════════════════
@@ -574,11 +682,15 @@ class TestRepeatedApplication:
         _insert_artifact(db, "down-1")
         _insert_edge(db, "down-1", "src-a", "cites")
         _retract(db)
+        # A genuinely different command needs its own bound decision: the
+        # STALE guard, not the decision binding, must refuse it.
+        _record_human_decision(db, "hd-2", reason="second try")
         snapshot1 = db.execute(
             "SELECT artifact_id, metadata_json FROM artifacts "
             "ORDER BY artifact_id").fetchall()
         with pytest.raises(GatewayRejection) as exc:
-            _retract(db, reason="second try")   # different command -> STALE
+            _retract(db, decision_ref="hd-2",
+                     reason="second try")   # different command -> STALE
         assert exc.value.code == STALE
         snapshot2 = db.execute(
             "SELECT artifact_id, metadata_json FROM artifacts "

@@ -234,7 +234,8 @@ def test_retraction_rows_share_the_artifact_key(db):
 
 def test_s5_cascade_rows_share_the_artifact_key(db):
     _result, seed = _admit(db)
-    _record_s5_human_decision(db)
+    _record_s5_human_decision(
+        db, source_ref=f"source_result:{seed['evidence_hash']}")
     _retract(db, f"source_result:{seed['evidence_hash']}")
     admission_keys = _subject_keys(db, _admitted_row(db)["event_id"])
     for event_type in ("SourceRetracted", "CuratedKnowledgeInvalidated"):
@@ -266,7 +267,8 @@ def test_bare_source_retracted_retires_the_produced_note(db, tmp_path):
 def test_s5_retraction_retires_the_produced_note(db, tmp_path):
     _result, seed = _admit(db)
     admission = _admitted_row(db)
-    _record_s5_human_decision(db)
+    _record_s5_human_decision(
+        db, source_ref=f"source_result:{seed['evidence_hash']}")
     _retract(db, f"source_result:{seed['evidence_hash']}")
     root = str(tmp_path / "v")
     project(db, "p1", root, cursor=0)

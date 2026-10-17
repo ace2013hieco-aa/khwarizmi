@@ -1487,8 +1487,12 @@ def _validate_retract_source(
     ``record_operator_decision`` precedent, IDR-040 §3) — the payload
     therefore carries ``human_decision_ref`` and admission FAILS CLOSED
     unless it dereferences to a recorded HumanDecision event in this
-    project (the HumanDecisionReceived journal row is the evidence the
-    human decision happened; no journal row, no cascade).
+    project whose payload BINDS this exact command — decision kind
+    ``RETRACT_SOURCE``, the same ``source_ref`` and a ``reason_digest``
+    over the same cited reason (the HumanDecisionReceived journal row is
+    the evidence the human decision happened; no journal row or no
+    binding, no cascade — a decision for another intent or another
+    source never authorizes a retraction).
 
     The cascade (ONE atomic BEGIN IMMEDIATE transaction — a mid-cascade
     crash can never leave a partial invalidation):
@@ -1558,14 +1562,23 @@ def _validate_retract_source(
             intent.kind, MALFORMED_PAYLOAD,
             "payload.human_decision_ref must be a non-empty string")
 
-    # The HumanDecision contract (v6 §7/S5): a RECORDED human decision
-    # must exist — dereferenced against the HumanDecisionReceived journal
-    # (event_id or correlation_id), fail-closed. No recorded decision, no
-    # cascade: the gateway never fabricates the human's authority.
+    # The HumanDecision contract (v6 §7/S5; RETRACT-1 closes P0-3): a
+    # RECORDED human decision must exist — dereferenced against the
+    # HumanDecisionReceived journal (event_id or correlation_id),
+    # fail-closed — AND its payload must bind THIS command. Existence is
+    # not authority: a decision recorded for another intent (e.g. a
+    # classification verdict) or for another source/reason never
+    # authorizes a retraction. No binding, no cascade: the gateway never
+    # fabricates the human's authority. The binding mirrors the
+    # classification/contradiction/curation precedents (payload load,
+    # closed comparison, ``PROPOSAL`` refusal).
+    import hashlib
+    import json as _json
     decision_row = conn.execute(
-        "SELECT event_id, correlation_id FROM events "
+        "SELECT event_id, correlation_id, payload_json FROM events "
         "WHERE project_id = ? AND event_type = ? "
-        "AND (event_id = ? OR correlation_id = ?) LIMIT 1",
+        "AND (event_id = ? OR correlation_id = ?) "
+        "ORDER BY rowid LIMIT 1",
         (intent.project_id, EventType.HUMAN_DECISION_RECEIVED.value,
          human_decision_ref, human_decision_ref)).fetchone()
     if decision_row is None:
@@ -1575,6 +1588,38 @@ def _validate_retract_source(
             f"dereference to a recorded HumanDecision in project "
             f"{intent.project_id!r} — RETRACT_SOURCE requires a recorded "
             f"HumanDecision (v6 §7/S5)")
+    try:
+        decision_payload = _json.loads(decision_row["payload_json"] or "{}")
+    except ValueError:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} has a corrupt "
+            f"payload — its binding cannot be verified") from None
+    if not isinstance(decision_payload, dict):
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} has a corrupt "
+            f"payload — its binding cannot be verified")
+    if decision_payload.get("decision") != IntentKind.RETRACT_SOURCE.value:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} is a "
+            f"{decision_payload.get('decision')!r} verdict, not a "
+            f"RETRACT_SOURCE verdict — a decision for another intent never "
+            f"authorizes a retraction")
+    if decision_payload.get("source_ref") != source_ref:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} binds source "
+            f"{decision_payload.get('source_ref')!r}, not {source_ref!r} — "
+            f"the decision does not ratify this retraction")
+    reason_digest = hashlib.sha256(reason.encode("utf-8")).hexdigest()
+    if decision_payload.get("reason_digest") != reason_digest:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} does not bind "
+            f"the cited reason (reason_digest mismatch) — the decision does "
+            f"not ratify this retraction")
 
     # Resolve the source (type-checked, in-project, fail-closed).
     source_artifact_id = _s5_source_artifact_id(
@@ -1584,8 +1629,6 @@ def _validate_retract_source(
     # the FULL command {source_ref, reason, human_decision_ref} — an
     # identical repeat returns duplicate=True; any differing command
     # (e.g. a different cited reason) falls through to the STALE guard.
-    import hashlib
-    import json as _json
     retraction_id = "retract_" + hashlib.sha256(_json.dumps(
         {"source_ref": source_ref, "reason": reason,
          "human_decision_ref": human_decision_ref},

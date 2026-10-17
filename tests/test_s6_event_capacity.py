@@ -105,12 +105,19 @@ def _insert_task(db, task_id, status="SUCCEEDED", *, project="p1",
                    (json.dumps(spec), task_id))
 
 
-def _record_decision(db, ref="hd-1", project="p1"):
+def _record_decision(db, ref="hd-1", project="p1", *, source_ref="src-a"):
+    """Record the retraction decision BOUND to its command
+    (RETRACT-1/P0-3): kind + source + the digest of the cited reason
+    (``_retract``'s fixed reason)."""
+    import hashlib
     _append_event_to_db(
         db, frozen_clock(CLOCK),
         EventType.HUMAN_DECISION_RECEIVED.value,
         project_id=project, correlation_id=ref, caused_by="operator",
-        reason="operator decision", payload={"decision": "RETRACT"})
+        reason="operator decision",
+        payload={"decision": "RETRACT_SOURCE", "source_ref": source_ref,
+                 "reason_digest": hashlib.sha256(
+                     b"retracted").hexdigest()})
 
 
 def _retract(db, source_ref="src-a", decision_ref="hd-1", project="p1"):
@@ -681,7 +688,7 @@ class TestHistoricalCompatibility:
         before = db.execute(
             "SELECT payload_json FROM events WHERE event_type = ?",
             (EventType.SOURCE_RETRACTED.value,)).fetchone()["payload_json"]
-        _record_decision(db, ref="hd-new")
+        _record_decision(db, ref="hd-new", source_ref="src-b")
         _insert_artifact(db, "src-b")
         _retract(db, source_ref="src-b", decision_ref="hd-new")
         old = db.execute(
@@ -707,7 +714,7 @@ class TestHistoricalCompatibility:
 
     def test_37_mixed_old_new_population(self, db):
         self._write_old_event(db)
-        _record_decision(db, ref="hd-new")
+        _record_decision(db, ref="hd-new", source_ref="src-b")
         _insert_artifact(db, "src-b")
         _insert_artifact(db, "down-b")
         _insert_edge(db, "down-b", "src-b", "cites")
