@@ -2425,11 +2425,27 @@ class Controller:
         Same semantics as the wrapper: machine-derived admission, no
         operator credential, fail-closed ``DETECTOR`` refusal with zero
         writes on detector failure, rejections surfaced as data.
+
+        CHG-DEDUP-1 (P1-9): before an intent is built, each candidate's
+        pair identity (recomputed, N1) is checked against the project's
+        recorded contradictions — any row status. Already-recorded
+        candidates are skipped and counted in ``duplicates`` (the count
+        the gateway would have reported): the gateway duplicate
+        fast-path absorbs them with zero mutation, but every
+        resubmission still appended an ``IntentApplied`` audit row, so
+        a stable recorded pair grew the journal once per ACTIVE tick.
+        The gateway / journal are untouched (append-only audit rows for
+        direct submissions are pinned).
         """
         from hermes.core.intents import Intent, IntentKind
+        from hermes.research.contradiction_candidates import (
+            recorded_pair_keys,
+        )
         from hermes.research.contradictions import (
             CONTRADICTION_DETECTOR_VERSION,
             DETECTOR_TRUNCATED,
+            ContradictionError,
+            contradiction_id_of,
             detect_classification_conflicts,
         )
         from hermes.research.gateway import GatewayRejection, apply_intent
@@ -2439,6 +2455,8 @@ class Controller:
             rows = self._detector_candidate_rows()
             found = detect_classification_conflicts(
                 rows, diagnostics=diagnostics)
+            recorded_keys = recorded_pair_keys(
+                self._conn, self._project_id)
         except Exception as exc:  # noqa: BLE001 — detector failure
             # asserts nothing; the loop observes the refusal as data.
             self._note_once(
@@ -2460,6 +2478,20 @@ class Controller:
         duplicates = 0
         refused: list[dict] = []
         for candidate in found:
+            try:
+                pair_key = contradiction_id_of(
+                    candidate["party_a"], candidate["party_b"])
+            except (ContradictionError, KeyError, TypeError):
+                # Malformed detector output: no pair identity to compare,
+                # so it falls through to the gateway's fail-closed
+                # validation (base behaviour, refusal-as-data).
+                pair_key = None
+            if pair_key is not None and pair_key in recorded_keys:
+                # CHG-DEDUP-1: already recorded (any status) — the
+                # gateway would absorb this as a duplicate with zero
+                # mutation while still appending an audit row.
+                duplicates += 1
+                continue
             intent = Intent(
                 kind=IntentKind.RECORD_CONTRADICTION,
                 proposed_by="DETERMINISTIC",

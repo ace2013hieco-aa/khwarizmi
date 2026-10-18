@@ -132,3 +132,44 @@ def open_contradiction_parties(conn: Any, project_id: str) -> list[str]:
         seen.add(row["party_a"])
         seen.add(row["party_b"])
     return sorted(seen)
+
+
+def recorded_pair_keys(conn: Any, project_id: str) -> set[str]:
+    """Recomputed pair identities of every recorded contradiction row
+    in the project — the CHG-DEDUP-1 upstream-skip input (read-only
+    advisory, the ``open_contradiction_parties`` precedent: no
+    transaction, no lease, no journal, no identity authoring).
+
+    Any-row predicate: a row in any status (OPEN / RESOLVED /
+    SUPERSEDED) means the pair is already recorded, because an existing
+    row takes the gateway's duplicate path unchanged (zero mutation)
+    regardless of status — the resubmission only ever appended a fresh
+    ``IntentApplied`` audit row per tick. Retraction-driven supersession
+    retires a pair whose party is invalidated in the same transaction
+    and no un-retract exists, so a superseded pair can never
+    legitimately need re-recording.
+
+    Content-hash discipline: the identity is recomputed from the stored
+    parties (``contradiction_id_of``), never read from the
+    ``contradiction_id`` column; a row that cannot be keyed is omitted
+    and any candidate falling through is still gated fail-closed by the
+    gateway. Project-scoped and delegated to the certified any-status
+    read (``ContradictionRepository.all_entries``) — rows of other
+    projects never suppress detection here and no new query is added;
+    the read is a plain SELECT keyed on the project, so the row count
+    is the project's recorded-contradiction count (EXT-6 bounds the
+    OPEN portion; resolution/supersession retire the rest).
+    """
+    from hermes.persistence.repositories import ContradictionRepository
+    from hermes.research.contradictions import (
+        ContradictionError,
+        contradiction_id_of,
+    )
+
+    keys: set[str] = set()
+    for row in ContradictionRepository(conn).all_entries(project_id):
+        try:
+            keys.add(contradiction_id_of(row["party_a"], row["party_b"]))
+        except ContradictionError:
+            continue
+    return keys

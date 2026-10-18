@@ -2956,6 +2956,15 @@ def _validate_record_contradiction(
                 kind, EVIDENCE_REF,
                 "contradiction parties share no currently-valid resolved "
                 "evidence — overlap cannot be established")
+        # P2-17 (CX-OVERLAP-1, ruling R7): the recorded row carries the
+        # FRESH overlap re-derived above, never the pre-transaction
+        # snapshot — a resolution/retraction committing between the
+        # pre-lock pair rule and BEGIN IMMEDIATE must not be recorded as
+        # admitted provenance. The event payload and the intent result
+        # stay on the pre-lock snapshot (byte-stable consumers); the
+        # recorded row is the surface this slice re-tenants.
+        fresh_overlap = sorted(
+            set(fresh_a["evidence"]) & set(fresh_b["evidence"]))
         if supersedes_ref:
             target = conn.execute(
                 "SELECT status FROM contradictions "
@@ -3021,7 +3030,7 @@ def _validate_record_contradiction(
             (contradiction_id, intent.project_id,
              CONTRADICTION_TYPE_CLASSIFICATION_CONFLICT,
              ordered[0], ordered[1],
-             _json.dumps(overlap),
+             _json.dumps(fresh_overlap),
              detector_version, ts, contradiction_id,
              supersedes_ref or None, ts))
         if supersedes_ref:
@@ -3099,6 +3108,16 @@ def _validate_contradiction_resolution(
     is refused (PROPOSAL); a verdict on a SUPERSEDED row is refused
     (STALE — retire the chain head instead). LLM-proposed resolution is
     impossible (internal-only role gate).
+
+    CRES-DIGEST-1 (P3-17): the resolved row also carries
+    ``resolution_rationale_digest`` — sha256 over the UTF-8 rationale
+    bytes of the BOUND decision row, recomputed inside the resolution
+    transaction (never taken from the command payload, which stays
+    exactly {contradiction_id, human_decision_ref, operator_id}). The
+    policy is NULL-safe: a bound row whose rationale key is absent or
+    not a string stores NULL (the existing decision-binding validation
+    remains the admission gate); an empty-string rationale digests as
+    sha256(b"").
     """
     kind = intent.kind
     payload = intent.payload
@@ -3141,6 +3160,7 @@ def _validate_contradiction_resolution(
     # HumanDecisionReceived journal (event_id or correlation_id),
     # fail-closed. No recorded decision, no resolution.
     resolution_id = _contradiction_resolution_id(contradiction_id)
+    import hashlib as _hashlib
     import json as _json
     decision_row = conn.execute(
         "SELECT payload_json FROM events "
@@ -3220,11 +3240,36 @@ def _validate_contradiction_resolution(
                 f"contradiction {contradiction_id!r} is SUPERSEDED — "
                 f"resolve the chain head instead; historical rows are "
                 f"never re-resolved")
+        # CRES-DIGEST-1 (P3-17): digest the rationale of the BOUND
+        # decision row, in-transaction, by the RETRACT_SOURCE
+        # reason-binding convention (sha256 over the UTF-8 bytes, full
+        # hexdigest). The command payload never carries a rationale, so
+        # this value cannot be trusted from — or substituted by — the
+        # request. NULL-safe policy: a bound row without rationale text
+        # (key absent or not a string) stores NULL; a string that cannot
+        # be canonically encoded is a corrupt decision and refuses
+        # fail-closed (no explicit ROLLBACK here — the except
+        # GatewayRejection handler below owns it, so the certified
+        # census figure (121) is unchanged).
+        rationale = decision_payload.get("rationale")
+        if isinstance(rationale, str):
+            try:
+                rationale_digest = _hashlib.sha256(
+                    rationale.encode("utf-8")).hexdigest()
+            except UnicodeEncodeError:
+                raise _reject(
+                    kind, PROPOSAL,
+                    f"recorded decision {human_decision_ref!r} carries a "
+                    f"rationale that cannot be canonically encoded — "
+                    f"resolution refused") from None
+        else:
+            rationale_digest = None
         conn.execute(
             "UPDATE contradictions "
-            "SET status = 'RESOLVED', resolution_event_ref = ? "
+            "SET status = 'RESOLVED', resolution_event_ref = ?, "
+            "resolution_rationale_digest = ? "
             "WHERE contradiction_id = ? AND status = 'OPEN'",
-            (resolution_id, contradiction_id))
+            (resolution_id, rationale_digest, contradiction_id))
         _append_event_to_db(
             conn, clock, EventType.CONTRADICTION_RESOLVED.value,
             project_id=intent.project_id,
