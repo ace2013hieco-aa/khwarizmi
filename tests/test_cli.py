@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from hermes.cli import _build_parser, main
+from tests.journal_tamper import tamper_events
 
 
 def test_help_returns_zero(capsys):
@@ -1109,12 +1110,12 @@ def test_audit_json_output_size_is_visible_rows_only_not_an_oracle(
     size is a PURE FUNCTION OF THE VISIBLE EVENT ROWS. Two stores sharing
     the SAME p1 rows produce the SAME output SIZE even when the stores
     differ in hidden state (a ratified operator, a second project with 202
-    tasks) — the size scales linearly with the returned count (a 403-row
+    tasks) — the size scales linearly with the returned count (a 405-row
     project's output is ~400x the per-row bytes larger than a 5-row one,
     band measured in-test), a ghost project id yields ``{"events": []}``
     (the empty shape no real project id can produce, since project
     creation itself writes the ResearchCreated row), and the unfiltered
-    view is exactly the union of the per-project rows (408 == 5 + 403, no
+    view is exactly the union of the per-project rows (410 == 5 + 405, no
     hidden rows). So audit timing/size reveals only the rows the audit
     trail is DESIGNED to expose; it cannot leak hidden store state
     (credentials, other projects, task tables) the response body does not
@@ -1133,13 +1134,14 @@ def test_audit_json_output_size_is_visible_rows_only_not_an_oracle(
 
     clock = frozen_clock("2026-08-16T00:00:00.000000+00:00")
 
-    def task(i, proj):
+    def task(i, proj, task_id=None, idempotency_key=None):
         return Intent(
             kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
             project_id=proj, justification="seed",
             payload={
-                "task_id": f"t{i:04d}", "task_type": "HUMAN_GATE",
-                "profile": "DIRECTOR", "idempotency_key": f"k{i:04d}",
+                "task_id": task_id or f"t{i:04d}", "task_type": "HUMAN_GATE",
+                "profile": "DIRECTOR",
+                "idempotency_key": idempotency_key or f"k{i:04d}",
                 "iteration": 1, "spec": {"gate_requirement": "g"},
                 "inputs": [], "outputs": [], "dependencies": [],
                 "provenance": [], "cost_class": None,
@@ -1160,7 +1162,9 @@ def test_audit_json_output_size_is_visible_rows_only_not_an_oracle(
                 "op-x", "token-123456789012", "Op")
             ProjectRepository(conn, clock=clock).create("p2", "Beta")
             for i in range(202):
-                apply_intent(conn, task(i, "p2"), clock=clock)
+                apply_intent(conn, task(i, "p2", task_id=f"p2-t{i:04d}",
+                                        idempotency_key=f"p2-k{i:04d}"),
+                             clock=clock)
         conn.close()
         cfg = root / "hermes.toml"
         cfg.write_text("[sqlite]" + chr(10)
@@ -1239,13 +1243,14 @@ def test_audit_human_table_same_rows_null_project_unfiltered_only(
 
     clock = frozen_clock("2026-08-16T00:00:00.000000+00:00")
 
-    def task(i, proj):
+    def task(i, proj, task_id=None, idempotency_key=None):
         return Intent(
             kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
             project_id=proj, justification="seed",
             payload={
-                "task_id": f"t{i:04d}", "task_type": "HUMAN_GATE",
-                "profile": "DIRECTOR", "idempotency_key": f"k{i:04d}",
+                "task_id": task_id or f"t{i:04d}", "task_type": "HUMAN_GATE",
+                "profile": "DIRECTOR",
+                "idempotency_key": idempotency_key or f"k{i:04d}",
                 "iteration": 1, "spec": {"gate_requirement": "g"},
                 "inputs": [], "outputs": [], "dependencies": [],
                 "provenance": [], "cost_class": None,
@@ -1266,7 +1271,9 @@ def test_audit_human_table_same_rows_null_project_unfiltered_only(
                 "op-x", "token-123456789012", "Op")
             ProjectRepository(conn, clock=clock).create("p2", "Beta")
             for i in range(202):
-                apply_intent(conn, task(i, "p2"), clock=clock)
+                apply_intent(conn, task(i, "p2", task_id=f"p2-t{i:04d}",
+                                        idempotency_key=f"p2-k{i:04d}"),
+                             clock=clock)
         conn.close()
         cfg = root / "hermes.toml"
         cfg.write_text("[sqlite]" + chr(10)
@@ -1292,7 +1299,7 @@ def test_audit_human_table_same_rows_null_project_unfiltered_only(
     # human view grows with the visible count (same rows as --json)
     a_p2 = run(cfg_hidden, ["audit", "--project", "p2"])
     assert len(a_p2) > len(a_plain)
-    assert "Event journal (403 events):" in a_p2
+    assert "Event journal (405 events):" in a_p2
 
     # NULL-project row: visible ONLY in the unfiltered view
     conn = connect(str(Path(cfg_hidden).parent / "hermes.db"))
@@ -1344,14 +1351,15 @@ def test_status_human_table_hidden_state_invariant_and_bounded(
 
     clock = frozen_clock("2026-08-16T00:00:00.000000+00:00")
 
-    def task(i, proj, task_id=None):
+    def task(i, proj, task_id=None, idempotency_key=None):
         return Intent(
             kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
             project_id=proj, justification="seed",
             payload={
                 "task_id": task_id or f"t{i:04d}",
                 "task_type": "HUMAN_GATE", "profile": "DIRECTOR",
-                "idempotency_key": f"k{i:04d}", "iteration": 1,
+                "idempotency_key": idempotency_key or f"k{i:04d}",
+                "iteration": 1,
                 "spec": {"gate_requirement": "g"},
                 "inputs": [], "outputs": [], "dependencies": [],
                 "provenance": [], "cost_class": None,
@@ -1371,7 +1379,9 @@ def test_status_human_table_hidden_state_invariant_and_bounded(
                 "op-x", "token-123456789012", "Op")
             ProjectRepository(conn, clock=clock).create("p2", "Beta")
             for i in range(202):
-                apply_intent(conn, task(i, "p2"), clock=clock)
+                apply_intent(conn, task(i, "p2", task_id=f"p2-t{i:04d}",
+                                        idempotency_key=f"p2-k{i:04d}"),
+                             clock=clock)
         conn.close()
         cfg = root / "hermes.toml"
         cfg.write_text("[sqlite]" + chr(10)
@@ -1502,13 +1512,14 @@ def test_events_cli_untruncated_fields_but_strict_subset(tmp_path, capsys):
 
     clock = frozen_clock("2026-08-16T00:00:00.000000+00:00")
 
-    def task(i, proj):
+    def task(i, proj, task_id=None, idempotency_key=None):
         return Intent(
             kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
             project_id=proj, justification="seed",
             payload={
-                "task_id": f"t{i:04d}", "task_type": "HUMAN_GATE",
-                "profile": "DIRECTOR", "idempotency_key": f"k{i:04d}",
+                "task_id": task_id or f"t{i:04d}", "task_type": "HUMAN_GATE",
+                "profile": "DIRECTOR",
+                "idempotency_key": idempotency_key or f"k{i:04d}",
                 "iteration": 1, "spec": {"gate_requirement": "g"},
                 "inputs": [], "outputs": [], "dependencies": [],
                 "provenance": [], "cost_class": None,
@@ -1529,7 +1540,9 @@ def test_events_cli_untruncated_fields_but_strict_subset(tmp_path, capsys):
                 "op-x", "token-123456789012", "Op")
             ProjectRepository(conn, clock=clock).create("p2", "Beta")
             for i in range(202):
-                apply_intent(conn, task(i, "p2"), clock=clock)
+                apply_intent(conn, task(i, "p2", task_id=f"p2-t{i:04d}",
+                                        idempotency_key=f"p2-k{i:04d}"),
+                             clock=clock)
         conn.close()
         cfg = root / "hermes.toml"
         cfg.write_text("[sqlite]" + chr(10)
@@ -1555,7 +1568,8 @@ def test_events_cli_untruncated_fields_but_strict_subset(tmp_path, capsys):
     # tamper: huge event_type + huge from_state (direct SQL bypasses the
     # F-04 validation) -> echoed UNTRUNCATED, and identically in audit
     conn = connect(str(Path(cfg_plain).parent / "hermes.db"))
-    conn.execute(
+    tamper_events(
+        conn,
         "UPDATE events SET event_type = ?, from_state = ? "
         "WHERE event_type = 'ResearchCreated'",
         ("E" * 300, "F" * 200))

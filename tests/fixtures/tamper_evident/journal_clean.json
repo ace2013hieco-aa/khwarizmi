@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "spec": "docs/idr/TAMPER-EVIDENT-JOURNAL.md",
+  "chain_version": "hermes.journal.chain.v1",
+  "genesis": "1cc5f8a885ca75f3edb337cef85b5f7835283725e46f72e629e225dbbcd46ba2",
+  "tip": "f47faf78e5c32d73c34bd79577a25b0557be1bac9a0c0ad841a10036af16bb68",
+  "note": "Frozen chain digests for the 3-row reference journal (design record §6, M1/M2).",
+  "rows": [
+    {
+      "event_id": 1,
+      "event_type": "ResearchCreated",
+      "project_id": "proj-tamper-fixture",
+      "task_id": null,
+      "from_state": null,
+      "to_state": "CREATED",
+      "correlation_id": "corr-0001",
+      "caused_by": "system",
+      "reason": null,
+      "artifact_ids_json": "[]",
+      "payload_json": "{}",
+      "created_at": "2026-01-01T00:00:00.000000+00:00",
+      "prev_hash": "1cc5f8a885ca75f3edb337cef85b5f7835283725e46f72e629e225dbbcd46ba2",
+      "chain_hash": "0958058ef36533d5247ac9284c56bd2459e0e99f9d7ee778bb01416ccd101dd1"
+    },
+    {
+      "event_id": 2,
+      "event_type": "LifecycleTransition",
+      "project_id": "proj-tamper-fixture",
+      "task_id": null,
+      "from_state": "CREATED",
+      "to_state": "SCOPING",
+      "correlation_id": "corr-0002",
+      "caused_by": "controller",
+      "reason": null,
+      "artifact_ids_json": "[]",
+      "payload_json": "{\"iteration\":1}",
+      "created_at": "2026-01-01T00:00:01.000000+00:00",
+      "prev_hash": "0958058ef36533d5247ac9284c56bd2459e0e99f9d7ee778bb01416ccd101dd1",
+      "chain_hash": "68b31d5a92c84a672eea51fa674c29aae5958b4e11a693116d5be191e5f5e330"
+    },
+    {
+      "event_id": 3,
+      "event_type": "TaskStatusChanged",
+      "project_id": "proj-tamper-fixture",
+      "task_id": "task-fixture-1",
+      "from_state": null,
+      "to_state": null,
+      "correlation_id": "corr-0003",
+      "caused_by": "controller",
+      "reason": "",
+      "artifact_ids_json": "[\"art-fixture-1\"]",
+      "payload_json": "{\"attempt\":1,\"status\":\"RUNNING\"}",
+      "created_at": "2026-01-01T00:00:02.000000+00:00",
+      "prev_hash": "68b31d5a92c84a672eea51fa674c29aae5958b4e11a693116d5be191e5f5e330",
+      "chain_hash": "f47faf78e5c32d73c34bd79577a25b0557be1bac9a0c0ad841a10036af16bb68"
+    }
+  ]
+}

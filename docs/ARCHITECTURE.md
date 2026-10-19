@@ -27,7 +27,7 @@ engines are external, probed by `hermes doctor`).
 | Controller / orchestration | `src/hermes/research/controller.py:340` (78 methods) | gateway `apply_intent`, repositories (reads), task handlers via typed bundle | write durable state except through intents; resolve human verdicts itself (it ingests recorded verdicts) |
 | Intent / command model | `src/hermes/core/intents.py:26` (19 kinds; `llm_proposable:124`, `director_only:133`, `internal_only:144`) | — (data + role partitions) | be proposed outside its partition (gateway refuses `ROLE`) |
 | Gateway + validation | `src/hermes/research/gateway.py` (15 `_validate_*`, sole writer `apply_intent:3961`) | repositories (inside validators), journal append | trust payloads (re-derives identity, re-resolves refs) |
-| Persistence | `src/hermes/persistence/` (`repositories.py` 19 classes; `failure_classifications.py`; `source_outcomes.py`; `provider_interactions.py`; `program_obligations.py`; `corpus.py`; `graph_edges.py`; `migrations.py`, schema v19 `:20`) | SQLite via owned transactions (18 acquisition owners; mostly `BEGIN IMMEDIATE`, intentional plain-`BEGIN` creates/retry — see §3.10); pure domain helpers | expose unwritten state; delete rows (no DELETE in `src/`) |
+| Persistence | `src/hermes/persistence/` (`repositories.py` 19 classes; `failure_classifications.py`; `source_outcomes.py`; `provider_interactions.py`; `program_obligations.py`; `corpus.py`; `graph_edges.py`; `migrations.py`, schema v22 `:20`) | SQLite via owned transactions (19 acquisition owners; mostly `BEGIN IMMEDIATE`, intentional plain-`BEGIN` creates/retry — see §3.10); pure domain helpers | expose unwritten state; delete rows (no DELETE in `src/`) |
 | Journal / events | `src/hermes/core/events.py` (catalog); writer in repositories | append via `_append_event_to_db` inside write txs | rewrite history; oversized payloads (`event_validation.py`, `RATIONALE`) |
 | Research / domain | `src/hermes/research/` (programs, evaluation, contradictions, completion, extraction, ladder, claims…) | core types, persistence reads, tools ports | decide transitions by model output; leak into providers |
 | Provider adapters | `src/hermes/tools/providers/adapters/` (15 adapters, ABC `src/hermes/tools/providers/base.py:139`, registry `src/hermes/tools/providers/adapters/__init__.py:37`) | `hermes.tools.*` only | import `research`/`core`/`persistence` (sole recorded exception: `src/hermes/tools/providers/hazards.py:137`) |
@@ -148,10 +148,13 @@ Transaction ownership is distributed across certified mutation
 boundaries, not one-transaction-per-repository. The physical census
 (DG-4, re-run DG-6 — see `archive/HERMES_DG4_REPOSITORY_STRUCTURAL_DESIGN_GATE_2026-09-21.md`
 §4 and `archive/HERMES_DG6_FINAL_ARCHITECTURE_CLOSURE_GATE_2026-09-21.md` §5)
-finds **121 executed transaction-control calls held by 27 acquisition
-owners plus one rollback-only participant**: persistence **18**
-(`repositories.py` 11, `database.py` 2 — the scheduler lease,
-`failure_classifications.py` 1 (`record`, `BEGIN IMMEDIATE` at `:233`),
+finds **124 executed transaction-control calls held by 28 acquisition
+owners plus one rollback-only participant**: persistence **19**
+(`repositories.py` 12 — the 12th is CRED-1's
+`OperatorCredentialRepository._apply_credential_mutation`, the
+credential-lifecycle write boundary; `database.py` 2 — the scheduler
+lease; `failure_classifications.py` 1 (`record`, `BEGIN IMMEDIATE` at
+`:233`),
 `source_outcomes.py` 1 (`record`, `BEGIN IMMEDIATE` at `:313`),
 `corpus.py` 1 (`CorpusRepository.record`, `BEGIN IMMEDIATE` at `:165`),
 `graph_edges.py` 1 (`GraphEdgeRepository.record`, `BEGIN IMMEDIATE` at
@@ -164,7 +167,7 @@ creates, the event-retry path, migrations, Controller floor/ladder/
 human-gate paths). Each boundary ties its transaction to a certified
 requirement — journal atomicity, identity re-derivation, lease/fence,
 admission checks, or all-or-nothing cascades. SQLite (WAL-capable
-config), schema v19 with forward-only migrations; single writer via
+config), schema v22 with forward-only migrations; single writer via
 the scheduler lease (`controller.py:2336`, `LOCK` on contention,
 `lock_lost` abort with rollback). Rows addressed by content hash
 (UNIQUE); edges in `provenance_edges` (indexed both directions);

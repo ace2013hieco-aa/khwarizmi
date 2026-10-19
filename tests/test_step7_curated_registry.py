@@ -57,6 +57,7 @@ from hermes.research.gateway import (
     GatewayRejection,
     apply_intent,
 )
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 OP_ID = "op-1"
@@ -590,7 +591,8 @@ class TestAdmission:
     def test_missing_classification_rejected(self, db):
         seed = seed_curatable(db)
         # point the transition at a non-existent classification
-        db.execute(
+        tamper_events(
+            db,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'EvidenceTransitionApplied'",
             (json.dumps({"program_id": seed["program_id"],
@@ -611,7 +613,8 @@ class TestAdmission:
                    "'failure_classification'")
         cls_ref = insert_classification(
             db, cls_art="fc-bad", hypothesis_ref="h-other")
-        db.execute(
+        tamper_events(
+            db,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'EvidenceTransitionApplied'",
             (json.dumps({"program_id": seed["program_id"],
@@ -631,7 +634,8 @@ class TestAdmission:
                    "'failure_classification'")
         cls_ref = insert_classification(
             db, cls_art="fc-empty", falsifying_refs=[])
-        db.execute(
+        tamper_events(
+            db,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'EvidenceTransitionApplied'",
             (json.dumps({"program_id": seed["program_id"],
@@ -652,7 +656,8 @@ class TestAdmission:
         cls_ref = insert_classification(
             db, cls_art="fc-unres",
             falsifying_refs=["evidence:nonexistent-hash"])
-        db.execute(
+        tamper_events(
+            db,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'EvidenceTransitionApplied'",
             (json.dumps({"program_id": seed["program_id"],
@@ -688,7 +693,8 @@ class TestAdmission:
                    "'failure_classification'")
         cls_ref = insert_classification(
             db, cls_art="fc-many", falsifying_refs=refs)
-        db.execute(
+        tamper_events(
+            db,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'EvidenceTransitionApplied'",
             (json.dumps({"program_id": seed["program_id"],

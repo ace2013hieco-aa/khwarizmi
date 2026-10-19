@@ -20,7 +20,7 @@ re-run (P6/N9/P7/tick-loop records live in `docs/archive/`).
   (`src/hermes/research/gateway.py:3961`). Never write durable state
   around it — no direct repository writes from orchestration, no
   direct SQL mutation outside certified transaction boundaries:
-  27 acquisition owners across persistence (18), gateway (5), and
+  28 acquisition owners across persistence (19), gateway (5), and
   Controller (4), plus one rollback-only participant (DG-4/DG-6;
   details in `docs/ARCHITECTURE.md` §3.10). Most boundaries own a
   `BEGIN IMMEDIATE` transaction; a few intentional plain-`BEGIN`

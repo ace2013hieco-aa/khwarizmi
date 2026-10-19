@@ -17,7 +17,35 @@ import sqlite3
 
 from hermes.core import Clock, utc_now
 
-SUPPORTED_VERSION = 20
+SUPPORTED_VERSION = 22
+
+# ── append-only journal triggers (IDR TAMPER-EVIDENT-JOURNAL §2.1) ──
+#
+# BEFORE UPDATE / BEFORE DELETE on ``events`` refuse with the named error at
+# the SQL layer, for every caller including raw sqlite3. INSERT is untouched,
+# so the single writer (repositories._append_event_to_db) and every raw-insert
+# fixture keep working. The message strings are part of the contract. Any
+# migration whose statements touch ``events`` must re-create both triggers
+# last (§3.1 rebuild rule): a table rebuild destroys them.
+
+_EVENTS_APPEND_ONLY_TRIGGER_DDL = (
+    """CREATE TRIGGER IF NOT EXISTS trg_events_append_only_update
+BEFORE UPDATE ON events
+BEGIN
+    SELECT RAISE(ABORT, 'HERMES_JOURNAL_IMMUTABLE_UPDATE');
+END""",
+    """CREATE TRIGGER IF NOT EXISTS trg_events_append_only_delete
+BEFORE DELETE ON events
+BEGIN
+    SELECT RAISE(ABORT, 'HERMES_JOURNAL_IMMUTABLE_DELETE');
+END""",
+)
+
+
+def _create_events_append_only_triggers(conn: sqlite3.Connection) -> None:
+    """(Re-)create the append-only triggers on ``events`` (IDR §2.1)."""
+    for statement in _EVENTS_APPEND_ONLY_TRIGGER_DDL:
+        conn.execute(statement)
 
 
 def _migrate_0_to_1(conn: sqlite3.Connection, clock: Clock) -> None:
@@ -330,6 +358,10 @@ def _migrate_2_to_3(conn: sqlite3.Connection, clock: Clock) -> None:
     # Recreate indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id)")
+
+    # Re-create the append-only triggers last (§3.1 rule 2: a rebuild drops
+    # them; the tables-touching migration re-creates them after the copy).
+    _create_events_append_only_triggers(conn)
 
     # Record the migration
     conn.execute(
@@ -1221,6 +1253,53 @@ def _migrate_19_to_20(conn: sqlite3.Connection, clock: Clock) -> None:
     )
 
 
+def _migrate_20_to_21(conn: sqlite3.Connection, clock: Clock) -> None:
+    """Migration 20 → 21 (TAMPER-1 / GAP-1 P1-1: append-only journal triggers).
+
+    Creates the BEFORE UPDATE / BEFORE DELETE abort triggers on ``events``
+    (IDR TAMPER-EVIDENT-JOURNAL §2.1). No column is added and no row is
+    rewritten: the triggers make the existing append-only discipline (one
+    writer, no UPDATE/DELETE anywhere in ``src/``) fail closed at the SQL
+    layer for every caller, including raw sqlite3. In-DB UPDATE/DELETE only:
+    DB-file swap and DROP TRIGGER are not covered — that is TAMPER-2 (hash
+    chain + re-chain, chartered-deferred).
+    """
+    ts = clock()
+    _create_events_append_only_triggers(conn)
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+        (21, ts),
+    )
+
+
+def _migrate_21_to_22(conn: sqlite3.Connection, clock: Clock) -> None:
+    """Migration 21 → 22 (CRED-1: operator-credential revocation).
+
+    Adds one NULLABLE column to ``operator_credentials``:
+
+    - ``revoked_at`` — NULL means the credential is live; a timestamp
+      means it was revoked. Revocation is terminal and archive-not-delete:
+      the row is never removed (history is never rewritten), and
+      ``verify()`` / ``exists()`` refuse a revoked credential everywhere.
+
+    Append-only: ``ADD COLUMN`` only (no table rebuild, no UPDATE, no
+    rewrite of any existing row). BACKFILL POLICY: every pre-migration
+    row keeps NULL — no credential is retroactively revoked or un-revoked.
+    """
+    ts = clock()
+    columns = {row["name"] for row in conn.execute(
+        "SELECT name FROM pragma_table_info('operator_credentials')",
+    ).fetchall()}
+    if "revoked_at" not in columns:
+        conn.execute(
+            "ALTER TABLE operator_credentials ADD COLUMN revoked_at TEXT"
+        )
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+        (22, ts),
+    )
+
+
 # ── migration registry (indexed by version number) ──
 
 _MIGRATIONS = [
@@ -1244,6 +1323,8 @@ _MIGRATIONS = [
     _migrate_17_to_18,  # version 17 → 18 (Step 3 FIX 1: advisory related_claim_ids on claims)
     _migrate_18_to_19,  # version 18 → 19 (ADR-041: parallel-regime-test advisory columns on research_programs)
     _migrate_19_to_20,  # version 19 → 20 (claim-ground G13: model_ref/prompt_template_version/run_id on research_claims)
+    _migrate_20_to_21,  # version 20 → 21 (TAMPER-1: append-only triggers on events)
+    _migrate_21_to_22,  # version 21 → 22 (CRED-1: operator_credentials.revoked_at)
 ]
 
 

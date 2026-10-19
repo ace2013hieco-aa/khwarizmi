@@ -23,6 +23,7 @@ from hermes.vault.projection import (
     note_filename,
     project,
 )
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 STABLE_STEM = re.compile(r"evt-\d{6,}-[a-z0-9-]+\Z")
@@ -308,7 +309,7 @@ def test_g_gap_is_logged_not_silent(db, tmp_path, caplog):
     _emit(db, "TaskStatusChanged", task_id=None)
     lost = _emit(db, "TaskStatusChanged", task_id=None)
     kept = _emit(db, "TaskStatusChanged", task_id=None)
-    db.execute("DELETE FROM events WHERE event_id = ?", (lost,))
+    tamper_events(db, "DELETE FROM events WHERE event_id = ?", (lost,))
     db.commit()
     with caplog.at_level(logging.WARNING, logger="hermes.vault.projection"):
         cursor, _ = project(db, "p1", root, cursor=1)

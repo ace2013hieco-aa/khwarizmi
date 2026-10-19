@@ -11,7 +11,10 @@ proves, one group each:
   own FENCED `apply_intent`; the task reaches SUCCEEDED through the wiring
   completion rule (there is no source outcome to query).
 - **idempotent re-emit (BIND-1)** — the same dispatch re-emitted derives the
-  same follow-up identity, so the spine answers duplicate and one row exists.
+  same follow-up identity: an exact replay answers duplicate, a replay whose
+  record carries its own emission bookkeeping (`replayed`, GAP-1 P1-6 D3-A)
+  refuses `IDEMPOTENCY_CONFLICT` as data — either way one row exists and the
+  port ran once.
 - **tick → wiring → driver (methodology, BIND-5)** — the task's spec carries the
   workflow document; the W3 driver runs every stage on the W2 runtime wiring
   under the controller's lease generation, and every stage admission is an
@@ -419,7 +422,18 @@ def test_a_re_emitted_observation_is_idempotent() -> None:
         second = entry(ctx)
 
         assert first.status == "completed" and first.outcome_recorded is True
-        assert second.status == "completed" and second.outcome_recorded is True
+        # D3-A re-emit boundary: the replayed record carries its own emission
+        # bookkeeping (``replayed=True`` and the replay journal note), so the
+        # re-emitted admission is a DIFFERING proposal — the gateway refuses
+        # it fail-closed with IDEMPOTENCY_CONFLICT (GAP-1 P1-6) instead of
+        # silently swallowing the difference, and the handler surfaces the
+        # refusal as data. WIRING_DESIGN BIND-1 sanctions exactly this
+        # boundary answer ("re-emit is idempotent (IDEMPOTENCY_CONFLICT or
+        # duplicate-same-row per boundary)"); idempotence holds where it
+        # matters — one row, one execution.
+        assert second.status == "failed_typed"
+        assert second.outcome_recorded is False
+        assert "IDEMPOTENCY_CONFLICT" in second.reason
         child = _child_of(conn, task_id)
         assert conn.execute("SELECT COUNT(*) c FROM tasks WHERE task_id = ?",
                             (child,)).fetchone()["c"] == 1

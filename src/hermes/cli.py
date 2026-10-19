@@ -592,13 +592,45 @@ def _restore(args, cfg: HermesConfig) -> int:
     return 0
 
 
+def _read_cli_token(args) -> str:
+    """The operator token for credential surfaces (CRED-1 P2-13).
+
+    ``--token-stdin`` reads ONE line from stdin (line ending stripped) so
+    the token never appears in argv — process inspection and shell history
+    stay clean. There is deliberately NO environment-variable channel:
+    the environment is equally inspectable (and inherited by children).
+    An empty/EOF line is an empty token — it flows into the existing
+    fail-closed refusals, never a 'no credential needed' shortcut."""
+    if getattr(args, "token_stdin", False):
+        return sys.stdin.readline().rstrip("\r\n")
+    return args.token
+
+
+def _upgrade_legacy_credential(conn, operator_id: str, token: str) -> None:
+    """CRED-1 C: a SUCCESSFUL operator verification is the one moment the
+    plaintext token is provably in hand — transparently re-hash a legacy
+    (bare SHA-256) row to salted PBKDF2. Storage-format upgrade only: no
+    intent, no journal event, no authority change (same operator, same
+    token, same ratified state). Best-effort by design: a failure here
+    never fails the verdict — the credential simply stays legacy and keeps
+    verifying on the next successful resolve. The note is token-free."""
+    try:
+        from .persistence.repositories import OperatorCredentialRepository
+        OperatorCredentialRepository(conn).upgrade_legacy_hash(
+            operator_id, token)
+    except Exception as e:  # noqa: BLE001 — CLI boundary reports
+        emit(f"Note: legacy credential re-hash skipped "
+             f"({type(e).__name__}).")
+
+
 def _gate_resolve(args, cfg: HermesConfig) -> int:
     """`hermes gate resolve <task_id> --verdict APPROVED|REJECTED
-    --operator <id> --token <token>` — land a ratified operator verdict on
-    a parked HUMAN_GATE through the controller (A2 + A4), so operators
-    never need a Python session. The credential is verified against the
-    stored operator-credential hash; an unratified verdict is refused
-    fail-closed."""
+    --operator <id> (--token <token> | --token-stdin)` — land a ratified
+    operator verdict on a parked HUMAN_GATE through the controller (A2 +
+    A4), so operators never need a Python session. The credential is
+    verified against the stored operator-credential hash; an unratified
+    verdict is refused fail-closed. CRED-1: a successful verification
+    transparently re-hashes a legacy credential to PBKDF2."""
     from .persistence.database import connect
     from .persistence.migrations import migrate_to_latest
     from .persistence.repositories import NotFoundError, TaskRepository
@@ -609,6 +641,7 @@ def _gate_resolve(args, cfg: HermesConfig) -> int:
         emit("No database found. Run `hermes init` first.")
         return 1
 
+    token = _read_cli_token(args)
     conn = connect(str(db_path))
     try:
         migrate_to_latest(conn)
@@ -622,7 +655,10 @@ def _gate_resolve(args, cfg: HermesConfig) -> int:
                 return 1
         out = Controller(conn, project_id=project_id).resolve_human_gate(
             task_id=args.task_id, verdict=args.verdict,
-            operator_id=args.operator, operator_token=args.token)
+            operator_id=args.operator, operator_token=token)
+        if not out["rejected"]:
+            # CRED-1 C — verified: upgrade the storage format if legacy.
+            _upgrade_legacy_credential(conn, args.operator, token)
     except Exception as e:  # noqa: BLE001 — CLI boundary reports
         emit(f"Error: {e}")
         return 1
@@ -639,10 +675,11 @@ def _gate_resolve(args, cfg: HermesConfig) -> int:
 
 
 def _operator_register(args, cfg: HermesConfig) -> int:
-    """`hermes operator register <operator_id> --token <token> [--name]` —
-    the bootstrap surface for the ratified operator credential (A4). Only
-    a salted PBKDF2-HMAC-SHA256 hash of the token is persisted (minimum
-    token length enforced at register)."""
+    """`hermes operator register <operator_id>
+    (--token <token> | --token-stdin) [--name]` — the bootstrap surface
+    for the ratified operator credential (A4). Only a salted
+    PBKDF2-HMAC-SHA256 hash of the token is persisted (minimum token
+    length enforced at register)."""
     from .persistence.database import connect
     from .persistence.migrations import migrate_to_latest
     from .persistence.repositories import OperatorCredentialRepository
@@ -652,11 +689,12 @@ def _operator_register(args, cfg: HermesConfig) -> int:
         emit("No database found. Run `hermes init` first.")
         return 1
 
+    token = _read_cli_token(args)
     conn = connect(str(db_path))
     try:
         migrate_to_latest(conn)
         row = OperatorCredentialRepository(conn).register(
-            args.operator_id, args.token, args.name or "")
+            args.operator_id, token, args.name or "")
     except ValueError as e:
         emit(f"Refused (OPERATOR): {e}")
         return 1
@@ -807,14 +845,30 @@ def _build_parser() -> argparse.ArgumentParser:
     gate_resolve.add_argument("--project", dest="project_id", default=None,
                               help="Project UUID (resolved from the task when omitted).")
     gate_resolve.add_argument("--operator", required=True)
-    gate_resolve.add_argument("--token", required=True)
+    gate_token = gate_resolve.add_mutually_exclusive_group(required=True)
+    gate_token.add_argument(
+        "--token", help="Operator token (visible in argv — prefer "
+                        "--token-stdin).")
+    gate_token.add_argument(
+        "--token-stdin", action="store_true",
+        help="Read the operator token from one stdin line (never in argv; "
+             "no env-var channel by design — the environment is equally "
+             "inspectable).")
 
     op_p = sub.add_parser("operator", help="Operator credentials (A4).")
     op_sub = op_p.add_subparsers(dest="operator_command")
     op_reg = op_sub.add_parser(
         "register", help="Register a ratified operator credential.")
     op_reg.add_argument("operator_id")
-    op_reg.add_argument("--token", required=True)
+    op_token = op_reg.add_mutually_exclusive_group(required=True)
+    op_token.add_argument(
+        "--token", help="Operator token (visible in argv — prefer "
+                        "--token-stdin).")
+    op_token.add_argument(
+        "--token-stdin", action="store_true",
+        help="Read the operator token from one stdin line (never in argv; "
+             "no env-var channel by design — the environment is equally "
+             "inspectable).")
     op_reg.add_argument("--name", default="")
 
     pause_p = sub.add_parser("pause", help="Pause the active project.")
@@ -921,14 +975,15 @@ def _dispatch(args: argparse.Namespace, cfg: HermesConfig,
         if gc == "resolve":
             return _gate_resolve(args, cfg)
         emit("Usage: hermes gate resolve <task_id> "
-              "--verdict APPROVED|REJECTED --operator <id> --token <token>")
+              "--verdict APPROVED|REJECTED --operator <id> "
+              "(--token <token> | --token-stdin)")
         return 0
     if cmd == "operator":
         oc = getattr(args, "operator_command", None)
         if oc == "register":
             return _operator_register(args, cfg)
         emit("Usage: hermes operator register <operator_id> "
-              "--token <token> [--name <name>]")
+              "(--token <token> | --token-stdin) [--name <name>]")
         return 0
     parser.print_help()
     return 0

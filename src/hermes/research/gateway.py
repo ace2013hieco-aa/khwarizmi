@@ -113,7 +113,7 @@ NOT_COMPILED = "NOT_COMPILED"       # program failed validation (gate violation)
 STALE = "STALE"                     # supersession/chain-head violation
 BUDGET = "BUDGET"                   # budget_check hook rejected
 DEPENDENCY = "DEPENDENCY"           # task dependency violation (cycle or missing dep)
-IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"  # same idempotency_key reused for a different task
+IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"  # identity collision: a task_id/idempotency_key claimed by a different command (content or project)
 PROVENANCE = "PROVENANCE"           # reserved provenance ref does not dereference
 CLASSIFICATION_REF = "CLASSIFICATION_REF"  # classification ref / action / candidate does not validate
 PROPOSAL = "PROPOSAL"               # proposal not found / not pending / already decided differently
@@ -239,6 +239,9 @@ def _require_role(intent: Intent) -> None:
     - ``internal_only`` kinds admit only ``DETERMINISTIC`` (controller);
     - LLM-proposable kinds admit any of the four agent profiles
       (DIRECTOR/RESEARCHER/IMPLEMENTER/ADVERSARY) — never DETERMINISTIC.
+      Admission is positive: an LLM profile is admitted only for a kind
+      in ``llm_proposable`` (ROLE-EXH-1) — a kind in none of the three
+      partitions is refused for every profile, never silently admitted.
     """
     try:
         role = AgentProfile(intent.proposed_by)
@@ -269,6 +272,12 @@ def _require_role(intent: Intent) -> None:
             intent.kind, ROLE,
             f"DETERMINISTIC may only propose internal-only kinds, not "
             f"{intent.kind.value}",
+        )
+    if intent.kind not in IntentKind.llm_proposable():
+        raise GatewayRejection(
+            intent.kind, ROLE,
+            f"{intent.kind.value} is not LLM-proposable — no agent profile "
+            f"may propose it",
         )
 
 
@@ -3650,6 +3659,82 @@ def _validate_record_scope_review_decision(
         event_type=EventType.SCOPE_REVIEW_DECIDED.value)
 
 
+_OPERATOR_CREDENTIAL_MUTATION_PAYLOAD_KEYS = {
+    IntentKind.REVOKE_OPERATOR_CREDENTIAL: frozenset({"operator_id", "reason"}),
+    IntentKind.ROTATE_OPERATOR_CREDENTIAL: frozenset({"operator_id"}),
+}
+# CRED-1 bound: the revocation reason rides the journal event (4 KiB cap),
+# so it is bounded pre-write here (refusal, not truncation) — the same
+# discipline every other rationale-bearing admission follows.
+_MAX_CREDENTIAL_REVOKE_REASON_LENGTH = 1024
+
+
+def _validate_operator_credential_mutation(
+    conn: Any, intent: Intent, *, clock: Callable[[], str],
+) -> IntentResult:
+    """REVOKE_OPERATOR_CREDENTIAL / ROTATE_OPERATOR_CREDENTIAL — the
+    CRED-1 credential-lifecycle admissions.
+
+    Closed payload schemas (revoke: ``operator_id`` + optional ``reason``;
+    rotate: ``operator_id`` only). Both mutations run inside the
+    persistence worker's OWN ``BEGIN IMMEDIATE`` (row re-read and
+    re-validated in-transaction): an unknown operator or a revoked
+    credential refuses fail-closed with ``OPERATOR``. Revoke is
+    archive-not-delete and idempotent (an identical replay returns
+    ``duplicate=True``, zero effects); rotate mints a fresh token
+    server-side and returns it in ``result.row["new_token"]`` — the
+    plaintext token never enters a payload or a journal event. The 4 KiB
+    journal cap is enforced by the persistence boundary; the reason bound
+    is enforced HERE, pre-write.
+    """
+    payload = intent.payload
+    if not isinstance(payload, dict):
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"payload must be a dict, got {type(payload).__name__}")
+    allowed = _OPERATOR_CREDENTIAL_MUTATION_PAYLOAD_KEYS[intent.kind]
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"unknown payload keys {unknown} for {intent.kind.value} "
+            f"(closed schema: {sorted(allowed)})")
+    operator_id = payload.get("operator_id")
+    if not isinstance(operator_id, str) or not operator_id:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            "payload.operator_id must be a non-empty string")
+    reason = ""
+    if intent.kind is IntentKind.REVOKE_OPERATOR_CREDENTIAL:
+        raw_reason = payload.get("reason")
+        if raw_reason is not None and (
+                not isinstance(raw_reason, str)
+                or len(raw_reason) > _MAX_CREDENTIAL_REVOKE_REASON_LENGTH):
+            raise _reject(
+                intent.kind, MALFORMED_PAYLOAD,
+                f"payload.reason must be a string of at most "
+                f"{_MAX_CREDENTIAL_REVOKE_REASON_LENGTH} chars")
+        reason = raw_reason or ""
+    from hermes.persistence.repositories import OperatorCredentialRepository
+    repo = OperatorCredentialRepository(conn, clock)
+    try:
+        if intent.kind is IntentKind.REVOKE_OPERATOR_CREDENTIAL:
+            outcome = repo.revoke(
+                operator_id, reason=reason, project_id=intent.project_id)
+            event_type = EventType.OPERATOR_CREDENTIAL_REVOKED.value
+        else:
+            outcome = repo.rotate(operator_id, project_id=intent.project_id)
+            event_type = EventType.OPERATOR_CREDENTIAL_ROTATED.value
+    except ValueError as exc:
+        # The worker's fail-closed refusals (unknown operator, revoked
+        # credential) surface as the frozen OPERATOR code.
+        raise _reject(intent.kind, OPERATOR, str(exc)) from None
+    return IntentResult(
+        kind=intent.kind, entity_type="operator_credential",
+        entity_id=operator_id, duplicate=outcome["duplicate"],
+        row=outcome["row"], event_type=event_type)
+
+
 def _payload_to_node(intent: Intent) -> NodeContract:
     """Strictly convert an INSERT_TASK / ADMIT_TASK payload to a NodeContract.
 
@@ -4102,6 +4187,51 @@ def _task_exists(task_repo: TaskRepository, task_id: str) -> bool:
         return False
 
 
+# TASK-ADMIT-1 (GAP-1 P1-6, ruling D3-A) — the pinned canonical byte domain of
+# task-content identity. These are exactly the admission command's content
+# fields; runtime state (``attempt``/``status``/timestamps/heartbeat) is never
+# part of identity — a requeue increments ``attempt`` and a dispatch changes
+# ``status``, and neither may turn an exact replay into a refusal. Project
+# ownership is checked separately (before content): a row belonging to another
+# project refuses regardless of content.
+_TASK_CONTENT_FIELDS: tuple[str, ...] = (
+    "task_type", "profile", "idempotency_key", "iteration",
+    "parent_task_id", "spec", "inputs", "outputs", "dependencies",
+    "provenance", "cost_class", "concurrency_group", "max_retries",
+)
+
+
+def _canonical_task_content(content: dict[str, Any]) -> str:
+    """The canonical serialization of a task's content projection.
+
+    ``sort_keys`` + compact separators over PARSED structures on both sides
+    (the row is read through ``TaskRepository.get``, which parses the
+    ``*_json`` columns; the intent payload is a dict on the wire), so raw
+    stored JSON text is never compared. Key-order and JSON-formatting
+    variants of the same logical content compare equal — no false refusal of
+    a logical replay. ``dependencies`` is normalized to sorted order: the
+    edges are a SET held in ``task_dependencies`` rows, and the readback
+    order is a query-plan artifact (SQLite may serve the
+    ``UNIQUE(task_id, depends_on_task_id)`` index scan), never content. The
+    remaining lists (``inputs``/``outputs``/``provenance`` and arrays inside
+    ``spec``) are stored as single JSON arrays — their order round-trips
+    exactly — and order is content: a JSON array is not a serializer
+    variant, so a reordered array is a differing command and fails closed.
+    """
+    import json as _json
+
+    projection = {field: content.get(field)
+                  for field in _TASK_CONTENT_FIELDS}
+    dependencies = projection.get("dependencies")
+    if isinstance(dependencies, (list, tuple)):
+        # A non-comparable member (impossible for gateway-validated task
+        # content) raises here and the caller refuses fail-closed.
+        projection["dependencies"] = sorted(dependencies)
+    return _json.dumps(
+        projection, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False)
+
+
 def _validate_insert_task(
     conn: Any,
     intent: Intent,
@@ -4113,9 +4243,13 @@ def _validate_insert_task(
     """INSERT_TASK / ADMIT_TASK: strict payload → atomic task admission.
 
     Idempotency: an existing task_id returns the existing row (crash/retry
-    duplicate, Attack N) instead of raising a PK conflict. Dependency
-    violations (cycles, missing deps) reject — never admitted. Every
-    repository-level constraint failure is surfaced as a structured
+    duplicate, Attack N) instead of raising a PK conflict — but ONLY for an
+    exact content replay (per the pinned canonical domain) in the SAME
+    project (TASK-ADMIT-1, ruling D3-A): a differing proposal and a
+    foreign-project row both refuse with ``IDEMPOTENCY_CONFLICT``, never a
+    silent admission and never the foreign row returned as "yours".
+    Dependency violations (cycles, missing deps) reject — never admitted.
+    Every repository-level constraint failure is surfaced as a structured
     ``GatewayRejection`` code (V6-FINAL-01): FK violation on a missing
     dependency → ``DEPENDENCY``; ``UNIQUE(idempotency_key, attempt)`` reuse by
     a different task → ``IDEMPOTENCY_CONFLICT``; anything else →
@@ -4130,6 +4264,42 @@ def _validate_insert_task(
     except NotFoundError:
         existing = None
     if existing is not None:
+        # TASK-ADMIT-1 (GAP-1 P1-6, ruling D3-A): fail-closed. The row is
+        # returned as a duplicate only when the task_id is already claimed by
+        # the SAME command in the SAME project.
+        if str(existing.get("project_id") or "") != node.project_id:
+            raise _reject(
+                intent.kind, IDEMPOTENCY_CONFLICT,
+                f"task admission rejected: task_id {node.task_id!r} is "
+                f"already admitted under project "
+                f"{existing.get('project_id')!r}, not "
+                f"{node.project_id!r} — a task_id identifies one task in one "
+                f"project, never two (project isolation; PA4)",
+            )
+        incoming_content = {
+            field: getattr(node, field) for field in _TASK_CONTENT_FIELDS
+        }
+        try:
+            content_matches = (
+                _canonical_task_content(incoming_content)
+                == _canonical_task_content(existing)
+            )
+        except (TypeError, ValueError) as exc:
+            raise _reject(
+                intent.kind, MALFORMED_PAYLOAD,
+                f"task admission rejected: the task content is not "
+                f"canonically serialisable ({type(exc).__name__}: {exc}) — "
+                f"identity cannot be compared, so the task_id collision "
+                f"fails closed",
+            ) from exc
+        if not content_matches:
+            raise _reject(
+                intent.kind, IDEMPOTENCY_CONFLICT,
+                f"task admission rejected: task_id {node.task_id!r} is "
+                f"already admitted with different content — a task_id "
+                f"identifies one command, never two (PA4); only an exact "
+                f"content replay returns the stored row",
+            )
         return IntentResult(
             kind=intent.kind,
             entity_type="task",
@@ -4307,6 +4477,10 @@ def apply_intent(
         elif intent.kind is IntentKind.EMIT_PARALLEL_REGIME_PROGRAM:
             result = _validate_emit_parallel_regime_program(
                 conn, intent, program_repo=program_repo, clock=clock)
+        elif intent.kind in (IntentKind.REVOKE_OPERATOR_CREDENTIAL,
+                             IntentKind.ROTATE_OPERATOR_CREDENTIAL):
+            result = _validate_operator_credential_mutation(
+                conn, intent, clock=clock)
         elif intent.kind is IntentKind.EVIDENCE_TRANSITION:
             result = _validate_evidence_transition(
                 conn, intent, clock=clock)

@@ -1074,7 +1074,17 @@ class OperatorCredentialRepository:
     never leaks a usable credential, and offline brute-force is expensive.
     Registration is idempotent for the same (id, token); a different token
     for an existing id is refused (the credential is ratifiable, not
-    overwriteable)."""
+    overwriteable).
+
+    CRED-1: the credential lifecycle. ``revoke`` stamps ``revoked_at``
+    (terminal; archive-not-delete — the row survives, and ``verify`` /
+    ``exists`` refuse it everywhere) and ``rotate`` replaces the stored
+    hash with one minted from a fresh server-side token returned to the
+    caller. ``upgrade_legacy_hash`` re-hashes a successful legacy
+    verification to PBKDF2 (transparent storage upgrade, no authority
+    event). All three share ONE transactional worker
+    (``_apply_credential_mutation``) — the single acquisition boundary
+    for credential writes."""
 
     def __init__(self, conn: sqlite3.Connection, clock: Clock | None = None):
         self._conn = conn
@@ -1116,27 +1126,179 @@ class OperatorCredentialRepository:
 
     def verify(self, operator_id: str, token: str) -> bool:
         """Constant-time comparison of the presented token's hash against
-        the stored hash. False for an unknown operator (fail-closed). An
-        oversized token (beyond ``_OPERATOR_TOKEN_MAX_LENGTH``) is refused
-        BEFORE any hashing — the per-verify KDF cost stays bounded, and the
-        refusal reveals nothing (the length is the presenter's own input)."""
+        the stored hash. False for an unknown operator (fail-closed) and
+        for a REVOKED credential (terminal — CRED-1). An oversized token
+        (beyond ``_OPERATOR_TOKEN_MAX_LENGTH``) is refused BEFORE any
+        hashing — the per-verify KDF cost stays bounded, and the refusal
+        reveals nothing (the length is the presenter's own input)."""
         if len(token) > _OPERATOR_TOKEN_MAX_LENGTH:
             return False
         row = self._conn.execute(
-            "SELECT token_hash FROM operator_credentials "
+            "SELECT token_hash, revoked_at FROM operator_credentials "
             "WHERE operator_id = ?", (operator_id,)).fetchone()
         if row is None:
             # F2 (audit): equalize the work — never reveal id existence by
             # response time. Still False, fail-closed.
             _burn_dummy_operator_work(token)
             return False
-        return _token_hash_matches(row["token_hash"], token)
+        matches = _token_hash_matches(row["token_hash"], token)
+        if row["revoked_at"] is not None:
+            # CRED-1: a revoked credential is terminal. The comparison work
+            # above is still paid (one KDF, constant-time compare), so the
+            # revocation state does not alter the response shape — the
+            # verdict is simply always False.
+            return False
+        return matches
 
     def exists(self, operator_id: str) -> bool:
+        """True iff a LIVE (non-revoked) credential exists — a revoked
+        credential is not a ratified operator anywhere (CRED-1)."""
         row = self._conn.execute(
-            "SELECT 1 FROM operator_credentials WHERE operator_id = ?",
+            "SELECT 1 FROM operator_credentials "
+            "WHERE operator_id = ? AND revoked_at IS NULL",
             (operator_id,)).fetchone()
         return row is not None
+
+    def revoke(
+        self, operator_id: str, *, reason: str = "",
+        project_id: str | None = None,
+    ) -> dict:
+        """CRED-1 — revoke a ratified credential. Terminal and
+        archive-not-delete: ``revoked_at`` is stamped, the row survives
+        (history is never rewritten), and every later verify/exists
+        refuses. Idempotent: an identical re-apply returns
+        ``duplicate=True`` with ZERO new rows/events."""
+        return self._apply_credential_mutation(
+            "revoke", operator_id, reason=reason, project_id=project_id)
+
+    def rotate(
+        self, operator_id: str, *, project_id: str | None = None,
+    ) -> dict:
+        """CRED-1 — mint a fresh server-side token for the credential and
+        replace the stored hash. The plaintext token is returned in the
+        result row (``row["new_token"]``) — it never enters an intent
+        payload or a journal event. Refused for an unknown or revoked
+        operator. Each rotation kills the previous token."""
+        return self._apply_credential_mutation(
+            "rotate", operator_id, project_id=project_id)
+
+    def upgrade_legacy_hash(self, operator_id: str, token: str) -> bool:
+        """CRED-1 — transparently re-hash a LEGACY (bare SHA-256) row to
+        salted PBKDF2 on a successful verification: the caller has just
+        proven possession of the plaintext token, so the storage format is
+        upgraded and NOTHING else changes (same operator, same token, same
+        ratified state — no journal event; storage format is not
+        authority). Returns True iff a legacy row was upgraded. A wrong
+        token, an unknown operator, a revoked row, or an already-PBKDF2
+        row is a no-op (False, ZERO writes)."""
+        if len(token) > _OPERATOR_TOKEN_MAX_LENGTH:
+            return False
+        row = self._conn.execute(
+            "SELECT token_hash, revoked_at FROM operator_credentials "
+            "WHERE operator_id = ?", (operator_id,)).fetchone()
+        if row is None or row["revoked_at"] is not None:
+            return False
+        if row["token_hash"].startswith(_OPERATOR_TOKEN_HASH_PREFIX):
+            return False
+        outcome = self._apply_credential_mutation(
+            "upgrade", operator_id, token=token)
+        return bool(outcome["upgraded"])
+
+    def _apply_credential_mutation(
+        self,
+        action: str,
+        operator_id: str,
+        *,
+        reason: str = "",
+        token: str | None = None,
+        project_id: str | None = None,
+    ) -> dict:
+        """The single transactional worker behind revoke / rotate /
+        upgrade (CRED-1): ONE acquisition boundary for credential writes.
+        The row is re-read and re-validated INSIDE the transaction
+        (missing or revoked fails closed), so two racing applies serialize
+        and the loser observes the winner's state. The mutation and its
+        journal event land atomically; replay paths are zero-effect
+        (revoke: duplicate; upgrade: no-op). The rotate new-token value
+        travels in the RETURNED dict only — never in the event payload."""
+        import secrets
+
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self._conn.execute(
+                "SELECT token_hash, revoked_at FROM operator_credentials "
+                "WHERE operator_id = ?", (operator_id,)).fetchone()
+            if row is None:
+                raise ValueError(
+                    f"operator {operator_id!r} is not a ratified operator "
+                    f"credential")
+            if row["revoked_at"] is not None:
+                if action == "revoke":
+                    # Idempotent replay: revocation is terminal — a second
+                    # apply reports duplicate with ZERO effects.
+                    outcome = {"duplicate": True, "upgraded": False,
+                               "row": {"operator_id": operator_id,
+                                       "revoked_at": row["revoked_at"]}}
+                else:
+                    raise ValueError(
+                        f"operator {operator_id!r} credential is revoked — "
+                        f"{action} refused")
+            elif action == "revoke":
+                ts = self._clock()
+                self._conn.execute(
+                    "UPDATE operator_credentials SET revoked_at = ? "
+                    "WHERE operator_id = ?", (ts, operator_id))
+                _append_event_to_db(
+                    self._conn, self._clock, "OperatorCredentialRevoked",
+                    project_id=project_id,
+                    correlation_id=f"operator-credential-revoke:{operator_id}",
+                    payload={"operator_id": operator_id,
+                             "reason": reason or ""})
+                outcome = {"duplicate": False, "upgraded": False,
+                           "row": {"operator_id": operator_id,
+                                   "revoked_at": ts}}
+            elif action == "rotate":
+                new_token = secrets.token_urlsafe(32)
+                self._conn.execute(
+                    "UPDATE operator_credentials SET token_hash = ? "
+                    "WHERE operator_id = ?",
+                    (_operator_token_hash(new_token), operator_id))
+                _append_event_to_db(
+                    self._conn, self._clock, "OperatorCredentialRotated",
+                    project_id=project_id,
+                    correlation_id=f"operator-credential-rotate:{operator_id}",
+                    payload={"operator_id": operator_id})
+                outcome = {"duplicate": False, "upgraded": False,
+                           "row": {"operator_id": operator_id,
+                                   "new_token": new_token}}
+            elif action == "upgrade":
+                # CRED-1 C: re-verify inside the transaction, then a
+                # compare-and-swap — a concurrent rotation can never be
+                # clobbered by a stale upgrade. A wrong token or a lost
+                # CAS is a zero-write no-op (the caller reports False).
+                if token is None or not _token_hash_matches(
+                        row["token_hash"], token):
+                    outcome = {"duplicate": False, "upgraded": False,
+                               "row": {}}
+                else:
+                    cursor = self._conn.execute(
+                        "UPDATE operator_credentials SET token_hash = ? "
+                        "WHERE operator_id = ? AND token_hash = ?",
+                        (_operator_token_hash(token), operator_id,
+                         row["token_hash"]))
+                    if cursor.rowcount == 1:
+                        outcome = {"duplicate": False, "upgraded": True,
+                                   "row": {"operator_id": operator_id}}
+                    else:
+                        outcome = {"duplicate": False, "upgraded": False,
+                                   "row": {}}
+            else:
+                raise ValueError(f"unknown credential mutation {action!r}")
+            self._conn.execute("COMMIT")
+            return outcome
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
 
 
 # ── ResearchProgram Repository (IDR-018: approved Part 2 architecture) ──

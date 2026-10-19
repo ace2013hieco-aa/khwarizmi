@@ -487,7 +487,11 @@ class TestAC6NoAuthorityLeak:
         an internal-only, never-LLM-proposable kind. The deterministic
         controller consumes APPROVED PROPOSE_PARALLEL_REGIME_TEST
         proposals and emits this intent to have the gateway clone the
-        parent program substance and record a child. All are
+        parent program substance and record a child. CRED-1 update:
+        REVOKE_OPERATOR_CREDENTIAL / ROTATE_OPERATOR_CREDENTIAL, the
+        ratified credential-lifecycle kinds — director-only (credential
+        management is human-adjacent authority; LLM profiles and the
+        deterministic layer never revoke or rotate). All are
         post-C1 authorities, not C1 authority leaks: C1 itself still adds
         nothing, and the set below pins the post-ADR-041 canonical
         vocabulary so any FUTURE unratified kind still fails.)"""
@@ -503,13 +507,15 @@ class TestAC6NoAuthorityLeak:
             "RECORD_CONTRADICTION",  # CHG-1 contradiction lifecycle
             "RECORD_CLASSIFICATION",  # P6 operator-asserted classification
             "EMIT_PARALLEL_REGIME_PROGRAM",  # ADR-041 B3 internal-only emission
+            "REVOKE_OPERATOR_CREDENTIAL",  # CRED-1 director-only credential lifecycle
+            "ROTATE_OPERATOR_CREDENTIAL",  # CRED-1 director-only credential lifecycle
             "ADMIT_TASK",
         }
         assert {k.value for k in IntentKind} == expected
 
     def test_no_migration(self, db):
         """C1 adds no migration: the DB schema version is unchanged."""
-        assert get_schema_version(db) == SUPPORTED_VERSION == 20
+        assert get_schema_version(db) == SUPPORTED_VERSION == 22
 
     def test_q02_dimension_set_unchanged(self):
         """slot_ref adds no Q-02 dimension."""

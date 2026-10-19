@@ -12,9 +12,10 @@ Proves four things:
   persistence-only import counting at any nesting depth;
 - the tool is read-only and stdlib-only, by static inspection of its own source.
 
-Certified figures: 121 executed transaction-control calls; 27 acquisition owners
-(persistence 18 / gateway 5 / Controller 4); 1 rollback-only participant; 15
-persistence->research import statements.
+Certified figures: 124 executed transaction-control calls; 28 acquisition owners
+(persistence 19 / gateway 5 / Controller 4) plus 1 rollback-only participant;
+15 persistence->research import statements. (CRED-1: the credential-lifecycle
+worker added one persistence owner and its three control calls.)
 """
 
 from __future__ import annotations
@@ -31,9 +32,9 @@ CHECKER_PATH = REPO_ROOT / "scripts" / "check_census.py"
 
 # The certified figures, repeated here as literals on purpose (see the second
 # test): if the checker's constants are ever edited, this file fails loudly.
-CERTIFIED_CONTROL_CALLS = 121
-CERTIFIED_OWNERS_TOTAL = 27
-CERTIFIED_OWNERS_BY_LAYER = {"persistence": 18, "gateway": 5, "controller": 4}
+CERTIFIED_CONTROL_CALLS = 124
+CERTIFIED_OWNERS_TOTAL = 28
+CERTIFIED_OWNERS_BY_LAYER = {"persistence": 19, "gateway": 5, "controller": 4}
 CERTIFIED_ROLLBACK_ONLY_PARTICIPANTS = 1
 CERTIFIED_PERSISTENCE_TO_RESEARCH_IMPORTS = 15
 
@@ -92,7 +93,7 @@ def test_live_tree_reproduces_every_certified_figure() -> None:
 
 
 def test_live_tree_owner_partition_matches_the_certified_split() -> None:
-    """27 owners = 18 persistence + 5 gateway + 4 Controller, and no others."""
+    """28 owners = 19 persistence + 5 gateway + 4 Controller, and no others."""
 
     census = check_census.analyse(REPO_ROOT)
 
@@ -104,10 +105,10 @@ def test_live_tree_owner_partition_matches_the_certified_split() -> None:
 def test_certified_constants_are_the_certified_figures() -> None:
     """The figures are fixed; the tool must reproduce them, never the reverse."""
 
-    assert check_census.CERTIFIED_CONTROL_CALLS == 121
-    assert check_census.CERTIFIED_OWNERS_TOTAL == 27
+    assert check_census.CERTIFIED_CONTROL_CALLS == 124
+    assert check_census.CERTIFIED_OWNERS_TOTAL == 28
     assert check_census.CERTIFIED_OWNERS_BY_LAYER == {
-        "persistence": 18,
+        "persistence": 19,
         "gateway": 5,
         "controller": 4,
     }

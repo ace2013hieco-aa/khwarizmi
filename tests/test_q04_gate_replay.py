@@ -30,6 +30,7 @@ from hermes.research.failure_classification import (
     permitted_actions_for,
 )
 from hermes.research.gateway import GatewayRejection, apply_intent
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 
@@ -363,7 +364,8 @@ class TestPendingProposalReplay:
         apply_intent(conn, _proposal_intent(payload={
             "action": "ROUTE_TO_SCOPE_REVIEW",
         }), clock=lambda: CLOCK)
-        conn.execute(
+        tamper_events(
+            conn,
             "UPDATE events SET payload_json = '{corrupt' "
             "WHERE event_type = 'ClassificationActionProposed'")
         ctrl = _make(conn)
@@ -378,7 +380,8 @@ class TestPendingProposalReplay:
         conn = db
         _classification(conn)  # IMPLEMENTATION_FAILURE -> EFFECTIVE
         prop = apply_intent(conn, _proposal_intent(), clock=lambda: CLOCK)
-        conn.execute(
+        tamper_events(
+            conn,
             "UPDATE events SET payload_json = json_set(payload_json, "
             "'$.state', 'PENDING_HUMAN_APPROVAL') WHERE correlation_id = ?",
             (prop.entity_id,))
@@ -402,7 +405,8 @@ class TestPendingProposalReplay:
         prop = apply_intent(conn, _proposal_intent(payload={
             "action": "ROUTE_TO_SCOPE_REVIEW",
         }), clock=lambda: CLOCK)
-        conn.execute(
+        tamper_events(
+            conn,
             "UPDATE events SET payload_json = json_set(payload_json, "
             "'$.state', 'EFFECTIVE') WHERE correlation_id = ?",
             (prop.entity_id,))
@@ -692,7 +696,8 @@ class TestPerActionGate:
             "action": "REJECT_BRANCH",
         }), clock=lambda: CLOCK)
         # tamper the stored state down to EFFECTIVE
-        conn.execute(
+        tamper_events(
+            conn,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'ClassificationActionProposed' "
             "  AND correlation_id = ?",

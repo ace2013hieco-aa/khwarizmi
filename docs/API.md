@@ -15,11 +15,16 @@ Entry `hermes.cli:main` (`src/hermes/cli.py:760`,
 `project create|show`, `task show`, `events`, `pause|resume`,
 `run <project_id> [--ticks N]` (drives `Controller.run`,
 `cli.py:469`), `gate resolve <task_id> --verdict
-APPROVED|REJECTED --operator --token`, `operator register`.
+APPROVED|REJECTED --operator (--token | --token-stdin)`, `operator
+register (--token | --token-stdin)`.
 `--config PATH` selects `hermes.toml` (schema `config.py`;
 secrets never in config). `--json` emits one parseable document,
 errors to stderr. Exit codes: `0` success, `1` operational
-refusal/error; boundary never crashes (`cli.py:496`).
+refusal/error; boundary never crashes (`cli.py:496`). Operator
+tokens: `--token-stdin` (one line from stdin) is the preferred
+channel — argv is visible to process inspection and shell history.
+There is deliberately no env-var channel: the environment is
+equally inspectable and is inherited by child processes.
 
 ## Controller — PUBLIC / SUPPORTED for listed methods, EVOLVING
 
@@ -44,12 +49,13 @@ resolvers) — internal even where importable.
 
 ## Intents — PUBLIC vocabulary / FROZEN-BY-DECISION values
 
-`IntentKind` (`src/hermes/core/intents.py:26`, 18 members): LLM-proposable (9:
-`intents.py:115`), director-only (2: `:124`),
-`internal_only` (8: `:135` — admission, resolution, retraction,
+`IntentKind` (`src/hermes/core/intents.py:26`, 21 members): LLM-proposable (9:
+`intents.py:115`), director-only (4: `:124` — CRED-1 adds the
+credential-lifecycle kinds, REVOKE/ROTATE_OPERATOR_CREDENTIAL),
+`internal_only` (9: `:135` — admission, resolution, retraction,
 classification, curation, contradiction record, scope decision,
-proposal resolution). Adding a kind, moving a partition, or
-redefining a value string is an architecture decision.
+proposal resolution, parallel-regime emission). Adding a kind, moving
+a partition, or redefining a value string is an architecture decision.
 `apply_intent` (`gateway.py:3732`) is the sole mutation entry;
 refusal codes (`gateway.py:93-108`: `ROLE`, `OPERATOR`, `LOCK`,
 `PROPOSAL`, `EVIDENCE_REF`, `MALFORMED_PAYLOAD`, `STALE`,

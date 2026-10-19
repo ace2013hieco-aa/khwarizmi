@@ -33,6 +33,7 @@ from hermes.vault.projection import (
     read_cursor,
     write_cursor,
 )
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 
@@ -217,7 +218,7 @@ def test_gapped_range_is_named(db, tmp_path, caplog):
     _emit(db, "TaskStatusChanged")
     lost = _emit(db, "TaskStatusChanged")
     _emit(db, "TaskStatusChanged")
-    db.execute("DELETE FROM events WHERE event_id = ?", (lost,))
+    tamper_events(db, "DELETE FROM events WHERE event_id = ?", (lost,))
     db.commit()
     root = str(tmp_path / "v")
     with caplog.at_level(logging.WARNING, logger="hermes.vault.projection"):
@@ -237,7 +238,7 @@ def test_backfilled_range_is_named(db, tmp_path):
     _emit(db, "TaskStatusChanged")
     hole = _emit(db, "TaskStatusChanged")
     _emit(db, "TaskStatusChanged")
-    db.execute("DELETE FROM events WHERE event_id = ?", (hole,))
+    tamper_events(db, "DELETE FROM events WHERE event_id = ?", (hole,))
     db.commit()
     root = str(tmp_path / "v")
     cursor, _ = _project(db, root, cursor=1)
@@ -259,7 +260,7 @@ def test_lost_range_is_named(db, tmp_path):
     _emit(db, "TaskStatusChanged")
     root = str(tmp_path / "v")
     _project(db, root, cursor=1)
-    db.execute("DELETE FROM events WHERE event_id = ?", (lost,))
+    tamper_events(db, "DELETE FROM events WHERE event_id = ?", (lost,))
     db.commit()
     report = verify_manifest(db, "p1", root)
     assert not report.ok
@@ -483,8 +484,8 @@ def test_journal_head_rewrite_is_caught(db, tmp_path):
     head = _emit(db, "IntentApplied", reason="original")
     root = str(tmp_path / "v")
     _project(db, root, cursor=0)
-    db.execute("UPDATE events SET reason = ? WHERE event_id = ?",
-               ("REWRITTEN", head))
+    tamper_events(db, "UPDATE events SET reason = ? WHERE event_id = ?",
+                  ("REWRITTEN", head))
     db.commit()
     report = verify_manifest(db, "p1", root)
     assert not report.ok
@@ -499,7 +500,7 @@ def test_journal_head_regression_is_named(db, tmp_path):
     head = _emit(db, "TaskStatusChanged")
     root = str(tmp_path / "v")
     _project(db, root, cursor=0)
-    db.execute("DELETE FROM events WHERE event_id = ?", (head,))
+    tamper_events(db, "DELETE FROM events WHERE event_id = ?", (head,))
     db.commit()
     report = verify_manifest(db, "p1", root)
     assert not report.ok
@@ -558,7 +559,7 @@ def test_hidden_gaps_name_both_the_hole_and_the_mismatch(db, tmp_path, caplog):
     _emit(db, "TaskStatusChanged")
     lost = _emit(db, "TaskStatusChanged")
     _emit(db, "TaskStatusChanged")
-    db.execute("DELETE FROM events WHERE event_id = ?", (lost,))
+    tamper_events(db, "DELETE FROM events WHERE event_id = ?", (lost,))
     db.commit()
     root = str(tmp_path / "v")
     with caplog.at_level(logging.WARNING, logger="hermes.vault.projection"):

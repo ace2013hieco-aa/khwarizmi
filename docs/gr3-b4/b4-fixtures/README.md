@@ -30,10 +30,10 @@ records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `35f4aca60716f880f68206690975fcf843d86701fcf787835d5862d54119b957.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `75a1ac2b2227385fc60a4c57967d7c18ff980a20d7ce5ad320445eb3636db27c.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `1727860bc578e29fbfecf25468d61068e5a3719372964f27c0c5a3f3eed297aa.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `0551a2a606a99d10d223809ff6ff35ea2226dd741ffdebbad23ec5ce226bf3f8.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `f54a8f400d74c5a36554d3164e9c86c48928590eb6eb32743b12cec19164878a.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `be83b6072146d105fce7fdff73a306c7e798d260d9bae89a9fe96c60b246fe56.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -82,6 +82,27 @@ records:
 > list gains exactly one token (the new `docs/SUITE-COUNT.md` mention), so the
 > citation structure is invariant — only the pinned byte identities moved, and
 > this table is the live set.
+
+> **Re-derivation (CRED-1 — `slice/cred-1`).** The credential-lifecycle slice
+> edited three governed corpus members — `AGENTS.md` (DG census line: 27 → 28
+> owners), `docs/API.md` (intent vocabulary 18 → 21 members; operator token
+> channels), `docs/ARCHITECTURE.md` (§3.10 census: 121 → 124 calls / 27 → 28
+> owners) — so `b4-c1` / `b4-c2` / `b4-c4` were regenerated deliberately per
+> §Regenerating: `35f4aca6… → 2cf0464e…`, `75a1ac2b… → cf54f4c5…`,
+> `f54a8f40… → a7ddd5a2…`. `b4-c3` is unchanged (IDR-only stratum). Edge sets,
+> `counts`, and `skipped` lists are identical (5 / 19 / 10 / 5); only the three
+> source identities moved, and this table is the regeneration's own output.
+
+> **Re-derivation (CRED-1 restack — `slice/cred-1-restacked`).** The
+> combined-tree truth pass corrected two stale figures in a governed corpus
+> member — `docs/ARCHITECTURE.md` (layer table row: schema v19 → v22,
+> persistence acquisition owners 18 → 19; body: schema v19 → v22) — adding no
+> citation tokens, so `b4-c1` / `b4-c2` / `b4-c4` were regenerated
+> deliberately per §Regenerating: `2cf0464e… → 1727860b…`, `cf54f4c5… →
+> 0551a2a6…`, `a7ddd5a2… → be83b607…`. `b4-c3` is unchanged (IDR-only
+> stratum). Edge sets, `counts`, and `skipped` lists are identical
+> (5 / 19 / 10 / 5) — only the three source identities moved, and this
+> table is the regeneration's own output.
 
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are

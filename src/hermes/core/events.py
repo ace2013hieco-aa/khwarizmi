@@ -48,6 +48,11 @@ class EventType(str, Enum):
     # ResearchProgram (IDR-018) — emitted atomically with the program write
     RESEARCH_PROGRAM_COMPILED = "ResearchProgramCompiled"
 
+    # Operator credentials (CRED-1) — credential-lifecycle audit rows from
+    # the credential mutation's own transaction (persistence worker)
+    OPERATOR_CREDENTIAL_REVOKED = "OperatorCredentialRevoked"  # CRED-1: terminal revocation — archive-not-delete (revoked_at stamped, the row survives; verify/exists refuse it)
+    OPERATOR_CREDENTIAL_ROTATED = "OperatorCredentialRotated"  # CRED-1: server-side token rotation — the new plaintext token is returned to the caller, never journalled
+
     # Evidence (§10)
     EVIDENCE_TRANSITION_PROPOSED = "EvidenceTransitionProposed"  # ADV-05: declared in the v4 catalog, was enum-missing
     CLASSIFICATION_ACTION_PROPOSED = "ClassificationActionProposed"  # IDR-040: the Director proposed a Q-05 permitted action for a re-review candidate (proposal-only; acting still requires the existing authority)

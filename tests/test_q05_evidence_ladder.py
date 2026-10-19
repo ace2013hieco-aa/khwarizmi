@@ -46,6 +46,7 @@ from hermes.research.failure_classification import (
     permitted_actions_for,
 )
 from hermes.research.gateway import apply_intent
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 
@@ -612,7 +613,8 @@ class TestTamperFailClosed:
         assert _ladder_rows(db)[0]["rung"] == "REFUTED"
         # attacker deletes the ratified decision — the audit no longer
         # re-verifies, but the applied REFUTED stays terminal
-        db.execute(
+        tamper_events(
+            db,
             "DELETE FROM events WHERE event_type = 'ClassificationActionDecision'")
         ctrl2 = _make(db)
         ctrl2.tick()
@@ -866,7 +868,7 @@ class TestSubstrateAndReadSurface:
         from hermes.persistence.migrations import SUPPORTED_VERSION
         v = db.execute(
             "SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert v == SUPPORTED_VERSION == 20
+        assert v == SUPPORTED_VERSION == 22
         # M4/HR-05: research_claims carries the closed support_state column.
         col = db.execute(
             "SELECT name FROM pragma_table_info('research_claims') "
@@ -982,9 +984,11 @@ class TestSubstrateAndReadSurface:
         conn.execute(
             "DELETE FROM schema_version WHERE version = 18")
         # ADR-041: version 19 (parallel-regime-test columns on
-        # research_programs) too — roll back past it.
+        # research_programs) too — roll back past it. TAMPER-1: version 21
+        # (append-only triggers on events) and CRED-1: version 22
+        # (operator_credentials.revoked_at) — roll back past those too.
         conn.execute(
-            "DELETE FROM schema_version WHERE version IN (19, 20)")
+            "DELETE FROM schema_version WHERE version IN (19, 20, 21, 22)")
         conn.execute(
             "INSERT INTO events (event_type, project_id, correlation_id, "
             "caused_by, payload_json, created_at) VALUES "
@@ -1432,7 +1436,8 @@ class TestRefutationReviewCandidates:
         ctrl = _make(db)
         ctrl.tick()
         # forge the applied transition's classification ref to a foreign hash
-        db.execute(
+        tamper_events(
+            db,
             "UPDATE events SET payload_json = ? "
             "WHERE event_type = 'EvidenceTransitionApplied'",
             (_json.dumps({**_json.loads(db.execute(

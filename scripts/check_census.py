@@ -6,12 +6,16 @@ figure: if the tree does not reproduce them, it reports FAIL and exits 1.
 
 Certified figures and their sources (all at ``main``):
 
-- ``121`` executed transaction-control calls, ``27`` acquisition owners
-  (persistence 18 / gateway 5 / Controller 4) plus ``1`` rollback-only
-  participant - ``AGENTS.md`` ("27 acquisition owners across persistence (18),
+- ``124`` executed transaction-control calls, ``28`` acquisition owners
+  (persistence 19 / gateway 5 / Controller 4) plus ``1`` rollback-only
+  participant - ``AGENTS.md`` ("28 acquisition owners across persistence (19),
   gateway (5), and Controller (4), plus one rollback-only participant"), and
-  ``docs/ARCHITECTURE.md`` 3.10 ("121 executed transaction-control calls held
-  by 27 acquisition owners plus one rollback-only participant").
+  ``docs/ARCHITECTURE.md`` 3.10 ("124 executed transaction-control calls held
+  by 28 acquisition owners plus one rollback-only participant").
+  CRED-1 delta: the credential-lifecycle worker
+  (``OperatorCredentialRepository._apply_credential_mutation``) adds one
+  persistence owner and its three control calls (BEGIN IMMEDIATE / COMMIT /
+  ROLLBACK); C rides the same worker, so it is census-neutral.
 - ``15`` persistence->research import statements - ``AGENTS.md`` (Change
   discipline) and ``docs/ARCHITECTURE.md`` 3.10 ("A bounded set of
   persistence->research runtime dependencies (15 import statements) remains").
@@ -58,9 +62,9 @@ import sys
 # Certified figures. These are the contract. Never edit one to make the tool
 # pass: the tree must reproduce them (AGENTS.md; docs/ARCHITECTURE.md 3.10).
 # --------------------------------------------------------------------------
-CERTIFIED_CONTROL_CALLS = 121
-CERTIFIED_OWNERS_TOTAL = 27
-CERTIFIED_OWNERS_BY_LAYER = {"persistence": 18, "gateway": 5, "controller": 4}
+CERTIFIED_CONTROL_CALLS = 124
+CERTIFIED_OWNERS_TOTAL = 28
+CERTIFIED_OWNERS_BY_LAYER = {"persistence": 19, "gateway": 5, "controller": 4}
 CERTIFIED_ROLLBACK_ONLY_PARTICIPANTS = 1
 CERTIFIED_PERSISTENCE_TO_RESEARCH_IMPORTS = 15
 

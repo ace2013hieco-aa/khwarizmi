@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "spec": "docs/idr/TAMPER-EVIDENT-JOURNAL.md",
+  "base": "journal_clean.json",
+  "note": "One tamper per case, applied to a copy of base's rows and then run through verify_journal_chain (design record §1.5/§6). `expect` is the FIRST defect the walk must report.",
+  "anchor": "f47faf78e5c32d73c34bd79577a25b0557be1bac9a0c0ad841a10036af16bb68",
+  "cases": [
+    {
+      "id": "mutate-event_type",
+      "op": "set",
+      "row_index": 1,
+      "field": "event_type",
+      "value": "ForgedEvent",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-project_id",
+      "op": "set",
+      "row_index": 1,
+      "field": "project_id",
+      "value": "proj-other",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-task_id",
+      "op": "set",
+      "row_index": 1,
+      "field": "task_id",
+      "value": "task-forged",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-from_state",
+      "op": "set",
+      "row_index": 1,
+      "field": "from_state",
+      "value": "SCOPING",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-to_state",
+      "op": "set",
+      "row_index": 1,
+      "field": "to_state",
+      "value": "COMPLETED",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-correlation_id",
+      "op": "set",
+      "row_index": 1,
+      "field": "correlation_id",
+      "value": "corr-forged",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-caused_by",
+      "op": "set",
+      "row_index": 1,
+      "field": "caused_by",
+      "value": "attacker",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-reason",
+      "op": "set",
+      "row_index": 1,
+      "field": "reason",
+      "value": "tampered reason",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-artifact_ids_json",
+      "op": "set",
+      "row_index": 1,
+      "field": "artifact_ids_json",
+      "value": "[\"art-forged\"]",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-payload_json",
+      "op": "set",
+      "row_index": 1,
+      "field": "payload_json",
+      "value": "{\"iteration\":2}",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "mutate-event_id",
+      "op": "set",
+      "row_index": 2,
+      "field": "event_id",
+      "value": 4,
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 4
+      }
+    },
+    {
+      "id": "reorder-payload-keys",
+      "op": "set",
+      "row_index": 2,
+      "field": "payload_json",
+      "value": "{\"status\":\"RUNNING\",\"attempt\":1}",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 3
+      }
+    },
+    {
+      "id": "mutate-created_at-provenance",
+      "op": "set",
+      "row_index": 1,
+      "field": "created_at",
+      "value": "2099-12-31T23:59:59.999999+00:00",
+      "expect": {
+        "code": "CHAIN_OK",
+        "event_id": null
+      }
+    },
+    {
+      "id": "delete-middle-row",
+      "op": "delete",
+      "row_index": 1,
+      "expect": {
+        "code": "CHAIN_PREV_MISMATCH",
+        "event_id": 3
+      }
+    },
+    {
+      "id": "truncate-tail",
+      "op": "truncate",
+      "keep": 2,
+      "expect": {
+        "code": "CHAIN_OK",
+        "event_id": null
+      }
+    },
+    {
+      "id": "clear-chain-columns",
+      "op": "clear_chain",
+      "row_index": 1,
+      "expect": {
+        "code": "CHAIN_UNCHAINED_ROW",
+        "event_id": 2
+      }
+    },
+    {
+      "id": "swap-reason-and-caused_by",
+      "op": "swap",
+      "row_index": 2,
+      "field": "reason",
+      "other_field": "caused_by",
+      "expect": {
+        "code": "CHAIN_HASH_MISMATCH",
+        "event_id": 3
+      }
+    }
+  ]
+}

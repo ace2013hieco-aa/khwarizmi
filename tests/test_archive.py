@@ -37,6 +37,7 @@ from hermes.persistence.archive import (
 from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
 from hermes.vault.manifest import journal_gap_event_ids
+from tests.journal_tamper import tamper_events
 
 TABLES = (
     "events", "artifacts", "contradictions",
@@ -312,7 +313,7 @@ def test_journal_hole_detection_survives_an_export(db, tmp_path):
     assert journal_gap_event_ids(db, ceiling + 10) == ()
 
     # a hole is what a compacted/lost row looks like — still detected after export
-    db.execute("DELETE FROM events WHERE event_id = 2")
+    tamper_events(db, "DELETE FROM events WHERE event_id = 2")
     assert journal_gap_event_ids(db, ceiling + 10) == (2,)
 
 

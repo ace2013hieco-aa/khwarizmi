@@ -90,6 +90,7 @@ from hermes.tools.research_sources import (
     make_search_result_id,
     outcome_record_hash,
 )
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-08-14T00:00:00.000000+00:00"
 STALE = "2026-08-13T00:00:00.000000+00:00"
@@ -1751,8 +1752,8 @@ def test_two_observers_same_retraction_two_audit_events_one_seed(db, store):
     ctrl = make_controller(db, None, store=store)
     two = ctrl.retracted_source_review_candidates()
     assert [i["artifact_id"] for i in two["items"]] == ["ev-a"]
-    db.execute("DELETE FROM events WHERE event_type = 'SourceRetracted' "
-               "AND task_id = ?", (t2,))
+    tamper_events(db, "DELETE FROM events WHERE event_type = 'SourceRetracted' "
+                  "AND task_id = ?", (t2,))
     one = ctrl.retracted_source_review_candidates()
     assert two["items"] == one["items"]
     assert two["content_hash"] == one["content_hash"]

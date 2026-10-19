@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "spec": "docs/idr/TAMPER-EVIDENT-JOURNAL.md",
+  "chain_version": "hermes.journal.chain.v1",
+  "genesis": "1cc5f8a885ca75f3edb337cef85b5f7835283725e46f72e629e225dbbcd46ba2",
+  "tip": "f47faf78e5c32d73c34bd79577a25b0557be1bac9a0c0ad841a10036af16bb68",
+  "note": "The same 3 rows after a simulated `DROP TABLE events` / copy / re-chain (design record §3.1). JSON key order is reversed to show canonicalization is key-order invariant, so the re-chain reproduces the same digests (M11).",
+  "rows": [
+    {
+      "chain_hash": "0958058ef36533d5247ac9284c56bd2459e0e99f9d7ee778bb01416ccd101dd1",
+      "prev_hash": "1cc5f8a885ca75f3edb337cef85b5f7835283725e46f72e629e225dbbcd46ba2",
+      "created_at": "2026-01-01T00:00:00.000000+00:00",
+      "payload_json": "{}",
+      "artifact_ids_json": "[]",
+      "reason": null,
+      "caused_by": "system",
+      "correlation_id": "corr-0001",
+      "to_state": "CREATED",
+      "from_state": null,
+      "task_id": null,
+      "project_id": "proj-tamper-fixture",
+      "event_type": "ResearchCreated",
+      "event_id": 1
+    },
+    {
+      "chain_hash": "68b31d5a92c84a672eea51fa674c29aae5958b4e11a693116d5be191e5f5e330",
+      "prev_hash": "0958058ef36533d5247ac9284c56bd2459e0e99f9d7ee778bb01416ccd101dd1",
+      "created_at": "2026-01-01T00:00:01.000000+00:00",
+      "payload_json": "{\"iteration\":1}",
+      "artifact_ids_json": "[]",
+      "reason": null,
+      "caused_by": "controller",
+      "correlation_id": "corr-0002",
+      "to_state": "SCOPING",
+      "from_state": "CREATED",
+      "task_id": null,
+      "project_id": "proj-tamper-fixture",
+      "event_type": "LifecycleTransition",
+      "event_id": 2
+    },
+    {
+      "chain_hash": "f47faf78e5c32d73c34bd79577a25b0557be1bac9a0c0ad841a10036af16bb68",
+      "prev_hash": "68b31d5a92c84a672eea51fa674c29aae5958b4e11a693116d5be191e5f5e330",
+      "created_at": "2026-01-01T00:00:02.000000+00:00",
+      "payload_json": "{\"attempt\":1,\"status\":\"RUNNING\"}",
+      "artifact_ids_json": "[\"art-fixture-1\"]",
+      "reason": "",
+      "caused_by": "controller",
+      "correlation_id": "corr-0003",
+      "to_state": null,
+      "from_state": null,
+      "task_id": "task-fixture-1",
+      "project_id": "proj-tamper-fixture",
+      "event_type": "TaskStatusChanged",
+      "event_id": 3
+    }
+  ]
+}

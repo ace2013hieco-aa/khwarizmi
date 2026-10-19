@@ -38,6 +38,7 @@ from hermes.research.failure_classification import (
     FailureClass,
     permitted_actions_for,
 )
+from tests.journal_tamper import tamper_events
 
 CLOCK = "2026-01-01T00:00:00.000000+00:00"
 
@@ -425,7 +426,7 @@ class TestRecordSourceRetraction:
         # probe-only — production events are append-only)
         two = ctrl.retracted_source_review_candidates()
         assert [i["artifact_id"] for i in two["items"]] == ["ev-a"]
-        conn.execute("DELETE FROM events WHERE event_type = 'SourceRetracted' "
+        tamper_events(conn, "DELETE FROM events WHERE event_type = 'SourceRetracted' "
                      "AND caused_by = 'director-2'")
         one = ctrl.retracted_source_review_candidates()
         assert two["items"] == one["items"]
@@ -475,7 +476,8 @@ class TestRetractedSourceCandidates:
         conn = self._seed(db)
         ctrl = _make(conn)
         ctrl.record_source_retraction("src-1", caused_by="d", reason="r")
-        conn.execute(
+        tamper_events(
+            conn,
             "UPDATE events SET artifact_ids_json = 'not-json{' "
             "WHERE event_type = 'SourceRetracted'")
         out = ctrl.retracted_source_review_candidates()
@@ -486,7 +488,8 @@ class TestRetractedSourceCandidates:
         conn = self._seed(db)
         ctrl = _make(conn)
         ctrl.record_source_retraction("src-1", caused_by="d", reason="r")
-        conn.execute(
+        tamper_events(
+            conn,
             "UPDATE events SET artifact_ids_json = ? "
             "WHERE event_type = 'SourceRetracted'",
             ('["gone"]',))

@@ -117,6 +117,17 @@ class IntentKind(str, Enum):
     # Internal-only — never LLM-proposable, never Director-proposed.
     EMIT_PARALLEL_REGIME_PROGRAM = "EMIT_PARALLEL_REGIME_PROGRAM"
 
+    # CRED-1 (GAP-1 P1-3): operator-credential lifecycle. Credential
+    # management is human-adjacent authority — no LLM agent profile
+    # (RESEARCHER / IMPLEMENTER / ADVERSARY) and not the deterministic
+    # layer may revoke or rotate a credential. Director-only: only the
+    # DIRECTOR profile may propose either kind, and the gateway validator
+    # re-derives everything (archive-not-delete for REVOKE; a server-side
+    # minted token for ROTATE, returned through the intent result and
+    # never written to a payload or a journal event).
+    REVOKE_OPERATOR_CREDENTIAL = "REVOKE_OPERATOR_CREDENTIAL"
+    ROTATE_OPERATOR_CREDENTIAL = "ROTATE_OPERATOR_CREDENTIAL"
+
     # Internal-only — scheduler / reconciling pass only
     ADMIT_TASK = "ADMIT_TASK"
 
@@ -131,14 +142,17 @@ class IntentKind(str, Enum):
 
     @classmethod
     def director_only(cls) -> frozenset["IntentKind"]:
-        """Kinds only the Director may propose (IDR-018).
+        """Kinds only the Director may propose (IDR-018; CRED-1 adds the
+        credential-lifecycle kinds).
 
         The Director is the semantic proposer (v4 §13); the gateway's
         per-kind validator enforces ``proposed_by`` (P3). Declared now so
         the authority boundary is encoded at the type level.
         """
         return frozenset({cls.PROPOSE_RESEARCH_PROGRAM,
-                          cls.PROPOSE_CLASSIFICATION_ACTION})
+                          cls.PROPOSE_CLASSIFICATION_ACTION,
+                          cls.REVOKE_OPERATOR_CREDENTIAL,
+                          cls.ROTATE_OPERATOR_CREDENTIAL})
 
     @classmethod
     def internal_only(cls) -> frozenset["IntentKind"]:

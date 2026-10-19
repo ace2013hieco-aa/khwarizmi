@@ -236,7 +236,7 @@ def test_platform_cli_output_goes_through_the_boundary(
 # boundary. A new emit site is a deliberate census change — update the
 # count here with it.
 _EMIT_CENSUS = {
-    "src/hermes/cli.py": 94,
+    "src/hermes/cli.py": 95,  # CRED-1: +1 (the token-free re-hash-skip note)
     "src/hermes/eval/platform_cli.py": 15,
     "src/hermes/eval/matrix.py": 1,
 }
