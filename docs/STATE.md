@@ -51,6 +51,17 @@ Earlier slices (Q-05/Q-02/Q-04, ResearchSourceProvider steps 1–6)
 remain as their own gate records state; v6 §27-item-43 baseline
 per IDR-023.
 
+**GAP-1 wave-1 hardening** landed on `c368886` → `ce41570`: role-gate
+exhaustiveness closed fail-closed (`c6680b7`), task admission fail-closed
+on content/project with the pinned 13-field canonical byte domain
+(`f2b6cae`), append-only journal triggers stage S (`1556706`), and
+operator-credential revoke/rotate + legacy rehash + token stdin
+(`b989b6d`). Suite chain 4743 → 4759 → 4773 → 4807 → 4838
+(`docs/SUITE-COUNT.md`); census 124 calls / 28 owners (persistence 19);
+schema v22. Decisions and couplings: `docs/GAP1-RULINGS.md`. Stage S
+deters in-DB `UPDATE`/`DELETE` only; hash chain + re-chain remain
+TAMPER-2, chartered-deferred.
+
 ## Authoritative architecture
 
 `hermes_research_architecture_v6.md` (ratified design contract) +
@@ -87,6 +98,16 @@ slices + `docs/idr/` history. Read as history, never as contract.
 - `IntentApplied` audit row on duplicate admissions (intended
   audit volume, not semantic duplication); in-memory `_notes`
   bound by `max_ticks`.
+- Operator-credential lifecycle boundary — DOCUMENTED-AND-ACCEPTED
+  (GAP-1 D5-A; human override of the recommended key-custody IDR):
+  credential mutations are director-only intents through
+  `apply_intent`, with a single acquisition owner
+  (`OperatorCredentialRepository._apply_credential_mutation`); revoke
+  is terminal and archive-not-delete. No key-custody IDR unless that
+  work is ever scoped to include key custody. The model-API-key policy
+  (human-held, env-only, never wired) remains unchanged. Boundary
+  acceptance only — not a validity, reproducibility, or admissibility
+  claim.
 
 ## Known residual debt
 

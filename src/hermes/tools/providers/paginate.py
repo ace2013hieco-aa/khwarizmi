@@ -1021,10 +1021,20 @@ def fetch_batch(
             continue
         if kind == "FETCHED":
             # GC-02 — the payload↔per_source binding: one payload per fetched
-            # source, dereference-by-artifact_id (asserted here, pinned by the
+            # source, dereference-by-artifact_id (checked here, pinned by the
             # golden fixtures).
-            assert fetched is not None and payload is not None
-            assert payload.artifact.artifact_id == fetched.artifact.artifact_id
+            if fetched is None or payload is None:
+                raise ProviderValidationError(
+                    "fetch_batch: FETCHED result missing its FetchedSource or "
+                    "FetchedPayload — the fetch driver broke the GC-02 "
+                    "payload↔per_source binding")
+            if payload.artifact.artifact_id != fetched.artifact.artifact_id:
+                raise ProviderValidationError(
+                    "fetch_batch: FetchedPayload artifact_id "
+                    f"{payload.artifact.artifact_id!r} does not match the "
+                    f"FetchedSource artifact_id "
+                    f"{fetched.artifact.artifact_id!r} — the GC-02 "
+                    "dereference-by-artifact_id binding is broken")
             per_source.append(fetched)
             payloads.append(payload)
             logs.append(_fetch_log_entry(
@@ -1032,13 +1042,19 @@ def fetch_batch(
                 fetched.artifact.size_bytes, fetched.artifact.content_hash, now,
                 attempts=attempts, attempt_verdicts=attempt_verdicts))
         elif kind == "NO_FULL_TEXT":
-            assert nft is not None
+            if nft is None:
+                raise ProviderValidationError(
+                    "fetch_batch: NO_FULL_TEXT result missing its NoFullText "
+                    "record — the fetch driver broke the result binding")
             no_full_text.append(nft)
             logs.append(_fetch_log_entry(
                 source, "NO_FULL_TEXT", None, "NO_FULL_TEXT", None, None, now,
                 attempts=attempts, attempt_verdicts=attempt_verdicts))
         else:  # FAIL
-            assert failure is not None
+            if failure is None:
+                raise ProviderValidationError(
+                    "fetch_batch: FAIL result missing its FetchFailure record "
+                    "— the fetch driver broke the result binding")
             failed.append(failure)
             logs.append(_fetch_log_entry(
                 source, "FAILED", failure.failure_class, failure.failure_class,
@@ -1202,7 +1218,10 @@ def _fetch_one(
             # come ONLY from what the response evidenced (the evaluator's
             # detected_by — status + spec-declared markers, never guessed).
             kind = verdict.detected_by.get("no_full_text_kind", "NOT_OA")
-            assert kind in ("NOT_OA", "REMOVED_OR_RETRACTED", "NOT_FOUND")
+            if kind not in ("NOT_OA", "REMOVED_OR_RETRACTED", "NOT_FOUND"):
+                raise ProviderValidationError(
+                    f"fetch: illegal no_full_text_kind {kind!r} — the "
+                    "evaluator's detected_by guard was bypassed")
             return ("NO_FULL_TEXT", None, None,
                     NoFullText(source=source, no_full_text_kind=kind,
                                evidence_basis=dict(verdict.detected_by)),

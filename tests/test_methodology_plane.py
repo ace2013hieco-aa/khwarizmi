@@ -1410,3 +1410,10 @@ class TestModuleInvariants:
                        and name not in imported}
             assert defined <= set(module.__all__), (
                 module.__name__, sorted(defined - set(module.__all__)))
+
+    def test_refs_guard_raises_on_a_referenced_node_without_a_ref(self) -> None:
+        node = _node("HYPOTHESIS", content={})
+        with pytest.raises(SubstrateFormatError) as raised:
+            substrate_module._refs_refusal(_fresh(), node)
+        assert "reached _refs_refusal with an empty external_ref" in str(
+            raised.value)

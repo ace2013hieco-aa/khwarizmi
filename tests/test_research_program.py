@@ -697,6 +697,13 @@ class TestCompiledProgram:
         assert s1 == s2
         assert "H1" in s1 and "hypothesis" in s1.lower()
 
+    def test_compiled_guard_refuses_a_none_scope_hash(self):
+        from hermes.research import programs as programs_module
+
+        with pytest.raises(RuntimeError) as raised:
+            programs_module._require_scope_content_hash(None)
+        assert "requires a governance scope_content_hash" in str(raised.value)
+
 
 # ── repository write path (AC-06, E9, idempotency, supersession) ──
 

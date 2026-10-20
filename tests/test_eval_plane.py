@@ -903,6 +903,17 @@ class TestExtensionRegistry:
 # ═══════════════════════ 5. platform CLI ═══════════════════════
 
 
+class _BrokenRefusalOutcome:
+    """An OpsOutcome-shaped fake that breaks is_refusal() ↔ refusal."""
+
+    def is_refusal(self) -> bool:
+        return True
+
+    @property
+    def refusal(self) -> None:
+        return None
+
+
 class TestPlatformCLI:
     """The platform CLI is a SEPARATE module from ``hermes.cli``. This
     test suite exercises the CLI as a subprocess — never imports
@@ -1041,6 +1052,26 @@ class TestPlatformCLI:
         assert "AbCdEfGhIjKlMnOpQrStUvWxYz012345678" not in result.stdout
         # The api_key value must not appear in the output.
         assert "sk-1234567890abcdef" not in result.stdout
+
+    def test_cmd_auth_raises_when_the_refusal_is_missing(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from hermes.eval import platform_cli
+
+        monkeypatch.setattr(platform_cli, "authenticate",
+                            lambda **kwargs: _BrokenRefusalOutcome())
+        with pytest.raises(AssertionError) as raised:
+            platform_cli.cmd_auth(["--actor", "operator", "--token", "tok"])
+        assert "is_refusal() is true but refusal is None" in str(raised.value)
+
+    def test_cmd_verify_backup_raises_when_the_refusal_is_missing(
+            self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from hermes.eval import platform_cli
+
+        monkeypatch.setattr(platform_cli, "verify_backup",
+                            lambda manifest: _BrokenRefusalOutcome())
+        with pytest.raises(AssertionError) as raised:
+            platform_cli.cmd_verify_backup(["backup.db", "0" * 64, "1"])
+        assert "verify-backup outcome" in str(raised.value)
 
 
 def _with_path() -> dict[str, str]:

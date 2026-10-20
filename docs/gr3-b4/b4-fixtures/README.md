@@ -30,10 +30,10 @@ records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `1727860bc578e29fbfecf25468d61068e5a3719372964f27c0c5a3f3eed297aa.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `0551a2a606a99d10d223809ff6ff35ea2226dd741ffdebbad23ec5ce226bf3f8.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `357b9ee3ac360e5f2e1e3e09c15f774eb35aee7967dd626423d5bfbf3dfbb901.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `03127be4cd6a84d51dd96d47ac7c1e7af0b4086e6981c30016d6331a22f865f5.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `be83b6072146d105fce7fdff73a306c7e798d260d9bae89a9fe96c60b246fe56.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `b5b2118964a2137336754c10ed3b07f41ac90566af4010fb5f3c09f23819a961.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -103,6 +103,18 @@ records:
 > stratum). Edge sets, `counts`, and `skipped` lists are identical
 > (5 / 19 / 10 / 5) — only the three source identities moved, and this
 > table is the regeneration's own output.
+
+> **Re-derivation (GAP1-RULINGS — `slice/rulings-gap1`).** The governed
+> `docs/STATE.md` edit (GAP-1 wave-1 hardening entry + the D5-A
+> document-and-accept entry) moved one governed source identity, so
+> `b4-c1` / `b4-c2` / `b4-c4` were regenerated deliberately per
+> §Regenerating: `1727860b… → 357b9ee3…`, `0551a2a6… → 03127be4…`,
+> `be83b607… → b5b21189…`. `b4-c3` is unchanged (IDR-only stratum). Edge
+> sets and `sources` counts are identical (5 / 19 / 10 / 5; 6 / 12 / 8 /
+> 4); each affected `skipped` list gains exactly one token (the new
+> `docs/GAP1-RULINGS.md` mention from `docs/STATE.md`), so the citation
+> structure is invariant — only the pinned byte identities moved, and
+> this table is the regeneration's own output.
 
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are

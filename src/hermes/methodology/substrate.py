@@ -933,10 +933,11 @@ def _refs_refusal(store: SubstrateStore,
     if node.kind in REFERENCED_NODE_KINDS:
         # Referenced-kind side: the shape gate forbids an empty external_ref;
         # resolve unconditionally under admission semantics.
-        assert own_ref, (
-            f"a {node.kind} node reached _refs_refusal with an empty "
-            f"external_ref — the shape gate (kind_refusal) should have caught "
-            f"this; the surface check has not")
+        if not own_ref:
+            raise SubstrateFormatError(
+                f"a {node.kind} node reached _refs_refusal with an empty "
+                f"external_ref — the shape gate (kind_refusal) should have "
+                f"caught this; the surface check has not")
         if own_ref in node.admitted_refs():
             return _refuse(
                 CIRCULAR_REASONING,

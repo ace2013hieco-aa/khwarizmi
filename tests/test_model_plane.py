@@ -1067,6 +1067,19 @@ class TestStreaming:
         assert result.refusal is not None
         assert result.refusal.code in REFUSAL_CODES
 
+    def test_invoke_stream_requires_a_stream_result(self, monkeypatch) -> None:
+        provider = ScriptedProvider("alpha", (_profile(),), [],
+                                    stream_script=[self._chunks()])
+        router = _router([provider])
+        proposal = ModelProposal(
+            provider_id="alpha", model_id="m1", tier="s", profile="director",
+            lease_generation="lease-gen-7")
+        monkeypatch.setattr(router, "_run_chain",
+                            lambda *args, **kwargs: proposal)
+        with pytest.raises(ModelPlaneInvariantError) as raised:
+            router.invoke_stream(_request())
+        assert "returned a non-stream result" in str(raised.value)
+
 
 # ═══════════════════════ tool-call translation ═══════════════════════
 

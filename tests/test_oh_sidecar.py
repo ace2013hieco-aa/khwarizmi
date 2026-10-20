@@ -794,6 +794,13 @@ class TestDiscipline:
         with pytest.raises(ValueError):
             SidecarRefusal("NEW_CODE", "never")
 
+    def test_refusal_subset_guard_raises_on_a_foreign_code(self) -> None:
+        with pytest.raises(ModelPlaneInvariantError) as raised:
+            sidecar_module._check_refusal_subset(
+                frozenset({"NOT_A_FROZEN_CODE"}), REFUSAL_CODES)
+        assert "not a subset of the frozen plane vocabulary" in str(
+            raised.value)
+
     def test_every_refusal_site_uses_a_frozen_code(self) -> None:
         allowed = {"MALFORMED_PAYLOAD", "PROPOSAL", "ROLE", "code"}
         sites = 0

@@ -122,7 +122,19 @@ KILL_REAP_SECONDS = 5.0
 
 #: The subset of the frozen plane vocabulary this seam emits.
 SIDECAR_REFUSAL_CODES: frozenset[str] = frozenset({MALFORMED_PAYLOAD, PROPOSAL, ROLE})
-assert SIDECAR_REFUSAL_CODES <= REFUSAL_CODES
+
+
+def _check_refusal_subset(codes: frozenset[str],
+                          vocabulary: frozenset[str]) -> None:
+    """The seam emits only the frozen plane vocabulary — checked at import."""
+    if not codes <= vocabulary:
+        raise ModelPlaneInvariantError(
+            f"sidecar refusal vocabulary is not a subset of the frozen plane "
+            f"vocabulary: unexpected {sorted(codes - vocabulary)}",
+            hazard_class="MALFORMED_REQUEST", recordable=False)
+
+
+_check_refusal_subset(SIDECAR_REFUSAL_CODES, REFUSAL_CODES)
 
 _PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@+-]{0,127}\Z")

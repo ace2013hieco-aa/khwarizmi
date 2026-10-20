@@ -54,6 +54,7 @@ from typing import Any
 import pytest
 
 from hermes.security.boundaries import UntrustedContent
+from hermes.tools.capabilities import invoke as invoke_module
 from hermes.tools.capabilities.envelope import (
     ENVELOPE_VERSION,
     RECORDING_POLICY,
@@ -1733,6 +1734,20 @@ def test_the_emitted_and_unemitted_sets_partition_the_vocabulary() -> None:
         ROLE, LOCK, PROPOSAL, MALFORMED_PAYLOAD, RATIONALE,
         IDEMPOTENCY_CONFLICT} == EMITTED_REFUSAL_CODES
     assert {EVIDENCE_REF, STALE} == UNEMITTED_REFUSAL_CODES
+
+
+def test_the_partition_guard_raises_on_a_missing_code() -> None:
+    with pytest.raises(ProviderValidationError) as raised:
+        invoke_module._check_refusal_partition(
+            frozenset({"LOCK"}), frozenset(), CAPABILITY_REFUSAL_CODES)
+    assert "is not partitioned" in str(raised.value)
+
+
+def test_the_partition_guard_raises_on_an_overlap() -> None:
+    with pytest.raises(ProviderValidationError) as raised:
+        invoke_module._check_refusal_partition(
+            frozenset({"LOCK"}), frozenset({"LOCK"}), frozenset({"LOCK"}))
+    assert "vocabularies overlap" in str(raised.value)
 
 
 def test_the_planes_refusal_call_sites_are_re_derived_from_source() -> None:

@@ -151,6 +151,29 @@ EMITTED_REFUSAL_CODES: frozenset[str] = frozenset({
 #: so it cannot honestly decide either verdict.
 UNEMITTED_REFUSAL_CODES: frozenset[str] = frozenset({EVIDENCE_REF, STALE})
 
+
+def _check_refusal_partition(
+        emitted: frozenset[str], unemitted: frozenset[str],
+        vocabulary: frozenset[str]) -> None:
+    """The plane's emitted set must partition the §2.2 vocabulary — every code
+    is either emitted here or explicitly the orchestrator's. Checked, not
+    assumed."""
+    if emitted | unemitted != vocabulary:
+        raise ProviderValidationError(
+            "capability refusal vocabulary is not partitioned: "
+            "EMITTED_REFUSAL_CODES | UNEMITTED_REFUSAL_CODES must equal "
+            "CAPABILITY_REFUSAL_CODES",
+            hazard_class="MALFORMED_REQUEST", recordable=False)
+    if emitted & unemitted:
+        raise ProviderValidationError(
+            "capability refusal vocabularies overlap: EMITTED_REFUSAL_CODES "
+            "and UNEMITTED_REFUSAL_CODES must be disjoint",
+            hazard_class="MALFORMED_REQUEST", recordable=False)
+
+
+_check_refusal_partition(EMITTED_REFUSAL_CODES, UNEMITTED_REFUSAL_CODES,
+                         CAPABILITY_REFUSAL_CODES)
+
 _PATH_TOKENS = re.compile(r"""[^\s,;:="']*[/\\][^\s,;:="']*""")
 _PROCESS_CONSTRUCTS = re.compile(
     r"(;\s*|&&|\|\||\$\(|`|subprocess|\bos\.system\b|popen|\bexec\s*\()")
@@ -949,9 +972,3 @@ class CapabilityInvoker:
         if not self._secrets:
             return False
         return any(secret in text for secret in self._secrets)
-
-
-# The plane's emitted set must partition the §2.2 vocabulary — every code is
-# either emitted here or explicitly the orchestrator's. Asserted, not assumed.
-assert EMITTED_REFUSAL_CODES | UNEMITTED_REFUSAL_CODES == CAPABILITY_REFUSAL_CODES
-assert not (EMITTED_REFUSAL_CODES & UNEMITTED_REFUSAL_CODES)

@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 import pytest
 
+from hermes.tools.providers import paginate as paginate_module
 from hermes.tools.providers.base import (
     ProviderAdapter,
     ProviderContractCard,
@@ -27,18 +28,22 @@ from hermes.tools.providers.base import (
 )
 from hermes.tools.providers.hazards import (
     SPEC_SCHEMA,
+    HazardVerdict,
     ProviderHazardSpec,
     load_hazard_spec,
 )
 from hermes.tools.providers.paginate import fetch_batch
 from hermes.tools.research_sources import (
     FetchContentRejected,
+    FetchedPayload,
+    FetchedSource,
     FetchOutcome,
     FetchRequest,
     PermanentProviderError,
     ProviderValidationError,
     RetryPolicy,
     SearchResult,
+    SourceArtifact,
     TransientProviderError,
 )
 
@@ -954,3 +959,68 @@ def test_fc03_unknown_limiter_denial_reason_fails_loudly():
         run_fetch([make_source("sr_1")], [], spec=spec,
                   denials={"fake": "policy_denied"})
     assert transport.calls == 0
+
+
+# ── P2-11 — the driver's typed result-binding guards ──
+
+
+def _guard_artifact(artifact_id: str) -> SourceArtifact:
+    return SourceArtifact(
+        artifact_id=artifact_id, content_hash="0" * 64,
+        media_type="text/plain", size_bytes=1,
+        retrieved_from="https://provider/sr_1",
+        access_timestamp_utc="2026-08-14T00:00:00Z",
+        raw_bytes_ref=artifact_id)
+
+
+def _fetch_one_returning(monkeypatch: pytest.MonkeyPatch, result) -> None:
+    monkeypatch.setattr(paginate_module, "_fetch_one",
+                        lambda *args, **kwargs: result)
+    run_fetch([make_source("sr_1")], [], spec=fetch_spec())
+
+
+def test_fetched_result_without_a_carrier_raises(monkeypatch):
+    with pytest.raises(ProviderValidationError,
+                       match="FETCHED result missing its FetchedSource or"):
+        _fetch_one_returning(
+            monkeypatch, ("FETCHED", None, None, None, None, 1, (), ""))
+
+
+def test_fetched_result_with_a_mismatched_payload_raises(monkeypatch):
+    source = make_source("sr_1")
+    fetched = FetchedSource(source=source, artifact=_guard_artifact("art_a"),
+                            hazard_verdict="NONE")
+    payload = FetchedPayload(artifact=_guard_artifact("art_b"),
+                             raw_bytes=b"x")
+    with pytest.raises(ProviderValidationError,
+                       match="does not match the FetchedSource artifact_id"):
+        _fetch_one_returning(
+            monkeypatch, ("FETCHED", fetched, payload, None, None, 1, (), ""))
+
+
+def test_no_full_text_result_without_a_record_raises(monkeypatch):
+    with pytest.raises(
+            ProviderValidationError,
+            match="NO_FULL_TEXT result missing its NoFullText record"):
+        _fetch_one_returning(
+            monkeypatch, ("NO_FULL_TEXT", None, None, None, None, 1, (), ""))
+
+
+def test_fail_result_without_a_failure_raises(monkeypatch):
+    with pytest.raises(ProviderValidationError,
+                       match="FAIL result missing its FetchFailure record"):
+        _fetch_one_returning(
+            monkeypatch, ("FAIL", None, None, None, None, 1, (), ""))
+
+
+def test_illegal_no_full_text_kind_raises(monkeypatch):
+    verdict = HazardVerdict(
+        hazard_class="NO_FULL_TEXT", reason="",
+        detected_by={"no_full_text_kind": "BOGUS"}, recordable=False)
+    monkeypatch.setattr(paginate_module, "evaluate_hazards",
+                        lambda *args, **kwargs: verdict)
+    with pytest.raises(ProviderValidationError,
+                       match="illegal no_full_text_kind"):
+        run_fetch([make_source("sr_1")],
+                  [{"status": 200, "body": b"x"}],
+                  spec=fetch_spec(fetch=_EUROPE_PMC_FETCH))

@@ -1428,7 +1428,11 @@ class ModelRouter:
             result = self._run_chain(candidates, request, require_stream=True)
         except _Refusal as refusal:
             return ModelStreamResult(refusal=self._refuse(request, refusal))
-        assert isinstance(result, ModelStreamResult)
+        if not isinstance(result, ModelStreamResult):
+            raise ModelPlaneInvariantError(
+                "invoke_stream: _run_chain returned a non-stream result "
+                f"({type(result).__name__}) — the streaming path crossed "
+                "into the non-streaming one")
         return result
 
     def replay_bytes(self, request: ModelRequest) -> bytes:

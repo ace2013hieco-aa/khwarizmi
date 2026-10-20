@@ -599,6 +599,21 @@ def compile_research_program(
                 "construct a schema-conforming draft"),))
 
 
+def _require_scope_content_hash(scope_content_hash: str | None) -> str:
+    """Narrow a COMPILED verdict's governance hash to a string (never ``None``).
+
+    The governance check appends an INVALID status for a missing/non-string
+    hash, so a COMPILED verdict reaching the builder without one is a
+    compiler-logic breach — loud, not a silently defaulted identity.
+    """
+    if scope_content_hash is None:
+        raise RuntimeError(
+            "compile_research_program: a COMPILED verdict requires a "
+            "governance scope_content_hash — the governance check should "
+            "have refused a None hash")
+    return scope_content_hash
+
+
 def _compile_research_program_checked(
     draft: ResearchProgramDraft,
     *,
@@ -1108,7 +1123,7 @@ def _compile_research_program_checked(
     # The governance check above guarantees a non-None, non-empty string by
     # the time status is COMPILED (a None/non-string appends an INVALID
     # status and returns earlier). Narrow for the type checker.
-    assert scope_content_hash is not None
+    scope_content_hash = _require_scope_content_hash(scope_content_hash)
     program = _build_program(
         draft, project_id=project_id, scope_content_hash=scope_content_hash,
     )

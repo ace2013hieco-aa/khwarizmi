@@ -102,7 +102,10 @@ def cmd_auth(argv: Sequence[str]) -> int:
         lifetime_seconds=args.lifetime_seconds)
     if outcome.is_refusal():
         refusal = outcome.refusal
-        assert refusal is not None  # type-invariant: is_refusal() ↔ refusal set
+        if refusal is None:  # type-invariant: is_refusal() ↔ refusal set
+            raise AssertionError(
+                "auth outcome: is_refusal() is true but refusal is None "
+                "(OpsOutcome exactly-one invariant broken)")
         if args.format == "json":
             emit(json.dumps(refusal.as_dict(), sort_keys=True))
         else:
@@ -173,7 +176,10 @@ def cmd_verify_backup(argv: Sequence[str]) -> int:
     outcome = verify_backup(manifest)
     if outcome.is_refusal():
         refusal = outcome.refusal
-        assert refusal is not None  # type-invariant
+        if refusal is None:  # type-invariant
+            raise AssertionError(
+                "verify-backup outcome: is_refusal() is true but refusal is "
+                "None (OpsOutcome exactly-one invariant broken)")
         emit(json.dumps(refusal.as_dict(), sort_keys=True))
         return 1
     emit(json.dumps({
