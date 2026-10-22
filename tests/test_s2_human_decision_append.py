@@ -99,6 +99,9 @@ def _chain(db, *, ev_id, ev_hash, outcome_id, task_id, project="p1"):
 
 
 def _classify(db, task_id="t1", **kw):
+    rationale = kw.pop("rationale", "")
+    operator_id = kw.pop("operator_id", OP_ID)
+    operator_token = kw.pop("operator_token", OP_TOKEN)
     return _make(db).record_failure_classification(
         program_ref="rp-1", hypothesis_ref="h1",
         failure_class="DECLARED_CONSTRAINT_VIOLATION",
@@ -107,7 +110,8 @@ def _classify(db, task_id="t1", **kw):
         explanation="operator analysis", classifier_version="1.0",
         constraint_ref="hypothesis:h1:falsification_condition",
         proposed_by="operator:op-1", producing_task_id=task_id,
-        rationale="", operator_id=OP_ID, operator_token=OP_TOKEN, **kw)
+        rationale=rationale, operator_id=operator_id,
+        operator_token=operator_token, **kw)
 
 
 def _hd_count(db, correlation):
@@ -129,6 +133,38 @@ class TestCS21IdempotentDoubleRecord:
         r2 = _classify(db)
         assert r2["duplicate"] is True
         assert r2["entity_id"] == r1["entity_id"]
+        assert _hd_count(db, r1["decision_ref"]) == 1
+
+    def test_classification_repeat_with_different_rationale_refuses(self, db):
+        """P3-7b: the same decision identity with a DIFFERENT rationale is
+        not an idempotent replay — refusal-as-data, no double record."""
+        _program(db)
+        _task(db, "t1")
+        _chain(db, ev_id="art-ev1", ev_hash="evhash1",
+               outcome_id="art-out1", task_id="t1")
+        r1 = _classify(db, rationale="first rationale")
+        assert r1["rejected"] is False
+        r2 = _classify(db, rationale="different rationale")
+        assert r2["rejected"] is True
+        assert r2["code"] == "IDEMPOTENCY_CONFLICT"
+        assert "different content" in r2["detail"]
+        assert _hd_count(db, r1["decision_ref"]) == 1
+
+    def test_classification_repeat_with_different_operator_refuses(self, db):
+        """P3-7b: a repeat signed by a DIFFERENT operator is a different
+        verdict — refused, never silently treated as a duplicate."""
+        _program(db)
+        _task(db, "t1")
+        _chain(db, ev_id="art-ev1", ev_hash="evhash1",
+               outcome_id="art-out1", task_id="t1")
+        OperatorCredentialRepository(db, frozen_clock(CLOCK)).register(
+            "op-2", "op-token-2-long", "Second Operator")
+        r1 = _classify(db)
+        assert r1["rejected"] is False
+        r2 = _classify(db, operator_id="op-2",
+                       operator_token="op-token-2-long")
+        assert r2["rejected"] is True
+        assert r2["code"] == "IDEMPOTENCY_CONFLICT"
         assert _hd_count(db, r1["decision_ref"]) == 1
 
     def test_resolution_double_submit_one_decision(self, db):
@@ -247,7 +283,8 @@ class TestCS22FailurePropagation:
             == row_before
         # The caller (not the helper) still released its lease in finally.
         assert db.execute(
-            "SELECT COUNT(*) c FROM scheduler_lock WHERE id = 0"
+            "SELECT COUNT(*) c FROM scheduler_lock WHERE id = 0 "
+            "AND owner != ''"
         ).fetchone()["c"] == 0
 
 
@@ -328,7 +365,66 @@ class TestCS25Isolation:
                          "contributing_factors": [],
                          "proposed_by": "operator:op-1",
                          "producing_task_id": "t2",
-                         "human_decision_ref": r1["decision_ref"],
-                         "operator_id": OP_ID}))
+                "human_decision_ref": r1["decision_ref"],
+                "operator_id": OP_ID}))
         assert exc.value.code == "PROPOSAL"
         assert _hd_count(db, r1["decision_ref"]) == 1
+
+    def test_lookup_ordered_when_both_keys_match_different_rows(self, db):
+        """P3-7a: a reference can match one row by correlation_id and a
+        different row by event_id. The lookup must resolve deterministically
+        (ORDER BY rowid) — the id-keyed decoy must never win."""
+        from hermes.core.intents import Intent, IntentKind
+        from hermes.research.gateway import apply_intent
+
+        _program(db)
+        _task(db, "t1")
+        _chain(db, ev_id="art-ev1", ev_hash="evhash1",
+               outcome_id="art-out1", task_id="t1")
+        r1 = _classify(db)
+        assert r1["rejected"] is False
+        hd_payload = db.execute(
+            "SELECT payload_json FROM events WHERE event_type = ? "
+            "AND correlation_id = ?",
+            (EventType.HUMAN_DECISION_RECEIVED.value,
+             r1["decision_ref"])).fetchone()["payload_json"]
+        # The genuine decision also-under alias "999" (lower rowid)…
+        db.execute(
+            "INSERT INTO events (event_type, project_id, correlation_id, "
+            "caused_by, reason, payload_json, created_at) "
+            "VALUES (?, 'p1', '999', 'operator', 'alias', ?, ?)",
+            (EventType.HUMAN_DECISION_RECEIVED.value, hd_payload, CLOCK))
+        # …and a decoy decision whose event_id is 999 (higher rowid).
+        db.execute(
+            "INSERT INTO events (event_id, event_type, project_id, "
+            "correlation_id, caused_by, reason, payload_json, created_at) "
+            "VALUES (999, ?, 'p1', 'other', 'operator', 'decoy', ?, ?)",
+            (EventType.HUMAN_DECISION_RECEIVED.value,
+             json.dumps({"decision": "RECORD_CLASSIFICATION",
+                         "classification_hash": "decoy"}), CLOCK))
+        db.commit()
+
+        result = apply_intent(db, Intent(
+            kind=IntentKind.RECORD_CLASSIFICATION,
+            proposed_by="DETERMINISTIC", project_id="p1",
+            justification="s2 deterministic dereference probe",
+            payload={"program_ref": "rp-1", "hypothesis_ref": "h1",
+                     "failure_class": "DECLARED_CONSTRAINT_VIOLATION",
+                     "evidence_refs": ["source_result:evhash1"],
+                     "falsifying_evidence_refs": [
+                         "source_result:evhash1"],
+                     "explanation": "operator analysis",
+                     "classifier_version": "1.0",
+                     "constraint_ref":
+                         "hypothesis:h1:falsification_condition",
+                     "failed_mechanism_ref": None,
+                     "regime_ref": None, "resource_gap": None,
+                     "scope_brief_ref": None,
+                     "scope_brief_field": None,
+                     "contributing_factors": [],
+                     "proposed_by": "operator:op-1",
+                     "producing_task_id": "t1",
+                     "human_decision_ref": "999",
+                     "operator_id": OP_ID}))
+        assert result.duplicate is True
+        assert result.entity_id == r1["entity_id"]

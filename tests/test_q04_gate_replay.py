@@ -557,11 +557,13 @@ class TestOperatorIngestion:
 
     def test_lease_released_after_verdict(self, db):
         """The acquisition is scoped: after the verdict, the scheduler
-        lock row is gone — the surface never leaves a held lease behind."""
+        lock row carries no live owner — the surface never leaves a held
+        lease behind (P3-3 keeps the released row for generation fencing)."""
         conn, ctrl, pid = self._seed_pending(db)
         ctrl.record_operator_decision(proposal_id=pid, decision="REJECTED", operator_id=OP_ID, operator_token=OP_TOKEN)
         assert conn.execute(
-            "SELECT COUNT(*) FROM scheduler_lock").fetchone()[0] == 0
+            "SELECT COUNT(*) FROM scheduler_lock "
+            "WHERE owner != ''").fetchone()[0] == 0
 
 
 class TestPerActionGate:

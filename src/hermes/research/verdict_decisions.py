@@ -15,9 +15,20 @@ surfaces).
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from hermes.persistence.repositories import _append_event_to_db
+
+
+class HumanDecisionConflict(RuntimeError):
+    """A repeated decision identity carries DIFFERENT content.
+
+    ``correlation_id`` is deterministic (command hash / resolution id), so a
+    second record under the same id is only an idempotent replay when its
+    payload matches byte-for-meaning. A different rationale or operator is a
+    different verdict — callers must refuse (P3-7b), never silently proceed.
+    """
 
 
 def record_human_decision_once(
@@ -33,11 +44,16 @@ def record_human_decision_once(
     """Append one ``HumanDecisionReceived`` journal row unless the
     correlation already exists (idempotent per command hash — a
     replay never double-records). Returns True when recorded now,
-    False when already present. Callers proceed unconditionally
-    either way (gateway admission decides duplicates); a journal
+    False when an IDENTICAL decision is already present.
+
+    P3-7b: a repeat under the same correlation with a different
+    payload (different rationale/operator, or a corrupt stored
+    payload) raises ``HumanDecisionConflict`` instead of silently
+    returning False — callers translate it to the existing
+    refusal-as-data path (``IDEMPOTENCY_CONFLICT``). A journal
     failure propagates to the caller unchanged."""
     existing = conn.execute(
-        "SELECT 1 FROM events WHERE project_id = ? "
+        "SELECT payload_json FROM events WHERE project_id = ? "
         "AND event_type = 'HumanDecisionReceived' "
         "AND correlation_id = ? LIMIT 1",
         (project_id, correlation_id)).fetchone()
@@ -50,4 +66,13 @@ def record_human_decision_once(
             reason=reason,
             payload=payload)
         return True
+    try:
+        stored = json.loads(existing["payload_json"] or "{}")
+    except (TypeError, ValueError):
+        stored = None
+    if stored != payload:
+        raise HumanDecisionConflict(
+            f"decision {correlation_id!r} is already recorded with "
+            f"different content (payload mismatch) — the repeat is not an "
+            f"idempotent replay")
     return False

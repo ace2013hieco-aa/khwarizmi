@@ -426,14 +426,17 @@ class TestReplayIdempotency:
 
     def test_replay_with_different_rationale_never_redigests(self, db):
         # The decision ref is deterministic per contradiction, so a later
-        # resolution attempt with different wording finds the FIRST bound
-        # decision — the stored digest stays the first rationale's.
+        # resolution attempt with different wording is NOT an idempotent
+        # replay (P3-7b): it refuses IDEMPOTENCY_CONFLICT and the stored
+        # digest stays the FIRST bound rationale's.
         a, b = _conflicting_pair(db)
         r = _record(db, a, b)
         first = _resolve(db, r.entity_id, rationale="first wording")
+        assert first["rejected"] is False
         second = _resolve(db, r.entity_id, rationale="second wording")
-        assert second["duplicate"] is True
-        assert second["resolution_id"] == first["resolution_id"]
+        assert second["rejected"] is True
+        assert second["code"] == "IDEMPOTENCY_CONFLICT"
+        assert "different content" in second["detail"]
         assert _digest(db, r.entity_id) == _canonical_digest("first wording")
         assert _digest(db, r.entity_id) != \
             _canonical_digest("second wording")

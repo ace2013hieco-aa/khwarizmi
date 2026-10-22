@@ -109,7 +109,7 @@ jobs:
       # C3 — the smoke path must never pass while src regresses: this job
       # ALSO enforces the strict type + lint gates, mirroring the exact
       # invocations of the dedicated `typecheck` / `lint` jobs (uvx pyright
-      # src; uvx ruff check src tests) WITHOUT duplicating them — the
+      # src; uvx ruff check src tests scripts) WITHOUT duplicating them — the
       # profiled tests pyright config stays the typecheck job's exclusive
       # scope, and the full suite stays the `test` job's. Drift in either
       # gate therefore breaks the two smoke runs first, on the cheapest
@@ -117,8 +117,8 @@ jobs:
       - name: "Pyright gate: src strict (mirrors typecheck job)"
         run: uvx pyright src
 
-      - name: "Ruff gate: src + tests (mirrors lint job)"
-        run: uvx ruff check src tests
+      - name: "Ruff gate: src + tests + scripts (mirrors lint job)"
+        run: uvx ruff check src tests scripts
 
   profiled-gate:
     name: Profiled typecheck + smoke (scripts/profiled_gate.sh)
@@ -157,13 +157,13 @@ jobs:
         with:
           python-version: "3.14"
 
-      # C3 — the style/lint gate: ruff check over src AND tests with the
-      # ratified rule set (pyproject [tool.ruff.lint]). The format gate
-      # (`ruff format --check`) is deliberately NOT enforced: the tree is
-      # not ruff-format-clean and reformatting would churn history; lint is
-      # the enforced bar.
-      - name: "ruff check (src + tests)"
-        run: uvx ruff check src tests
+      # C3 — the style/lint gate: ruff check over src, tests AND scripts
+      # with the ratified rule set (pyproject [tool.ruff.lint]). The format
+      # gate (`ruff format --check`) is deliberately NOT enforced: the tree
+      # is not ruff-format-clean and reformatting would churn history; lint
+      # is the enforced bar.
+      - name: "ruff check (src + tests + scripts)"
+        run: uvx ruff check src tests scripts
 
   audit:
     name: Security (uv audit; C3)
@@ -180,3 +180,118 @@ jobs:
       # disallowed package in the lockfile fails the build.
       - name: "uv audit (known vulnerabilities / adverse statuses)"
         run: uv audit --preview-features audit-command
+
+  # ── D9-A (GAP-1 ruling D9): full Linux coverage + fallback smoke ───────
+  # The Windows jobs above remain the fallback and are intentionally
+  # untouched. The Linux jobs are the new portability gates: full suite
+  # with coverage, the exact typecheck/lint invocations, and a cheap
+  # walking-skeleton smoke mirroring local-gate.
+  #
+  # Posture: any Windows-specific baseline-red fallout in the portable
+  # suite is a FOLLOW-UP FIX (a portability defect in scripts/config/
+  # tests) — this slice never weakens, skips or edits tests to make Linux
+  # green. Static first-run risk profile (reviewed, not guessed):
+  #   - tests/test_eval_plane.py: three subprocess env fallbacks hardcode
+  #     PYTHONPATH "src;." (lines ~192/1079/2046); POSIX needs ":". The
+  #     synced venv's editable install normally masks this, so expected
+  #     green, but it is a latent defect for the follow-up list.
+  #   - tests/test_p_auto_5_vault.py, tests/test_p_auto_5_fix.py: planted
+  #     symlink/hardlink cases now run unprivileged (POSIX allows them);
+  #     two Win32-only path-normalization tests are skipped on Linux
+  #     (skipif os.name != "nt"), so collection stays 4861.
+  #   - tests/test_controller.py: real-sleep lease/heartbeat races are the
+  #     likeliest runner-speed flake on a loaded ubuntu-latest box.
+  #   - scripts/profiled_gate.sh hardcodes .venv/Scripts/python.exe, so it
+  #     is NOT invoked on Linux; linux-gates mirrors its pyright command
+  #     instead. Porting that script is a follow-up, not this slice.
+  linux:
+    name: Tests (Python 3.14, ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      - name: "Sync environment (installs dev group: pytest, pytest-cov)"
+        run: uv sync
+
+      # Mirrors the Windows `test` job's NUM-1 freshness gate. The only
+      # platform delta is the venv path (.venv/bin) and the POSIX
+      # PYTHONPATH export.
+      - name: "Suite-count freshness (docs/SUITE-COUNT.md vs live collect)"
+        shell: bash
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE/src"
+          .venv/bin/python scripts/stamp_suite_count.py --check
+
+      # Same command as the Windows `test` job; scripts/run_tests.py is
+      # already layout-portable (it derives site-packages from sysconfig).
+      - name: Run the full test suite with coverage
+        run: .venv/bin/python scripts/run_tests.py -v --cov=hermes --cov-report=html:htmlcov --cov-report=term
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-report-linux
+          path: htmlcov/
+          if-no-files-found: error
+          retention-days: 14
+
+  # Parallel typecheck/lint on Linux — the exact Windows invocations with
+  # only the interpreter path changed (.venv/bin instead of
+  # .venv/Scripts). Kept separate so a type/lint red is unambiguous and
+  # the suite job's coverage stays the only artifact.
+  linux-gates:
+    name: Typecheck + lint (ubuntu-latest; C3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      - name: "Sync environment"
+        run: uv sync
+
+      - name: "Run pyright on src (strict, zero errors)"
+        run: uvx pyright src
+
+      - name: "Run pyright on src + tests (profiled, zero errors)"
+        run: uvx pyright --pythonpath .venv/bin/python --project pyrightconfig.tests.json
+
+      - name: "ruff check (src + tests)"
+        run: uvx ruff check src tests
+
+  # Fallback smoke: the cheapest documented developer flow over the
+  # walking-skeleton slice, plus the strict gates — mirrors the Windows
+  # `local-gate` intent. This job is deliberately redundant with `linux`:
+  # if the full suite is red for a portable reason, this still tells us
+  # whether the documented onboarding path works.
+  linux-smoke:
+    name: Linux fallback smoke (walking skeleton; ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.14"
+
+      - name: "Smoke: documented uv sync flow (rebuilt .venv)"
+        shell: bash
+        run: |
+          uv venv --python 3.14
+          uv sync
+          .venv/bin/python scripts/run_tests.py -q tests/test_walking_skeleton.py
+
+      - name: "Pyright gate: src strict (mirrors typecheck job)"
+        run: uvx pyright src
+
+      - name: "Ruff gate: src + tests (mirrors lint job)"
+        run: uvx ruff check src tests

@@ -30,10 +30,10 @@ records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `357b9ee3ac360e5f2e1e3e09c15f774eb35aee7967dd626423d5bfbf3dfbb901.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `03127be4cd6a84d51dd96d47ac7c1e7af0b4086e6981c30016d6331a22f865f5.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `20204aaf0f01ee13ceb0bd1f36a63ee25e0bb48c76ca17add5fb03a6baba5181.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `3bbe04e61501c82d151576df39f111cc1f461619d38f635d268da54763cbf94f.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `b5b2118964a2137336754c10ed3b07f41ac90566af4010fb5f3c09f23819a961.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `c3fca6dc8d74377d83461cc35fa7b71b9a5dbc23e25b3504672a4c31f44ddfc9.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -115,6 +115,17 @@ records:
 > `docs/GAP1-RULINGS.md` mention from `docs/STATE.md`), so the citation
 > structure is invariant — only the pinned byte identities moved, and
 > this table is the regeneration's own output.
+
+> **Re-derivation (HYGIENE-1 — `slice/hygiene-1`).** Two governed corpus
+> members moved — `AGENTS.md` (P3-1 honest DELETE census + P3-2 canonical
+> script lint) and `docs/API.md` (P3-7 decision-conflict code + P3-11 LOCK
+> retry rule) — so `b4-c1` / `b4-c2` / `b4-c4` were regenerated
+> deliberately per §Regenerating: `357b9ee3… → 20204aaf…`,
+> `03127be4… → 3bbe04e6…`, `b5b21189… → c3fca6dc…`. `b4-c3` is unchanged
+> (IDR-only stratum). Edge sets, `sources` counts, and `skipped` lists are
+> identical (5 / 19 / 10 / 5; 6 / 12 / 8 / 4; 21 / 28 / 15 / 18), so the
+> citation structure is invariant — only the pinned byte identities
+> moved, and this table is the regeneration's own output.
 
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are

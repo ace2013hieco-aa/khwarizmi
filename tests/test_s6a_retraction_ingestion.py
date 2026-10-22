@@ -126,7 +126,8 @@ def _counts(db):
     artifacts = db.execute(
         "SELECT COUNT(*) c FROM artifacts").fetchone()["c"]
     lock = db.execute(
-        "SELECT COUNT(*) c FROM scheduler_lock").fetchone()["c"]
+        "SELECT COUNT(*) c FROM scheduler_lock "
+        "WHERE owner != ''").fetchone()["c"]
     return events, artifacts, lock
 
 
@@ -379,7 +380,8 @@ class TestLeaseContention:
 class TestLeaseCleanup:
     def _lock_count(self, db):
         return db.execute(
-            "SELECT COUNT(*) c FROM scheduler_lock").fetchone()["c"]
+            "SELECT COUNT(*) c FROM scheduler_lock "
+            "WHERE owner != ''").fetchone()["c"]
 
     def test_lease_released_after_success(self, db):
         _insert_artifact(db, "src-a")

@@ -97,6 +97,17 @@ def acquire_writer_lock(conn: sqlite3.Connection, owner_id: str = "default",
                          clock: Clock | None = None) -> bool:
     """Acquire the single-writer advisory lock (v4 §8).
 
+    HYGIENE-2 — DEPRECATED FOR NEW ORCHESTRATION CALLERS (retained, not
+    deleted): this primitive has ZERO ``src`` callers; acquisition
+    boundaries are owned by convention (28 owners / 124 calls, see
+    docs/ARCHITECTURE.md §3.10). Deletion is unsafe because the certified
+    Phase-1 acceptance surface imports and exercises it directly
+    (``tests/test_phase1_acceptance.py``,
+    ``tests/test_fence_classifier.py``) and IDR-016 records it as a
+    dormant-by-design production primitive. Do not wire it into a write
+    path without a design gate; ``tests/test_hygiene_structural.py`` pins
+    the zero-caller decision.
+
     F-02: The lock is a single-row advisory lock that tracks the owner and
     timestamp. A second owner fails to acquire and returns False. The lock
     is released by ``release_writer_lock`` which DELETEs the row, allowing
@@ -146,6 +157,14 @@ def acquire_writer_lock(conn: sqlite3.Connection, owner_id: str = "default",
     if begun:
         conn.execute("ROLLBACK")
     return False
+
+
+# P3-3: the Controller releases its lease by MARKING the row free in place
+# (empty owner) instead of DELETing it, so the ADV-02 generation survives
+# release and the next acquisition increments it. This legacy writer-lock
+# helper still deletes (no generation contract); ``get_lock_owner`` treats
+# the marker as free for every reader.
+RELEASED_LOCK_OWNER = ""
 
 
 def release_writer_lock(conn: sqlite3.Connection,
@@ -228,7 +247,9 @@ def release_writer_lock(conn: sqlite3.Connection,
 def get_lock_owner(conn: sqlite3.Connection) -> str | None:
     """Return the current lock owner, or None if not locked."""
     row = conn.execute("SELECT owner FROM scheduler_lock WHERE id = 0").fetchone()
-    return row["owner"] if row else None
+    if row is None or row["owner"] == RELEASED_LOCK_OWNER:
+        return None
+    return row["owner"]
 
 
 def integrity_check(conn: sqlite3.Connection) -> bool:

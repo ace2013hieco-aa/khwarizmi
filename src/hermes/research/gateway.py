@@ -1483,6 +1483,438 @@ def _s5_cone_closure(
     return cone
 
 
+def _retract_source_command(intent: Intent) -> tuple[str, str, str]:
+    """Validate the RETRACT_SOURCE payload; return the command fields.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source`` —
+    the same checks, the same order, and the same ``MALFORMED_PAYLOAD``
+    messages.
+    """
+    payload = intent.payload
+    if not isinstance(payload, dict):
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"payload must be a dict, got {type(payload).__name__}")
+    unknown = sorted(set(payload) - _RETRACT_SOURCE_PAYLOAD_KEYS)
+    if unknown:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"unknown payload keys {unknown} for RETRACT_SOURCE")
+
+    source_ref = payload.get("source_ref")
+    if not isinstance(source_ref, str) or not source_ref:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            "payload.source_ref must be a non-empty string")
+    reason = payload.get("reason")
+    if (not isinstance(reason, str) or not reason.strip()):
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            "payload.reason must be a non-empty cited reason (v6 §7/S5)")
+    human_decision_ref = payload.get("human_decision_ref")
+    if not isinstance(human_decision_ref, str) or not human_decision_ref:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            "payload.human_decision_ref must be a non-empty string")
+    return source_ref, reason, human_decision_ref
+
+
+def _retract_source_binding(
+    conn: Any, intent: Intent, source_ref: str, reason: str,
+    human_decision_ref: str,
+) -> None:
+    """Verify a recorded HumanDecision binds this exact retraction command.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source`` —
+    the same dereference query, binding checks, order, and ``PROPOSAL``
+    messages.
+    """
+    # The HumanDecision contract (v6 §7/S5; RETRACT-1 closes P0-3): a
+    # RECORDED human decision must exist — dereferenced against the
+    # HumanDecisionReceived journal (event_id or correlation_id),
+    # fail-closed — AND its payload must bind THIS command. Existence is
+    # not authority: a decision recorded for another intent (e.g. a
+    # classification verdict) or for another source/reason never
+    # authorizes a retraction. No binding, no cascade: the gateway never
+    # fabricates the human's authority. The binding mirrors the
+    # classification/contradiction/curation precedents (payload load,
+    # closed comparison, ``PROPOSAL`` refusal).
+    import hashlib
+    import json as _json
+    decision_row = conn.execute(
+        "SELECT event_id, correlation_id, payload_json FROM events "
+        "WHERE project_id = ? AND event_type = ? "
+        "AND (event_id = ? OR correlation_id = ?) "
+        "ORDER BY rowid LIMIT 1",
+        (intent.project_id, EventType.HUMAN_DECISION_RECEIVED.value,
+         human_decision_ref, human_decision_ref)).fetchone()
+    if decision_row is None:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"payload.human_decision_ref {human_decision_ref!r} does not "
+            f"dereference to a recorded HumanDecision in project "
+            f"{intent.project_id!r} — RETRACT_SOURCE requires a recorded "
+            f"HumanDecision (v6 §7/S5)")
+    try:
+        decision_payload = _json.loads(decision_row["payload_json"] or "{}")
+    except ValueError:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} has a corrupt "
+            f"payload — its binding cannot be verified") from None
+    if not isinstance(decision_payload, dict):
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} has a corrupt "
+            f"payload — its binding cannot be verified")
+    if decision_payload.get("decision") != IntentKind.RETRACT_SOURCE.value:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} is a "
+            f"{decision_payload.get('decision')!r} verdict, not a "
+            f"RETRACT_SOURCE verdict — a decision for another intent never "
+            f"authorizes a retraction")
+    if decision_payload.get("source_ref") != source_ref:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} binds source "
+            f"{decision_payload.get('source_ref')!r}, not {source_ref!r} — "
+            f"the decision does not ratify this retraction")
+    reason_digest = hashlib.sha256(reason.encode("utf-8")).hexdigest()
+    if decision_payload.get("reason_digest") != reason_digest:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"recorded HumanDecision {human_decision_ref!r} does not bind "
+            f"the cited reason (reason_digest mismatch) — the decision does "
+            f"not ratify this retraction")
+
+
+def _retract_source_id(
+    source_ref: str, reason: str, human_decision_ref: str,
+) -> str:
+    """Deterministic idempotency key over the FULL retraction command.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source``.
+    """
+    import hashlib
+    import json as _json
+    return "retract_" + hashlib.sha256(_json.dumps(
+        {"source_ref": source_ref, "reason": reason,
+         "human_decision_ref": human_decision_ref},
+        sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _retract_source_record_decision(
+    conn: Any, intent: Intent, clock: Callable[[], str], *,
+    source_artifact_id: str, human_decision_ref: str, retraction_id: str,
+    reason: str,
+) -> str:
+    """Write the ResearchDecision artifact + supersedes edge; return its id.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source``
+    (Steps 1-2), inside the caller's transaction.
+    """
+    # ── Step 1: the ratified SourceRetracted event ──
+    # ── Step 2: the ResearchDecision artifact + supersedes edge ──
+    import hashlib
+    import json as _json
+    decision_artifact_id = f"rd-{retraction_id}"
+    decision_content = _json.dumps({
+        "schema_version": "1",
+        "decision": "SOURCE_RETRACTED",
+        "source_artifact_id": source_artifact_id,
+        "human_decision_ref": human_decision_ref,
+        "reason": reason,
+        "proposed_by": intent.proposed_by,
+    }, sort_keys=True, separators=(",", ":"))
+    decision_hash = hashlib.sha256(
+        decision_content.encode("utf-8")).hexdigest()
+    conn.execute(
+        "INSERT INTO artifacts "
+        "(artifact_id, project_id, task_id, artifact_type, "
+        " content_hash, size_bytes, storage_path, producer, "
+        " metadata_json, created_at) "
+        "VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+        (decision_artifact_id, intent.project_id,
+         _S5_DECISION_ARTIFACT_TYPE, decision_hash,
+         len(decision_content), "inline://research_decision",
+         f"retract_source:{intent.proposed_by}",
+         _json.dumps({"invalidation_marker": "INVALIDATED",
+                      "decision": "SOURCE_RETRACTED",
+                      "human_decision_ref": human_decision_ref}),
+         clock()))
+    conn.execute(
+        "INSERT OR IGNORE INTO provenance_edges "
+        "(artifact_id, upstream_id, edge_type, created_at) "
+        "VALUES (?, ?, 'supersedes', ?)",
+        (decision_artifact_id, source_artifact_id, clock()))
+    return decision_artifact_id
+
+
+def _retract_source_invalidate_cone(
+    conn: Any, intent: Intent, clock: Callable[[], str], *,
+    source_artifact_id: str, decision_artifact_id: str, retraction_id: str,
+) -> tuple[list[str], list[str], list[str]]:
+    """Invalidate the downstream cone + SUCCEEDED producing tasks.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source``
+    (Step 3), inside the caller's transaction. Returns
+    ``(cone, invalidated_artifacts, invalidated_tasks)`` in the original
+    order.
+    """
+    import json as _json
+    # ── Step 3: the dependency-class cone (Q-04 substrate) ──
+    # Transitive downstream closure over the LIVE dependency-class
+    # edges only — the artifact_blast_radius traversal (graph.py)
+    # restricted to the S5 edge class; `supersedes`/`justifies` and
+    # every non-dependency edge NEVER propagate invalidation.
+    downstream: dict[str, list[str]] = {}
+    rows = conn.execute(
+        "SELECT e.upstream_id, e.artifact_id, e.edge_type "
+        "FROM provenance_edges e "
+        "JOIN artifacts a ON a.artifact_id = e.artifact_id "
+        "WHERE a.project_id = ? AND e.edge_type IN (?,?,?)",
+        (intent.project_id, *_S5_DEPENDENCY_EDGE_TYPES)).fetchall()
+    # L2 read-path normalization: every stored upstream reference is
+    # resolved to canonical artifact identities before matching. The
+    # emitted downstream values are unchanged (project-JOIN-filtered
+    # artifact rows), so project isolation is preserved by
+    # construction; only previously-invisible-but-valid dependency
+    # references newly participate. Unresolvable values resolve to
+    # the empty set (fail-safe skip, the pre-existing posture).
+    _l2_memo: dict = {}
+    for r in rows:
+        for canonical in sorted(_l2_resolve_upstream(
+                conn, r["upstream_id"], r["edge_type"], _l2_memo)):
+            downstream.setdefault(canonical, []).append(
+                r["artifact_id"])
+    cone = _s5_cone_closure(source_artifact_id, downstream)
+
+    invalidated_artifacts: list[str] = []
+    for artifact_id in cone:
+        row = conn.execute(
+            "SELECT metadata_json FROM artifacts "
+            "WHERE artifact_id = ?", (artifact_id,)).fetchone()
+        if row is None:
+            continue
+        import json as _mj
+        try:
+            meta = _mj.loads(row["metadata_json"]) if (
+                row["metadata_json"]) else {}
+        except ValueError:
+            meta = {}
+        if meta.get("invalidation_marker") == "INVALIDATED":
+            continue  # already invalid — idempotent, no rewrite
+        meta["invalidation_marker"] = "INVALIDATED"
+        meta["invalidated_by"] = decision_artifact_id
+        conn.execute(
+            "UPDATE artifacts SET metadata_json = ? "
+            "WHERE artifact_id = ?",
+            (_json.dumps(meta), artifact_id))
+        invalidated_artifacts.append(artifact_id)
+
+    # Downstream tasks: every SUCCEEDED task that PRODUCED an
+    # invalidated artifact transitions to the terminal INVALIDATED
+    # status (archived-not-deleted; TaskInvalidated events). Tasks in
+    # any other state are left to the existing lifecycle (INVALIDATED
+    # is reachable only from SUCCEEDED — task_status.py).
+    invalidated_tasks: list[str] = []
+    for artifact_id in invalidated_artifacts:
+        trow = conn.execute(
+            "SELECT t.task_id, t.status FROM artifacts a "
+            "JOIN tasks t ON t.task_id = a.task_id "
+            "WHERE a.artifact_id = ? AND t.project_id = ?",
+            (artifact_id, intent.project_id)).fetchone()
+        if trow is None:
+            continue
+        if trow["status"] != TaskStatus.SUCCEEDED.value:
+            continue
+        conn.execute(
+            "UPDATE tasks SET status = ?, completed_at = ? "
+            "WHERE task_id = ?",
+            (TaskStatus.INVALIDATED.value, clock(), trow["task_id"]))
+        _append_event_to_db(
+            conn, clock, EventType.TASK_INVALIDATED.value,
+            project_id=intent.project_id, task_id=trow["task_id"],
+            from_state=TaskStatus.SUCCEEDED.value,
+            to_state=TaskStatus.INVALIDATED.value,
+            correlation_id=retraction_id,
+            caused_by=intent.proposed_by,
+            reason=f"S5 cascade: source {source_artifact_id} retracted",
+            payload={"source_artifact_id": source_artifact_id,
+                     "retraction_id": retraction_id})
+        invalidated_tasks.append(trow["task_id"])
+    return cone, invalidated_artifacts, invalidated_tasks
+
+
+def _retract_source_invalidate_curated(
+    conn: Any, intent: Intent, clock: Callable[[], str], *,
+    source_artifact_id: str, retraction_id: str,
+    retracted_set: set[str],
+) -> list[str]:
+    """Invalidate ADMITTED curated entries whose basis intersects the set.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source``
+    (Step 7), inside the caller's transaction.
+    """
+    # ── Step 7 (v6 §16.6): curated-knowledge follow-on ──
+    # Chartered addition, INSIDE this same transaction: every ADMITTED
+    # curated entry of this project whose stored retraction basis
+    # intersects {source_artifact_id} ∪ cone is INVALIDATED —
+    # deterministic curated_id ASC order, one CuratedKnowledgeInvalidated
+    # per entry, all BEFORE the SourceRetracted emission. The predicate
+    # consumes the cone EXACTLY as the existing walk produced it (the
+    # known L2 identifier-form defect is untouched — future cone members
+    # are recognized by the same predicate). Invalidate-on-ANY
+    # (fail-closed, GAP-A D2).
+    placeholders = ",".join("?" for _ in range(len(retracted_set)))
+    curated_rows = conn.execute(
+        "SELECT DISTINCT e.curated_id AS curated_id "
+        "FROM curated_knowledge_entries e "
+        "JOIN curated_knowledge_retraction_basis b "
+        "  ON b.curated_id = e.curated_id "
+        "WHERE e.status = 'ADMITTED' "
+        "  AND e.source_project_id = ? "
+        f"  AND b.evidence_artifact_id IN ({placeholders}) "
+        "ORDER BY e.curated_id ASC",
+        (intent.project_id, *sorted(retracted_set))).fetchall()
+    invalidated_curated: list[str] = []
+    for crow in curated_rows:
+        curated_id = crow["curated_id"]
+        basis_rows = conn.execute(
+            "SELECT evidence_artifact_id "
+            "FROM curated_knowledge_retraction_basis "
+            "WHERE curated_id = ? "
+            "ORDER BY evidence_artifact_id ASC",
+            (curated_id,)).fetchall()
+        matched = sorted(
+            {r["evidence_artifact_id"] for r in basis_rows}
+            & retracted_set)
+        conn.execute(
+            "UPDATE curated_knowledge_entries "
+            "SET status = 'INVALIDATED', invalidation_event_ref = ? "
+            "WHERE curated_id = ? AND status = 'ADMITTED'",
+            (retraction_id, curated_id))
+        _append_event_to_db(
+            conn, clock, EventType.CURATED_KNOWLEDGE_INVALIDATED.value,
+            project_id=intent.project_id,
+            correlation_id=retraction_id,
+            caused_by=intent.proposed_by,
+            reason=(f"S5 retraction of {source_artifact_id} reached the "
+                    f"curated entry's evidence basis"),
+            payload={
+                "curated_id": curated_id,
+                "retraction_id": retraction_id,
+                "source_artifact_id": source_artifact_id,
+                "matched_evidence": matched,
+            })
+        invalidated_curated.append(curated_id)
+    return sorted(invalidated_curated)
+
+
+def _retract_source_supersede_contradictions(
+    conn: Any, intent: Intent, clock: Callable[[], str], *,
+    source_artifact_id: str, retraction_id: str,
+    retracted_set: set[str],
+) -> None:
+    """Supersede OPEN contradictions with a party in the retracted set.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source``
+    (CHG-1 follow-on), inside the caller's transaction.
+    """
+    # ── CHG-1 contradiction supersession follow-on ──
+    # Additive consumer of retracted_set (the Step-7 curated-follow-on
+    # precedent): every OPEN contradiction of this project with a
+    # party in {source_artifact_id} ∪ cone is SUPERSEDED in this same
+    # transaction (deterministic contradiction_id ASC order, one
+    # ContradictionSuperseded event per row). S5 cone/edge/vocabulary
+    # semantics are untouched — the predicate consumes the cone
+    # exactly as produced.
+    cx_placeholders = ",".join(
+        "?" for _ in range(len(retracted_set)))
+    cx_rows = conn.execute(
+        "SELECT contradiction_id FROM contradictions "
+        "WHERE project_id = ? AND status = 'OPEN' "
+        f"  AND (party_a IN ({cx_placeholders}) "
+        f"    OR party_b IN ({cx_placeholders})) "
+        "ORDER BY contradiction_id ASC",
+        (intent.project_id, *sorted(retracted_set),
+         *sorted(retracted_set))).fetchall()
+    for cx_row in cx_rows:
+        cx_id = cx_row["contradiction_id"]
+        conn.execute(
+            "UPDATE contradictions SET status = 'SUPERSEDED' "
+            "WHERE contradiction_id = ? AND status = 'OPEN'",
+            (cx_id,))
+        _append_event_to_db(
+            conn, clock,
+            EventType.CONTRADICTION_SUPERSEDED.value,
+            project_id=intent.project_id,
+            correlation_id=f"{cx_id}:superseded:{retraction_id}",
+            caused_by=intent.proposed_by,
+            reason=(f"S5 retraction of {source_artifact_id} retired "
+                    f"a party of contradiction {cx_id}"),
+            payload={"contradiction_id": cx_id,
+                     "retraction_id": retraction_id,
+                     "source_artifact_id": source_artifact_id})
+
+
+def _retract_source_emit_retracted_event(
+    conn: Any, intent: Intent, clock: Callable[[], str], *,
+    source_ref: str, source_artifact_id: str, decision_artifact_id: str,
+    human_decision_ref: str, retraction_id: str, reason: str,
+    invalidated_artifacts: list[str], invalidated_tasks: list[str],
+    invalidated_curated: list[str],
+) -> None:
+    """Emit the bounded S6 SourceRetracted event with the cone digest.
+
+    HYGIENE-2 P3-8: extracted verbatim from ``_validate_retract_source``
+    (S6 bounded retraction-fact payload), inside the caller's transaction.
+    """
+    # ── S6 bounded retraction-fact payload ──
+    # The P3 SourceRetracted event carries the bounded retraction fact
+    # plus a deterministic integrity commitment to the computed cone —
+    # never the unbounded cone lists (S6: a sufficiently large
+    # legitimate cone would otherwise exceed the 4 KiB S6 event cap
+    # and make the source unretractable). ``s5-cone-v1`` means: S5
+    # cone membership semantics over canonical sorted
+    # artifact/task/curated lists, canonical JSON serialization
+    # below, SHA-256 digest. Future cone-semantic changes require a
+    # new algorithm identifier. The exact cone remains recoverable
+    # from persisted state: artifacts via
+    # ``invalidated_by = decision_artifact_id`` ordered by
+    # artifact_id, tasks via TaskInvalidated ``correlation_id =
+    # retraction_id``, curated entries via CuratedKnowledgeInvalidated
+    # ``retraction_id``.
+    import hashlib as _hashlib
+    import json as _json
+    cone_digest = _hashlib.sha256(_json.dumps(
+        {"artifacts": sorted(invalidated_artifacts),
+         "tasks": sorted(invalidated_tasks),
+         "curated": sorted(invalidated_curated)},
+        sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False).encode("utf-8")).hexdigest()
+    _append_event_to_db(
+        conn, clock, EventType.SOURCE_RETRACTED.value,
+        project_id=intent.project_id,
+        correlation_id=retraction_id,
+        caused_by=intent.proposed_by,
+        reason=reason,
+        artifact_ids=[source_artifact_id],
+        payload={
+            "source_ref": source_ref,
+            "source_artifact_id": source_artifact_id,
+            "decision_artifact_id": decision_artifact_id,
+            "human_decision_ref": human_decision_ref,
+            "cone_algorithm": "s5-cone-v1",
+            "cone_digest": cone_digest,
+            "artifact_count": len(invalidated_artifacts),
+            "task_count": len(invalidated_tasks),
+            "curated_count": len(invalidated_curated),
+        })
+
+
 def _validate_retract_source(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
 ) -> IntentResult:
@@ -1544,91 +1976,9 @@ def _validate_retract_source(
     Steps 4-5 boundary: this validator does NOT touch the §21 vault
     projection surface (does not exist); the S7 consumer/UI is deferred.
     """
-    payload = intent.payload
-    if not isinstance(payload, dict):
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            f"payload must be a dict, got {type(payload).__name__}")
-    unknown = sorted(set(payload) - _RETRACT_SOURCE_PAYLOAD_KEYS)
-    if unknown:
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            f"unknown payload keys {unknown} for RETRACT_SOURCE")
-
-    source_ref = payload.get("source_ref")
-    if not isinstance(source_ref, str) or not source_ref:
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            "payload.source_ref must be a non-empty string")
-    reason = payload.get("reason")
-    if (not isinstance(reason, str) or not reason.strip()):
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            "payload.reason must be a non-empty cited reason (v6 §7/S5)")
-    human_decision_ref = payload.get("human_decision_ref")
-    if not isinstance(human_decision_ref, str) or not human_decision_ref:
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            "payload.human_decision_ref must be a non-empty string")
-
-    # The HumanDecision contract (v6 §7/S5; RETRACT-1 closes P0-3): a
-    # RECORDED human decision must exist — dereferenced against the
-    # HumanDecisionReceived journal (event_id or correlation_id),
-    # fail-closed — AND its payload must bind THIS command. Existence is
-    # not authority: a decision recorded for another intent (e.g. a
-    # classification verdict) or for another source/reason never
-    # authorizes a retraction. No binding, no cascade: the gateway never
-    # fabricates the human's authority. The binding mirrors the
-    # classification/contradiction/curation precedents (payload load,
-    # closed comparison, ``PROPOSAL`` refusal).
-    import hashlib
-    import json as _json
-    decision_row = conn.execute(
-        "SELECT event_id, correlation_id, payload_json FROM events "
-        "WHERE project_id = ? AND event_type = ? "
-        "AND (event_id = ? OR correlation_id = ?) "
-        "ORDER BY rowid LIMIT 1",
-        (intent.project_id, EventType.HUMAN_DECISION_RECEIVED.value,
-         human_decision_ref, human_decision_ref)).fetchone()
-    if decision_row is None:
-        raise _reject(
-            intent.kind, PROPOSAL,
-            f"payload.human_decision_ref {human_decision_ref!r} does not "
-            f"dereference to a recorded HumanDecision in project "
-            f"{intent.project_id!r} — RETRACT_SOURCE requires a recorded "
-            f"HumanDecision (v6 §7/S5)")
-    try:
-        decision_payload = _json.loads(decision_row["payload_json"] or "{}")
-    except ValueError:
-        raise _reject(
-            intent.kind, PROPOSAL,
-            f"recorded HumanDecision {human_decision_ref!r} has a corrupt "
-            f"payload — its binding cannot be verified") from None
-    if not isinstance(decision_payload, dict):
-        raise _reject(
-            intent.kind, PROPOSAL,
-            f"recorded HumanDecision {human_decision_ref!r} has a corrupt "
-            f"payload — its binding cannot be verified")
-    if decision_payload.get("decision") != IntentKind.RETRACT_SOURCE.value:
-        raise _reject(
-            intent.kind, PROPOSAL,
-            f"recorded HumanDecision {human_decision_ref!r} is a "
-            f"{decision_payload.get('decision')!r} verdict, not a "
-            f"RETRACT_SOURCE verdict — a decision for another intent never "
-            f"authorizes a retraction")
-    if decision_payload.get("source_ref") != source_ref:
-        raise _reject(
-            intent.kind, PROPOSAL,
-            f"recorded HumanDecision {human_decision_ref!r} binds source "
-            f"{decision_payload.get('source_ref')!r}, not {source_ref!r} — "
-            f"the decision does not ratify this retraction")
-    reason_digest = hashlib.sha256(reason.encode("utf-8")).hexdigest()
-    if decision_payload.get("reason_digest") != reason_digest:
-        raise _reject(
-            intent.kind, PROPOSAL,
-            f"recorded HumanDecision {human_decision_ref!r} does not bind "
-            f"the cited reason (reason_digest mismatch) — the decision does "
-            f"not ratify this retraction")
+    source_ref, reason, human_decision_ref = _retract_source_command(intent)
+    _retract_source_binding(
+        conn, intent, source_ref, reason, human_decision_ref)
 
     # Resolve the source (type-checked, in-project, fail-closed).
     source_artifact_id = _s5_source_artifact_id(
@@ -1638,11 +1988,8 @@ def _validate_retract_source(
     # the FULL command {source_ref, reason, human_decision_ref} — an
     # identical repeat returns duplicate=True; any differing command
     # (e.g. a different cited reason) falls through to the STALE guard.
-    retraction_id = "retract_" + hashlib.sha256(_json.dumps(
-        {"source_ref": source_ref, "reason": reason,
-         "human_decision_ref": human_decision_ref},
-        sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:24]
+    retraction_id = _retract_source_id(
+        source_ref, reason, human_decision_ref)
 
     # F9-class atomicity: idempotency check + cascade + event in ONE
     # BEGIN IMMEDIATE transaction.
@@ -1668,7 +2015,9 @@ def _validate_retract_source(
         # STALE guard: a DIFFERENT retraction of an already-retracted
         # source is refused — the source is already superseded; a second
         # decision artifact would double-supersede (one source, one
-        # retraction).
+        # retraction). This ROLLBACK stays inside the BEGIN IMMEDIATE
+        # owner below (HYGIENE-2: extracting it would create a second
+        # rollback-only census participant).
         already = conn.execute(
             "SELECT event_id, payload_json FROM events "
             "WHERE event_type = ? AND correlation_id LIKE 'retract_%' "
@@ -1693,253 +2042,44 @@ def _validate_retract_source(
                     f"is retracted once; further cascades require a new "
                     f"superseding decision, not a second retraction")
 
-        # ── Step 1: the ratified SourceRetracted event ──
-        # ── Step 2: the ResearchDecision artifact + supersedes edge ──
-        decision_artifact_id = f"rd-{retraction_id}"
-        decision_content = _json.dumps({
-            "schema_version": "1",
-            "decision": "SOURCE_RETRACTED",
-            "source_artifact_id": source_artifact_id,
-            "human_decision_ref": human_decision_ref,
-            "reason": reason,
-            "proposed_by": intent.proposed_by,
-        }, sort_keys=True, separators=(",", ":"))
-        decision_hash = hashlib.sha256(
-            decision_content.encode("utf-8")).hexdigest()
-        conn.execute(
-            "INSERT INTO artifacts "
-            "(artifact_id, project_id, task_id, artifact_type, "
-            " content_hash, size_bytes, storage_path, producer, "
-            " metadata_json, created_at) "
-            "VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
-            (decision_artifact_id, intent.project_id,
-             _S5_DECISION_ARTIFACT_TYPE, decision_hash,
-             len(decision_content), "inline://research_decision",
-             f"retract_source:{intent.proposed_by}",
-             _json.dumps({"invalidation_marker": "INVALIDATED",
-                          "decision": "SOURCE_RETRACTED",
-                          "human_decision_ref": human_decision_ref}),
-             clock()))
-        conn.execute(
-            "INSERT OR IGNORE INTO provenance_edges "
-            "(artifact_id, upstream_id, edge_type, created_at) "
-            "VALUES (?, ?, 'supersedes', ?)",
-            (decision_artifact_id, source_artifact_id, clock()))
+        decision_artifact_id = _retract_source_record_decision(
+            conn, intent, clock,
+            source_artifact_id=source_artifact_id,
+            human_decision_ref=human_decision_ref,
+            retraction_id=retraction_id,
+            reason=reason)
 
-        # ── Step 3: the dependency-class cone (Q-04 substrate) ──
-        # Transitive downstream closure over the LIVE dependency-class
-        # edges only — the artifact_blast_radius traversal (graph.py)
-        # restricted to the S5 edge class; `supersedes`/`justifies` and
-        # every non-dependency edge NEVER propagate invalidation.
-        downstream: dict[str, list[str]] = {}
-        rows = conn.execute(
-            "SELECT e.upstream_id, e.artifact_id, e.edge_type "
-            "FROM provenance_edges e "
-            "JOIN artifacts a ON a.artifact_id = e.artifact_id "
-            "WHERE a.project_id = ? AND e.edge_type IN (?,?,?)",
-            (intent.project_id, *_S5_DEPENDENCY_EDGE_TYPES)).fetchall()
-        # L2 read-path normalization: every stored upstream reference is
-        # resolved to canonical artifact identities before matching. The
-        # emitted downstream values are unchanged (project-JOIN-filtered
-        # artifact rows), so project isolation is preserved by
-        # construction; only previously-invisible-but-valid dependency
-        # references newly participate. Unresolvable values resolve to
-        # the empty set (fail-safe skip, the pre-existing posture).
-        _l2_memo: dict = {}
-        for r in rows:
-            for canonical in sorted(_l2_resolve_upstream(
-                    conn, r["upstream_id"], r["edge_type"], _l2_memo)):
-                downstream.setdefault(canonical, []).append(
-                    r["artifact_id"])
-        cone = _s5_cone_closure(source_artifact_id, downstream)
+        cone, invalidated_artifacts, invalidated_tasks = (
+            _retract_source_invalidate_cone(
+                conn, intent, clock,
+                source_artifact_id=source_artifact_id,
+                decision_artifact_id=decision_artifact_id,
+                retraction_id=retraction_id))
 
-        invalidated_artifacts: list[str] = []
-        for artifact_id in cone:
-            row = conn.execute(
-                "SELECT metadata_json FROM artifacts "
-                "WHERE artifact_id = ?", (artifact_id,)).fetchone()
-            if row is None:
-                continue
-            import json as _mj
-            try:
-                meta = _mj.loads(row["metadata_json"]) if (
-                    row["metadata_json"]) else {}
-            except ValueError:
-                meta = {}
-            if meta.get("invalidation_marker") == "INVALIDATED":
-                continue  # already invalid — idempotent, no rewrite
-            meta["invalidation_marker"] = "INVALIDATED"
-            meta["invalidated_by"] = decision_artifact_id
-            conn.execute(
-                "UPDATE artifacts SET metadata_json = ? "
-                "WHERE artifact_id = ?",
-                (_json.dumps(meta), artifact_id))
-            invalidated_artifacts.append(artifact_id)
-
-        # Downstream tasks: every SUCCEEDED task that PRODUCED an
-        # invalidated artifact transitions to the terminal INVALIDATED
-        # status (archived-not-deleted; TaskInvalidated events). Tasks in
-        # any other state are left to the existing lifecycle (INVALIDATED
-        # is reachable only from SUCCEEDED — task_status.py).
-        invalidated_tasks: list[str] = []
-        for artifact_id in invalidated_artifacts:
-            trow = conn.execute(
-                "SELECT t.task_id, t.status FROM artifacts a "
-                "JOIN tasks t ON t.task_id = a.task_id "
-                "WHERE a.artifact_id = ? AND t.project_id = ?",
-                (artifact_id, intent.project_id)).fetchone()
-            if trow is None:
-                continue
-            if trow["status"] != TaskStatus.SUCCEEDED.value:
-                continue
-            conn.execute(
-                "UPDATE tasks SET status = ?, completed_at = ? "
-                "WHERE task_id = ?",
-                (TaskStatus.INVALIDATED.value, clock(), trow["task_id"]))
-            _append_event_to_db(
-                conn, clock, EventType.TASK_INVALIDATED.value,
-                project_id=intent.project_id, task_id=trow["task_id"],
-                from_state=TaskStatus.SUCCEEDED.value,
-                to_state=TaskStatus.INVALIDATED.value,
-                correlation_id=retraction_id,
-                caused_by=intent.proposed_by,
-                reason=f"S5 cascade: source {source_artifact_id} retracted",
-                payload={"source_artifact_id": source_artifact_id,
-                         "retraction_id": retraction_id})
-            invalidated_tasks.append(trow["task_id"])
-
-        # ── Step 7 (v6 §16.6): curated-knowledge follow-on ──
-        # Chartered addition, INSIDE this same transaction: every ADMITTED
-        # curated entry of this project whose stored retraction basis
-        # intersects {source_artifact_id} ∪ cone is INVALIDATED —
-        # deterministic curated_id ASC order, one CuratedKnowledgeInvalidated
-        # per entry, all BEFORE the SourceRetracted emission. The predicate
-        # consumes the cone EXACTLY as the existing walk produced it (the
-        # known L2 identifier-form defect is untouched — future cone members
-        # are recognized by the same predicate). Invalidate-on-ANY
-        # (fail-closed, GAP-A D2).
         retracted_set = {source_artifact_id} | set(cone)
-        placeholders = ",".join("?" for _ in range(len(retracted_set)))
-        curated_rows = conn.execute(
-            "SELECT DISTINCT e.curated_id AS curated_id "
-            "FROM curated_knowledge_entries e "
-            "JOIN curated_knowledge_retraction_basis b "
-            "  ON b.curated_id = e.curated_id "
-            "WHERE e.status = 'ADMITTED' "
-            "  AND e.source_project_id = ? "
-            f"  AND b.evidence_artifact_id IN ({placeholders}) "
-            "ORDER BY e.curated_id ASC",
-            (intent.project_id, *sorted(retracted_set))).fetchall()
-        invalidated_curated: list[str] = []
-        for crow in curated_rows:
-            curated_id = crow["curated_id"]
-            basis_rows = conn.execute(
-                "SELECT evidence_artifact_id "
-                "FROM curated_knowledge_retraction_basis "
-                "WHERE curated_id = ? "
-                "ORDER BY evidence_artifact_id ASC",
-                (curated_id,)).fetchall()
-            matched = sorted(
-                {r["evidence_artifact_id"] for r in basis_rows}
-                & retracted_set)
-            conn.execute(
-                "UPDATE curated_knowledge_entries "
-                "SET status = 'INVALIDATED', invalidation_event_ref = ? "
-                "WHERE curated_id = ? AND status = 'ADMITTED'",
-                (retraction_id, curated_id))
-            _append_event_to_db(
-                conn, clock, EventType.CURATED_KNOWLEDGE_INVALIDATED.value,
-                project_id=intent.project_id,
-                correlation_id=retraction_id,
-                caused_by=intent.proposed_by,
-                reason=(f"S5 retraction of {source_artifact_id} reached the "
-                        f"curated entry's evidence basis"),
-                payload={
-                    "curated_id": curated_id,
-                    "retraction_id": retraction_id,
-                    "source_artifact_id": source_artifact_id,
-                    "matched_evidence": matched,
-                })
-            invalidated_curated.append(curated_id)
-        invalidated_curated = sorted(invalidated_curated)
+        invalidated_curated = _retract_source_invalidate_curated(
+            conn, intent, clock,
+            source_artifact_id=source_artifact_id,
+            retraction_id=retraction_id,
+            retracted_set=retracted_set)
 
-        # ── CHG-1 contradiction supersession follow-on ──
-        # Additive consumer of retracted_set (the Step-7 curated-follow-on
-        # precedent): every OPEN contradiction of this project with a
-        # party in {source_artifact_id} ∪ cone is SUPERSEDED in this same
-        # transaction (deterministic contradiction_id ASC order, one
-        # ContradictionSuperseded event per row). S5 cone/edge/vocabulary
-        # semantics are untouched — the predicate consumes the cone
-        # exactly as produced.
-        cx_placeholders = ",".join(
-            "?" for _ in range(len(retracted_set)))
-        cx_rows = conn.execute(
-            "SELECT contradiction_id FROM contradictions "
-            "WHERE project_id = ? AND status = 'OPEN' "
-            f"  AND (party_a IN ({cx_placeholders}) "
-            f"    OR party_b IN ({cx_placeholders})) "
-            "ORDER BY contradiction_id ASC",
-            (intent.project_id, *sorted(retracted_set),
-             *sorted(retracted_set))).fetchall()
-        for cx_row in cx_rows:
-            cx_id = cx_row["contradiction_id"]
-            conn.execute(
-                "UPDATE contradictions SET status = 'SUPERSEDED' "
-                "WHERE contradiction_id = ? AND status = 'OPEN'",
-                (cx_id,))
-            _append_event_to_db(
-                conn, clock,
-                EventType.CONTRADICTION_SUPERSEDED.value,
-                project_id=intent.project_id,
-                correlation_id=f"{cx_id}:superseded:{retraction_id}",
-                caused_by=intent.proposed_by,
-                reason=(f"S5 retraction of {source_artifact_id} retired "
-                        f"a party of contradiction {cx_id}"),
-                payload={"contradiction_id": cx_id,
-                         "retraction_id": retraction_id,
-                         "source_artifact_id": source_artifact_id})
+        _retract_source_supersede_contradictions(
+            conn, intent, clock,
+            source_artifact_id=source_artifact_id,
+            retraction_id=retraction_id,
+            retracted_set=retracted_set)
 
-        # ── S6 bounded retraction-fact payload ──
-        # The P3 SourceRetracted event carries the bounded retraction fact
-        # plus a deterministic integrity commitment to the computed cone —
-        # never the unbounded cone lists (S6: a sufficiently large
-        # legitimate cone would otherwise exceed the 4 KiB S6 event cap
-        # and make the source unretractable). ``s5-cone-v1`` means: S5
-        # cone membership semantics over canonical sorted
-        # artifact/task/curated lists, canonical JSON serialization
-        # below, SHA-256 digest. Future cone-semantic changes require a
-        # new algorithm identifier. The exact cone remains recoverable
-        # from persisted state: artifacts via
-        # ``invalidated_by = decision_artifact_id`` ordered by
-        # artifact_id, tasks via TaskInvalidated ``correlation_id =
-        # retraction_id``, curated entries via CuratedKnowledgeInvalidated
-        # ``retraction_id``.
-        import hashlib as _hashlib
-        import json as _json
-        cone_digest = _hashlib.sha256(_json.dumps(
-            {"artifacts": sorted(invalidated_artifacts),
-             "tasks": sorted(invalidated_tasks),
-             "curated": sorted(invalidated_curated)},
-            sort_keys=True, separators=(",", ":"),
-            ensure_ascii=False).encode("utf-8")).hexdigest()
-        _append_event_to_db(
-            conn, clock, EventType.SOURCE_RETRACTED.value,
-            project_id=intent.project_id,
-            correlation_id=retraction_id,
-            caused_by=intent.proposed_by,
+        _retract_source_emit_retracted_event(
+            conn, intent, clock,
+            source_ref=source_ref,
+            source_artifact_id=source_artifact_id,
+            decision_artifact_id=decision_artifact_id,
+            human_decision_ref=human_decision_ref,
+            retraction_id=retraction_id,
             reason=reason,
-            artifact_ids=[source_artifact_id],
-            payload={
-                "source_ref": source_ref,
-                "source_artifact_id": source_artifact_id,
-                "decision_artifact_id": decision_artifact_id,
-                "human_decision_ref": human_decision_ref,
-                "cone_algorithm": "s5-cone-v1",
-                "cone_digest": cone_digest,
-                "artifact_count": len(invalidated_artifacts),
-                "task_count": len(invalidated_tasks),
-                "curated_count": len(invalidated_curated),
-            })
+            invalidated_artifacts=invalidated_artifacts,
+            invalidated_tasks=invalidated_tasks,
+            invalidated_curated=invalidated_curated)
         conn.execute("COMMIT")
     except GatewayRejection:
         if conn.in_transaction:
@@ -3174,7 +3314,8 @@ def _validate_contradiction_resolution(
     decision_row = conn.execute(
         "SELECT payload_json FROM events "
         "WHERE project_id = ? AND event_type = ? "
-        "AND (event_id = ? OR correlation_id = ?) LIMIT 1",
+        "AND (event_id = ? OR correlation_id = ?) "
+        "ORDER BY rowid LIMIT 1",
         (intent.project_id, EventType.HUMAN_DECISION_RECEIVED.value,
          human_decision_ref, human_decision_ref)).fetchone()
     if decision_row is None:
@@ -3312,7 +3453,7 @@ _RECORD_CLASSIFICATION_PAYLOAD_KEYS = frozenset({
     "constraint_ref", "failed_mechanism_ref", "regime_ref",
     "resource_gap", "scope_brief_ref", "scope_brief_field",
     "contributing_factors", "proposed_by", "producing_task_id",
-    "human_decision_ref", "operator_id"})
+    "human_decision_ref", "operator_id", "condition_type"})
 
 
 def _validate_record_classification(
@@ -3343,11 +3484,13 @@ def _validate_record_classification(
         FailureClassificationRepository,
     )
     from hermes.research.failure_classification import (
+        ConditionType,
         FailureClass,
         FailureClassificationDraft,
         FalsificationRecord,
         ResourceGap,
         classification_command_hash,
+        legacy_classification_command_hash,
     )
     kind = intent.kind
     payload = intent.payload
@@ -3397,6 +3540,19 @@ def _validate_record_classification(
             kind, MALFORMED_PAYLOAD,
             f"payload.failure_class {payload.get('failure_class')!r} is "
             f"not a ratified member") from None
+    # COND-TYPE (GAP-1 D4-A): an absent/None condition_type is the
+    # declared UNDETERMINED default (the pre-slice behavior, now explicit).
+    condition_type_raw = payload.get("condition_type")
+    try:
+        condition_type = ConditionType(
+            condition_type_raw
+            if condition_type_raw is not None
+            else ConditionType.UNDETERMINED)
+    except (ValueError, TypeError):
+        raise _reject(
+            kind, MALFORMED_PAYLOAD,
+            f"payload.condition_type {condition_type_raw!r} is not a "
+            f"ratified member") from None
     evidence_refs = _req_str_list("evidence_refs")
     falsifying_evidence_refs = _req_str_list("falsifying_evidence_refs")
     explanation = _req_str("explanation")
@@ -3464,12 +3620,14 @@ def _validate_record_classification(
         "contributing_factors": contributing_factors,
         "proposed_by": proposed_by,
         "producing_task_id": producing_task_id,
+        "condition_type": condition_type.value,
     }
     command_hash = classification_command_hash(command)
     decision_row = conn.execute(
         "SELECT payload_json FROM events "
         "WHERE project_id = ? AND event_type = ? "
-        "AND (event_id = ? OR correlation_id = ?) LIMIT 1",
+        "AND (event_id = ? OR correlation_id = ?) "
+        "ORDER BY rowid LIMIT 1",
         (intent.project_id, EventType.HUMAN_DECISION_RECEIVED.value,
          human_decision_ref, human_decision_ref)).fetchone()
     if decision_row is None:
@@ -3497,11 +3655,22 @@ def _validate_record_classification(
             kind, PROPOSAL,
             f"recorded decision {human_decision_ref!r} is not a "
             f"classification-recording verdict")
-    if decision_payload.get("classification_hash") != command_hash:
-        raise _reject(
-            kind, PROPOSAL,
-            f"recorded decision {human_decision_ref!r} does not bind "
-            f"this classification command")
+    recorded_hash = decision_payload.get("classification_hash")
+    if recorded_hash != command_hash:
+        # COND-TYPE dual-read: a HumanDecision recorded before the
+        # hash-version bump binds the v1 (pre-condition_type) command
+        # hash. That approval predates the condition-type dimension, so
+        # it authorizes ONLY the declared default UNDETERMINED mapping —
+        # never a non-default condition type. Stored hashes are never
+        # rehashed or mutated.
+        legacy_hash = (
+            legacy_classification_command_hash(command)
+            if condition_type is ConditionType.UNDETERMINED else None)
+        if recorded_hash != legacy_hash:
+            raise _reject(
+                kind, PROPOSAL,
+                f"recorded decision {human_decision_ref!r} does not bind "
+                f"this classification command")
     # The semantic core delegates to the existing write boundary (which
     # owns its transaction — this validator opens none — and re-runs
     # the substrate with the real resolvers: project match, evidence
@@ -3524,7 +3693,8 @@ def _validate_record_classification(
             scope_brief_ref=scope_brief_ref,
             scope_brief_field=scope_brief_field,
             proposed_by=proposed_by,
-            classifier_version=classifier_version)
+            classifier_version=classifier_version,
+            condition_type=condition_type)
     except (TypeError, ValueError) as exc:
         raise _reject(
             kind, MALFORMED_PAYLOAD,

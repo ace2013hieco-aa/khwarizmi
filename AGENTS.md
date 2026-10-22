@@ -27,9 +27,13 @@ re-run (P6/N9/P7/tick-loop records live in `docs/archive/`).
   cases exist (repository creates, event-retry path, migrations,
   Controller floor/ladder/human-gate paths).
 - Append-only journal (`src/hermes/core/events.py`; writer
-  `src/hermes/persistence/repositories.py`). No DELETE exists in
+  `src/hermes/persistence/repositories.py`). Durable research state is
+  append-only: no DELETE of tasks/evidence/events exists anywhere in
   `src/`; supersession/invalidation are new rows/events, history is
-  never rewritten.
+  never rewritten. The only `DELETE FROM` statements release the
+  scheduler lock in the legacy writer-lock helper
+  (`src/hermes/persistence/database.py`); the Controller releases its
+  lease by marking the row free in place (P3-3, generation preserved).
 - Replay determinism: provider bytes replay identically through
   `RecordedTransport` (`src/hermes/tools/providers/replay.py`);
   replay proves byte/evidence determinism only — never scientific
@@ -89,7 +93,7 @@ Canonical commands (Python 3.14, see README “Operate”):
 ```bash
 uv venv --python 3.14; uv sync
 .venv/Scripts/python.exe scripts/run_tests.py -v   # full suite (collected count: docs/SUITE-COUNT.md, generated)
-uvx ruff check src tests                            # lint gate (C3)
+uvx ruff check src tests scripts                    # lint gate (C3)
 uvx pyright src                                     # strict type gate
 uvx pyright --pythonpath .venv/Scripts/python.exe --project pyrightconfig.tests.json
 ./scripts/profiled_gate.sh                          # tests-profile + smoke

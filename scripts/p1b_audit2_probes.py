@@ -6,7 +6,6 @@ explicitly as counts (not codes).
 from __future__ import annotations
 
 import hashlib
-import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -138,17 +137,16 @@ def main() -> int:
         # -- probe 3: forgery battery, count-based zero writes --
         print("probe 3: forgery battery (each must refuse; rows frozen)")
 
-        def forge_case(name, ref, claimed, hashes_map):
+        def forge_case(name, ref, claimed, hashes_map, *, conn=conn):
             before = cites_rows(conn)
             content = load_corpus_bytes(ROOT, ref)
             result = validate_gr3_extraction(
                 ref, content, tuple(claimed), hashes_map, tuple(ALL_REFS))
-            tid = running_task(conn, build_corpus_admit_task_payload(ref),
-                               suffix="-forge-" + name)
+            running_task(conn, build_corpus_admit_task_payload(ref),
+                         suffix="-forge-" + name)
             # NOTE: producing task for the record call must match template;
             # use the gr3-style spec so binding passes and we test the
             # integrity path specifically.
-            node = TaskRepository(conn)
             # Build a proper gr3 task for this ref.
             from hermes.research.graph_edges import (
                 build_gr3_extract_task_payload,
@@ -181,7 +179,7 @@ def main() -> int:
             try:
                 GraphEdgeRepository(conn).record(
                     "p1", gr3_node.task_id, mapping, content, hashes_map)
-            except Exception:
+            except Exception:  # noqa: BLE001 — any refusal is a probe pass
                 refused = True
             after = cites_rows(conn)
             if not refused:
@@ -273,7 +271,7 @@ def main() -> int:
         try:
             GraphEdgeRepository(conn).record(
                 "p1", t, mapping, content_ag, p2hashes)
-        except Exception:
+        except Exception:  # noqa: BLE001 — any refusal is a probe pass
             refused = True
         after = cites_rows(conn)
         print(f"  cross-project: verdict={result.verdict.value} "

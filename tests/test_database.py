@@ -291,6 +291,57 @@ class TestMigrations:
                      "VALUES ('TestEvent', 'p1', ?, '2026-01-01')", (small_emoji,))
         conn.close()
 
+    def test_v2_to_latest_preserves_events_pk_indexes_and_rows(self):
+        """P3-5: the 2→3 rebuild must not use CTAS (which drops the PK,
+        NOT NULLs, FKs and indexes). Migrating a real v2 database to
+        latest keeps the events schema and its rows."""
+        import hermes.persistence.migrations as m
+
+        conn = connect(":memory:")
+        clock = frozen_clock("2026-01-01T00:00:00.000000+00:00")
+        for fn in m._MIGRATIONS[:2]:
+            conn.execute("BEGIN")
+            try:
+                fn(conn, clock)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        assert get_schema_version(conn) == 2
+        conn.execute(
+            "INSERT INTO events (event_type, correlation_id, payload_json, "
+            "created_at) VALUES ('TestEvent', 'corr-1', '{}', '2026-01-01')")
+        assert migrate_to_latest(conn) == SUPPORTED_VERSION
+
+        cols = {row["name"]: row for row in conn.execute(
+            "PRAGMA table_info(events)").fetchall()}
+        assert [name for name, row in cols.items() if row["pk"]] == ["event_id"]
+        assert cols["event_type"]["notnull"] == 1
+        assert cols["created_at"]["notnull"] == 1
+        assert "AUTOINCREMENT" in conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'events'").fetchone()["sql"]
+        indexes = {row["name"] for row in conn.execute(
+            "PRAGMA index_list(events)").fetchall()}
+        assert {"idx_events_project", "idx_events_task"} <= indexes
+        fks = {(row["from"], row["table"]) for row in conn.execute(
+            "PRAGMA foreign_key_list(events)").fetchall()}
+        assert {("project_id", "projects"), ("task_id", "tasks")} <= fks
+        triggers = {row["name"] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+            "AND tbl_name = 'events'").fetchall()}
+        assert {"trg_events_append_only_update",
+                "trg_events_append_only_delete"} <= triggers
+
+        row = conn.execute(
+            "SELECT event_id, event_type, correlation_id, payload_json "
+            "FROM events").fetchone()
+        assert row["event_id"] == 1
+        assert row["event_type"] == "TestEvent"
+        assert row["correlation_id"] == "corr-1"
+        assert row["payload_json"] == "{}"
+        conn.close()
+
 
 class TestPragmas:
     def test_wal_mode_enabled(self, mem_conn):
@@ -507,6 +558,17 @@ class TestAtomicRestoreAndStoreSnapshot:
         conn.close()
         restored = _restore(result.backup_path, tmp_db,
                             lease_seconds=60)
+        assert restored == tmp_db
+
+        # P3-3: a RELEASED row (empty owner, fresh locked_at) is free, not
+        # live — the kept row must not block a restore.
+        conn = connect(tmp_db)
+        conn.execute(
+            "INSERT OR REPLACE INTO scheduler_lock "
+            "(id, owner, locked_at, generation) VALUES (0, '', ?, 3)",
+            (_utc_now(),))
+        conn.close()
+        restored = _restore(result.backup_path, tmp_db, lease_seconds=60)
         assert restored == tmp_db
 
     def test_retain_last_n_zero_never_deletes(self, tmp_db, tmp_path):

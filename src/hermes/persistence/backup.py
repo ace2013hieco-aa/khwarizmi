@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 from hermes.core import Clock, utc_now
-from hermes.persistence.database import integrity_check
+from hermes.persistence.database import RELEASED_LOCK_OWNER, integrity_check
 
 
 class BackupResult:
@@ -126,7 +126,8 @@ def _assert_no_live_lease(live_db_path: Path, lease_seconds: int) -> None:
         return  # pre-lease schema: nothing to protect
     finally:
         conn.close()
-    if row is None or row[0] is None or row[1] is None:
+    if row is None or row[0] is None or row[1] is None \
+            or row[0] == RELEASED_LOCK_OWNER:
         return
     try:
         ts = datetime.fromisoformat(row[1])

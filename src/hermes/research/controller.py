@@ -50,6 +50,7 @@ from hermes.core.task_status import (
     TaskTransitionError,
     validate_task_transition,
 )
+from hermes.persistence.database import RELEASED_LOCK_OWNER
 from hermes.persistence.failure_classifications import (
     FAILURE_CLASSIFICATION_ARTIFACT_TYPE,
     FAILURE_CLASSIFICATION_REF_PREFIX,
@@ -104,7 +105,10 @@ from hermes.research.source_handlers import (
     TaskScopedSourceRepos,
     UntrustedContentView,
 )
-from hermes.research.verdict_decisions import record_human_decision_once
+from hermes.research.verdict_decisions import (
+    HumanDecisionConflict,
+    record_human_decision_once,
+)
 from hermes.tools.providers.docling_provider import (
     DoclingDocument,
 )
@@ -2238,6 +2242,9 @@ class Controller:
                     "curation_id": command_hash,
                     "duplicate": result.duplicate,
                     "rejected": False}
+        except HumanDecisionConflict as exc:
+            return {**echo, "rejected": True,
+                    "code": "IDEMPOTENCY_CONFLICT", "detail": str(exc)}
         except GatewayRejection as exc:
             return {**echo, "rejected": True, "code": exc.code,
                     "detail": str(exc)}
@@ -2378,6 +2385,9 @@ class Controller:
                     "entity_id": result.entity_id,
                     "duplicate": result.duplicate,
                     "rejected": False}
+        except HumanDecisionConflict as exc:
+            return {**echo, "rejected": True,
+                    "code": "IDEMPOTENCY_CONFLICT", "detail": str(exc)}
         except GatewayRejection as exc:
             return {**echo, "rejected": True, "code": exc.code,
                     "detail": str(exc)}
@@ -2644,6 +2654,9 @@ class Controller:
                     "entity_id": result.entity_id,
                     "duplicate": result.duplicate,
                     "rejected": False}
+        except HumanDecisionConflict as exc:
+            return {**echo, "rejected": True,
+                    "code": "IDEMPOTENCY_CONFLICT", "detail": str(exc)}
         except GatewayRejection as exc:
             return {**echo, "rejected": True, "code": exc.code,
                     "detail": str(exc)}
@@ -2654,6 +2667,7 @@ class Controller:
         self, *, program_ref: str, hypothesis_ref: str, failure_class: str,
         evidence_refs: list, falsifying_evidence_refs: list,
         explanation: str, classifier_version: str,
+        condition_type: str = "UNDETERMINED",
         constraint_ref: str | None = None,
         failed_mechanism_ref: str | None = None,
         regime_ref: str | None = None,
@@ -2688,6 +2702,11 @@ class Controller:
         LEASE-HELD; rejections are surfaced as data (never raised
         through the loop): a repeat returns ``duplicate=True``; any
         gateway refusal returns ``{"rejected": True, ...}``.
+
+        ``condition_type`` is the COND-TYPE (GAP-1 D4-A) classification
+        dimension; absent/``None`` falls back to the declared
+        ``UNDETERMINED`` default in the command hash. It is part of the
+        operator-approved command from hash version 2 onward.
         """
         from hermes.core.intents import Intent, IntentKind
         from hermes.persistence.event_validation import (
@@ -2726,6 +2745,7 @@ class Controller:
             "contributing_factors": contributing_factors,
             "proposed_by": proposed_by,
             "producing_task_id": producing_task_id,
+            "condition_type": condition_type,
         }
         try:
             command_hash = classification_command_hash(command)
@@ -2786,6 +2806,9 @@ class Controller:
                     "entity_id": result.entity_id,
                     "duplicate": result.duplicate,
                     "rejected": False}
+        except HumanDecisionConflict as exc:
+            return {**echo, "rejected": True,
+                    "code": "IDEMPOTENCY_CONFLICT", "detail": str(exc)}
         except GatewayRejection as exc:
             return {**echo, "rejected": True, "code": exc.code,
                     "detail": str(exc)}
@@ -2929,6 +2952,16 @@ class Controller:
                     (now,),
                 )
                 self._lock_generation = row["generation"]
+            elif row["owner"] == RELEASED_LOCK_OWNER:
+                # P3-3: a released row is free — reuse it and bump the
+                # generation, so the generation never resets to 0 and a
+                # released holder's captured token can never validate again.
+                self._conn.execute(
+                    "UPDATE scheduler_lock SET owner = ?, locked_at = ?, "
+                    "generation = generation + 1 WHERE id = 0",
+                    (self._owner, now),
+                )
+                self._lock_generation = row["generation"] + 1
             elif self._is_stale_ts(row["locked_at"], now):
                 # ADV-02 — reclaim by lease expiry (IDR-029 Decision 4), now
                 # generation-FENCED: the generation increments on the ownership
@@ -2951,9 +2984,17 @@ class Controller:
             raise
 
     def _release_lock(self) -> None:
+        """P3-3 — release by marking the row free in place (never DELETE).
+
+        Keeping the row preserves the ADV-02 generation: the next acquisition
+        increments it instead of restarting at 0, so a token captured before
+        the release can never validate after the next owner takes over. The
+        owner guard leaves a foreign (already reclaimed) row untouched.
+        """
         self._conn.execute(
-            "DELETE FROM scheduler_lock WHERE id = 0 AND owner = ?",
-            (self._owner,),
+            "UPDATE scheduler_lock SET owner = ?, locked_at = ? "
+            "WHERE id = 0 AND owner = ?",
+            (RELEASED_LOCK_OWNER, self._clock(), self._owner),
         )
 
     # ── recovery (v4 §19 NO_SIGNAL ladder; IDR-029 Decision 4) ──

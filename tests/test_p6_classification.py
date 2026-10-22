@@ -640,7 +640,8 @@ class TestDeterminism:
         ctrl = _make(db)
         ctrl.detect_contradictions()
         assert db.execute(
-            "SELECT COUNT(*) c FROM scheduler_lock").fetchone()["c"] == 0
+            "SELECT COUNT(*) c FROM scheduler_lock "
+            "WHERE owner != ''").fetchone()["c"] == 0
         ctrl.record_failure_classification(
             program_ref="rp-1", hypothesis_ref="h1",
             failure_class="UNKNOWN", evidence_refs=[],
@@ -649,7 +650,8 @@ class TestDeterminism:
             proposed_by="operator:op-1", producing_task_id="t-prod",
             operator_id="bad-op", operator_token="wrong")
         assert db.execute(
-            "SELECT COUNT(*) c FROM scheduler_lock").fetchone()["c"] == 0
+            "SELECT COUNT(*) c FROM scheduler_lock "
+            "WHERE owner != ''").fetchone()["c"] == 0
 
 
 class TestS5FollowOn:

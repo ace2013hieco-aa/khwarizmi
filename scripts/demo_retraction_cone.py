@@ -584,7 +584,7 @@ if __name__ == "__main__":
         sys.exit(main())
     except SystemExit:
         raise
-    except BaseException:            # never swallow: print and exit 2
+    except BaseException:  # noqa: BLE001 — never swallow: print and exit 2
         traceback.print_exc()
         print("EXIT 2 - the demo raised (see traceback above)")
         sys.exit(2)

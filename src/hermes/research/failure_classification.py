@@ -48,6 +48,7 @@ from hermes.research.programs import canonical_json, sha256_hex
 
 __all__ = [
     "ACTION_MAP",
+    "CLASSIFICATION_COMMAND_HASH_VERSION",
     "FAILURE_CLASS_SCHEMA_VERSION",
     "MAX_EXPLANATION_LENGTH",
     "ClassificationError",
@@ -62,7 +63,9 @@ __all__ = [
     "ResourceGap",
     "certifies_decisive_falsification",
     "classification_command_hash",
+    "classification_command_preimage",
     "classify_failure",
+    "legacy_classification_command_hash",
     "permitted_actions_for",
     "proposal_requires_human_confirmation",
     "requires_human_confirmation_for",
@@ -72,6 +75,14 @@ __all__ = [
 
 # ── taxonomy version (the enum + action map are schema-versioned) ──
 FAILURE_CLASS_SCHEMA_VERSION = "2"
+
+# COND-TYPE (GAP-1 D4-A): version of the HumanDecision binding hash over an
+# operator classification command. v1 hashed the pre-``condition_type``
+# command with no version tag; v2 adds the ``condition_type`` key and the
+# version tag to the canonical bytes. New submissions always mint v2; v1 is
+# verify-only for decisions recorded before the bump (dual-read in the
+# gateway, never a rehash and never a mutation of the stored hash).
+CLASSIFICATION_COMMAND_HASH_VERSION = "2"
 
 # Capped advisory rationale length (schema discipline — never a citation).
 MAX_EXPLANATION_LENGTH = 4000
@@ -1064,20 +1075,9 @@ def summarize_classification(
     )
 
 
-def classification_command_hash(command: Mapping[str, Any]) -> str:
-    """Deterministic identity for an operator-asserted classification
-    command (P6 — the HumanDecision binding, mirroring the
-    curation_command_hash precedent).
-
-    Covers every command field EXCEPT ``human_decision_ref`` and
-    ``operator_id`` (the approver's identity, not the approved
-    command): program/hypothesis refs, failure class, evidence sets
-    (sorted), explanation, classifier version, class citations,
-    contributing factors (sorted), proposer, and producing task.
-    Returns ``"classify_" + sha256(canonical)[:24]``. Raises
-    ``TypeError``/``ValueError`` on misshapen fields (fail-closed —
-    callers surface refusal-as-data, never a hash of garbage).
-    """
+def _command_projection(command: Mapping[str, Any]) -> dict[str, Any]:
+    """The shared v1/v2 command projection (everything except the
+    COND-TYPE additions)."""
     def _str_list(key: str) -> list:
         value = command.get(key)
         if value is None:
@@ -1098,7 +1098,7 @@ def classification_command_hash(command: Mapping[str, Any]) -> str:
             "required": gap.get("required"),
             "unit": gap.get("unit"),
         }
-    raw = canonical_json({
+    return {
         "program_ref": command.get("program_ref"),
         "hypothesis_ref": command.get("hypothesis_ref"),
         "failure_class": command.get("failure_class"),
@@ -1115,5 +1115,60 @@ def classification_command_hash(command: Mapping[str, Any]) -> str:
         "contributing_factors": _str_list("contributing_factors"),
         "proposed_by": command.get("proposed_by"),
         "producing_task_id": command.get("producing_task_id"),
-    })
+    }
+
+
+def classification_command_preimage(command: Mapping[str, Any]) -> str:
+    """The canonical v2 bytes (preimage) of an operator classification
+    command. Pins the COND-TYPE additions: the ``condition_type`` key
+    (absent/None == the declared ``UNDETERMINED`` default) and the
+    ``hash_version`` tag."""
+    condition_type = command.get("condition_type")
+    if condition_type is None:
+        condition_type = ConditionType.UNDETERMINED.value
+    elif isinstance(condition_type, ConditionType):
+        condition_type = condition_type.value
+    elif not isinstance(condition_type, str):
+        raise TypeError(
+            "classification command field 'condition_type' must be a "
+            "string or absent")
+    projection = _command_projection(command)
+    projection["condition_type"] = condition_type
+    projection["hash_version"] = CLASSIFICATION_COMMAND_HASH_VERSION
+    return canonical_json(projection)
+
+
+def classification_command_hash(command: Mapping[str, Any]) -> str:
+    """Deterministic identity for an operator-asserted classification
+    command (P6 — the HumanDecision binding, mirroring the
+    curation_command_hash precedent).
+
+    Covers every command field EXCEPT ``human_decision_ref`` and
+    ``operator_id`` (the approver's identity, not the approved
+    command): program/hypothesis refs, failure class, evidence sets
+    (sorted), explanation, classifier version, class citations,
+    contributing factors (sorted), proposer, producing task, and —
+    since COND-TYPE — ``condition_type`` plus the in-band
+    ``hash_version`` tag. An absent/None condition_type hashes as the
+    declared ``UNDETERMINED`` default.
+    Returns ``"classify_" + sha256(canonical)[:24]``. Raises
+    ``TypeError``/``ValueError`` on misshapen fields (fail-closed —
+    callers surface refusal-as-data, never a hash of garbage).
+    """
+    return "classify_" + sha256_hex(
+        classification_command_preimage(command))[:24]
+
+
+def legacy_classification_command_hash(command: Mapping[str, Any]) -> str:
+    """The pre-COND-TYPE (v1) command hash: the same projection WITHOUT
+    ``condition_type``/``hash_version`` in the canonical bytes.
+
+    VERIFY-ONLY. It exists so a ``HumanDecisionReceived`` row recorded
+    before the bump still binds its command under the old version
+    (dual-read); new submissions are always minted with
+    :func:`classification_command_hash`. The gateway admits a legacy
+    binding only for the declared default ``UNDETERMINED`` mapping, so a
+    pre-bump approval can never authorize a non-default condition type.
+    """
+    raw = canonical_json(_command_projection(command))
     return "classify_" + sha256_hex(raw)[:24]

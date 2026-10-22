@@ -62,6 +62,21 @@ refusal codes (`gateway.py:93-108`: `ROLE`, `OPERATOR`, `LOCK`,
 `RATIONALE`, …) are EVOLVING in set but FROZEN in meaning once
 emitted against a certified behavior.
 
+## Lease contention — `LOCK` is retryable; nothing else is
+
+Controller write surfaces acquire the single-writer lease before
+calling `apply_intent`. Contention returns
+`{"rejected": True, "code": "LOCK", "detail": …}` as data before any
+durable write. Retry rule: `LOCK` is the only controller refusal that
+clears by waiting — retry the same intent with a client-owned bounded
+backoff. `ROLE`, `OPERATOR`, `RATIONALE`, `PROPOSAL`, `STALE`,
+`EVIDENCE_REF` and `MALFORMED_PAYLOAD` are deterministic refusals; a
+retry cannot change them. The system performs no automatic retry or
+backoff. A mid-tick lease loss aborts the tick with rollback
+(`lock_lost`), and leases are generation-fenced, so a `LOCK` or a
+lost lease never leaves a partial write or admits a superseded
+holder's write.
+
 ## Provider adapters — PUBLIC / SUPPORTED, EVOLVING
 
 Implement `ProviderAdapter` (`tools/providers/base.py:139`): exactly
@@ -98,7 +113,10 @@ boundaries is forbidden (AGENTS.md).
 ## Errors — EVOLVING set, FROZEN meanings
 
 Gateway codes above; controller `OPERATOR`/`LOCK`/`RATIONALE`/
-`DETECTOR`/gate codes; completion denials (`NO_PROGRAM`,
+`DETECTOR`/gate codes; `IDEMPOTENCY_CONFLICT` when a repeated
+decision identity arrives with different content (a repeat is only
+an idempotent replay when its payload matches); completion denials
+(`NO_PROGRAM`,
 `OPEN_CONTRADICTION`, … `completion.py:96-101`); provider
 `ProviderError` hierarchy (`research_sources.py:614-703`) +
 `ReplayUnavailableError`. New codes require the behavior they

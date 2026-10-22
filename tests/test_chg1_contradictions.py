@@ -987,12 +987,14 @@ class TestFailure:
         ctrl = _make(db)
         ctrl.detect_contradictions()
         assert db.execute(
-            "SELECT COUNT(*) c FROM scheduler_lock").fetchone()["c"] == 0
+            "SELECT COUNT(*) c FROM scheduler_lock "
+            "WHERE owner != ''").fetchone()["c"] == 0
         ctrl.record_contradiction_resolution(
             contradiction_id="cx-ghost",
             operator_id="bad-op", operator_token="wrong")
         assert db.execute(
-            "SELECT COUNT(*) c FROM scheduler_lock").fetchone()["c"] == 0
+            "SELECT COUNT(*) c FROM scheduler_lock "
+            "WHERE owner != ''").fetchone()["c"] == 0
 
 
 # ═══════════════════════ tick-loop wiring guard ═══════════════════════
@@ -1003,7 +1005,7 @@ class TestFailure:
 # over digest-valid conflicting classifications and asserts the detector
 # fires end-to-end through the reconcile loop — the surface the audit
 # found unwired. The lock-less core must run on the tick's already-held
-# lease (the public method would DELETE the tick's scheduler_lock row).
+# lease (the public method would release/mark the tick's scheduler_lock row).
 
 
 # ═══════════════════════ S5 regression guard ═══════════════════════

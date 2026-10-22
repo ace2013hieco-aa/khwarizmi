@@ -942,7 +942,8 @@ def test_11_lease_held_refused_and_released_after(db):
     assert out["rejected"] is False
     assert TaskRepository(db).get_status(gate_id) is TaskStatus.SUCCEEDED
     assert db.execute(
-        "SELECT COUNT(*) FROM scheduler_lock").fetchone()[0] == 0
+        "SELECT COUNT(*) FROM scheduler_lock "
+        "WHERE owner != ''").fetchone()[0] == 0
 
 
 # ── red-team P2 fixes (independent operator-loop verdict) ──
@@ -5054,7 +5055,8 @@ def _run_f15_resolve_race_once(tmp_path, db_name, *, verdict,
                 b_conn.commit()
         if lock_snapshots is not None:
             _lr = b_conn.execute(
-                "SELECT owner, locked_at FROM scheduler_lock WHERE id = 0"
+            "SELECT owner, locked_at FROM scheduler_lock WHERE id = 0 "
+            "AND owner != ''"
             ).fetchone()
             lock_snapshots.append(
                 (None if _lr is None else _lr["owner"],
@@ -5111,7 +5113,8 @@ def _run_f15_resolve_race_once(tmp_path, db_name, *, verdict,
                  if tr_b.get(t)["status"] not in (TaskStatus.SUCCEEDED,
                                                    TaskStatus.FAILED)]
         lock_row = b_conn.execute(
-            "SELECT owner, locked_at FROM scheduler_lock WHERE id = 0"
+            "SELECT owner, locked_at FROM scheduler_lock WHERE id = 0 "
+                "AND owner != ''"
         ).fetchone()
         lock_note = (
             f" scheduler_lock owner={lock_row['owner']!r} "

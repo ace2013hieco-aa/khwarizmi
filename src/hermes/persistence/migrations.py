@@ -333,10 +333,12 @@ def _migrate_2_to_3(conn: sqlite3.Connection, clock: Clock) -> None:
 
     # Recreate events table with byte-accurate CHECK
     # SQLite has no ALTER TABLE ... DROP CONSTRAINT, so we recreate the table.
-    conn.execute("CREATE TABLE IF NOT EXISTS events_new AS SELECT * FROM events")
-    conn.execute("DROP TABLE events")
+    # P3-5: an explicit CREATE TABLE (never CTAS) preserves the column
+    # declarations, PRIMARY KEY/AUTOINCREMENT, NOT NULLs, FKs and the byte
+    # CHECK on the copy table — the old ``CREATE TABLE ... AS SELECT``
+    # inherited none of them.
     conn.execute("""
-        CREATE TABLE events (
+        CREATE TABLE events_new (
             event_id            INTEGER PRIMARY KEY AUTOINCREMENT,
             event_type          TEXT NOT NULL,
             project_id          TEXT REFERENCES projects(project_id),
@@ -352,8 +354,18 @@ def _migrate_2_to_3(conn: sqlite3.Connection, clock: Clock) -> None:
             CHECK (length(CAST(payload_json AS BLOB)) <= 4096)
         )
     """)
-    conn.execute("INSERT INTO events SELECT * FROM events_new")
-    conn.execute("DROP TABLE events_new")
+    conn.execute("""
+        INSERT INTO events_new (
+            event_id, event_type, project_id, task_id, from_state, to_state,
+            correlation_id, caused_by, reason, artifact_ids_json,
+            payload_json, created_at)
+        SELECT event_id, event_type, project_id, task_id, from_state,
+            to_state, correlation_id, caused_by, reason, artifact_ids_json,
+            payload_json, created_at
+        FROM events
+    """)
+    conn.execute("DROP TABLE events")
+    conn.execute("ALTER TABLE events_new RENAME TO events")
 
     # Recreate indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id)")

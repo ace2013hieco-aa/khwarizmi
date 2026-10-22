@@ -18,6 +18,7 @@ two-run proof: docs/judge-demo/TWO-RUN-PROOF.txt; checklist: docs/judge-demo/REC
 uv venv --python 3.14; uv sync
 .venv/Scripts/hermes doctor
 .venv/Scripts/python scripts/demo_judge.py
+uvx ruff check src tests scripts
 ```
 
 ## Guarantees (certified only)
