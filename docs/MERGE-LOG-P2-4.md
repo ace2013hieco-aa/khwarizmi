@@ -8,7 +8,7 @@
 | Base (`main` before) | `67ba1e1` |
 | Slice | `slice/p2-4-anchor@24daf18` — created at the base; landed by **fast-forward** |
 | Landed tip | `24daf18` |
-| Status | **Design note only; the ruling (A / B / C) is still pending.** No code, no test, no migration, no fixture change. |
+| Status | **RULED C — document-and-accept** (2026-10-23); the ruling is recorded in `abf349e`. Design note + claim corrections only; no code, no test, no migration, no fixture change. |
 | Push | included in the wave-3c push (this batch) |
 
 ## Scope
@@ -62,11 +62,23 @@ occurrences now read `ci.yml:3-10,13,43`, verified against the committed blob.
 | Governed corpus touched | **none** (no B4 regeneration needed) |
 | `ref_graphs.py` | docstring-only: one hunk, no executable line |
 
+## The ruling (recorded after the landing)
+
+The human ruled **C — document-and-accept** on 2026-10-23; the note records it in
+`abf349e` (status row, a §4 ruling paragraph, §5 retitled). A was declined because its
+force comes from an out-of-band journal tip that no ruling has scoped and the repository
+does not create, store, or refresh — and because **P2-2, ruled A the same day, records
+the database writer as trusted and the chain as evidence of tampering, not forgery**, so
+a pin inside that journal would inherit exactly that limitation. It also fails open where
+it would run automatically: CI and a fresh clone have no database. B would require
+reopening D5 first. The A and B outlines stay in the note, marked *not adopted*, as the
+record of what was declined.
+
 ## Residuals
 
-1. **The ruling is open.** The note recommends C; A and B remain available. If A is chosen,
-   the note needs a ruling record and an implementation outline; if B, D5 must be reopened
-   first.
+1. **The ruling is closed (C).** A becomes worth revisiting only if the journal ever moves
+   to a trust domain a repository author cannot write **and** a human holds the tip out of
+   band; until then it is a cross-check between two mutable stores.
 2. The five environment-sensitive tests are **intermittent** (5 / 4 / 0 failures observed on
    consecutive runs); a clean run is not evidence of a code change.
 

@@ -6,7 +6,7 @@
 | Phase | 1 — design only; no code, tests, migration, or fixture change |
 | Base | `67ba1e1` (`main`) |
 | Branch | `slice/p2-4-anchor` |
-| Status | Proposal; the ruling is requested in §4 |
+| Status | **RULED C — document-and-accept** (2026-10-23, human); §4 records it |
 
 The claim under audit is the module docstring of
 `src/hermes/research/ref_graphs.py:21-24`:
@@ -271,6 +271,17 @@ The exact question, recommended answer, and repo consequences:
 > per-database pin loop; B contradicts D5. C ships a wording correction
 > only. Please rule A, B, or C.
 
+**Ruling (2026-10-23, human): C — document-and-accept.** A and B are not adopted.
+A was declined because its force comes from an out-of-band journal tip that no
+ruling has scoped and the repository does not create, store, or refresh: a pin
+inside the journal inherits the database writer's trust, and **P2-2 — ruled A on
+the same day — records that writer as trusted and the chain as evidence of
+tampering, not of forgery** (`docs/STATE.md`, database-writer trust boundary).
+A would therefore be a cross-check between two mutable stores, and it fails open
+where it would run automatically (CI and a fresh clone have no database). B was
+declined because it requires key custody, which D5 excludes; adopting it would
+mean reopening D5 first. C ships the claim correction only.
+
 What changes in the repository under each answer:
 
 - **C.** This note lands. A follow-up docs-only commit corrects
@@ -293,13 +304,13 @@ What changes in the repository under each answer:
   verifier, an IDR, likely governed documentation and a B4 regeneration.
   Not implementable under D5 as it stands.
 
-## 5. What ships under the recommendation (C)
+## 5. What ships under the ruling (C)
 
-The design phase shipped this note only. Under the recommended C, this
-note ships the wording corrections listed in §4: no code behavior, no
-tests, no migration, no fixture change, and no governed document;
-`tests/test_b4_ref_graphs.py` stays at 24 tests and the four fixture files
-stay byte-identical.
+The ruling is recorded above: the design phase shipped this note and the
+wording corrections already landed with it, while this slice ships only
+the ruling record. No code behavior, no tests, no migration, no fixture
+change, and no governed document; `tests/test_b4_ref_graphs.py` stays at
+24 tests and the four fixture files stay byte-identical.
 
 If the human overrules to A, the implementation outline is the surface in
 §2 and §4: one `FixtureManifestPinned` event per pin (no migration, no
