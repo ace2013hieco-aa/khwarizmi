@@ -17,8 +17,10 @@ M3 trust boundary: evidence reaches the assembler ONLY as
 ``UntrustedContent`` envelopes (``hermes.security.boundaries``). The
 assembled prompt carries envelope string forms (markers), never the
 ``.text`` payload — a non-envelope marker is a ``TypeError``, never a
-silent coercion. The single grep-auditable unwrap (``.text``) lives in
-exactly one place: nowhere in this module.
+silent coercion. This module reads no envelope ``.text`` at all. The
+grep-auditable unwraps live at the documented seams recorded in
+``docs/P2-5-UNWRAP-AUDIT.md``; the envelope is an accident barrier,
+never a security guarantee.
 """
 from __future__ import annotations
 

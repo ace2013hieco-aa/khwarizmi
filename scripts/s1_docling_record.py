@@ -17,7 +17,7 @@ For each vendored paper this script:
 Run from the repo root inside the spike venv:
 
     .venv/Scripts/python.exe scripts/s1_docling_record.py \
-        --source-root "D:\\Software\\Research-agent-improvement"
+        --source-root "<source-root>"
 
 Exits non-zero if any paper's two runs disagree.
 """

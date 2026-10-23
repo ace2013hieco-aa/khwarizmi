@@ -37,24 +37,26 @@ under its own gate discipline.
 | ID | Status | Amendments / couplings | Evidence |
 | :--- | :--- | :--- | :--- |
 | **D1** | **LANDED** (TAMPER-1, `1556706`; merge log `02013b8`) | Stage S absorbs GAP-1 P3-5: the 2→3 table rebuild re-creates the triggers. Stage S only — TAMPER-2 (hash chain + re-chain) stays chartered-deferred. | `docs/idr/TAMPER-EVIDENT-JOURNAL.md`; `src/hermes/persistence/migrations.py:1256` (`_migrate_20_to_21`), trigger DDL `:32-37`; `tests/test_journal_append_only_triggers.py`; `tests/journal_tamper.py`; `docs/MERGE-LOG-TAMPER-1.md`. |
-| **D2** | **QUEUED** (design-record merge; implementation deferred) | D6 `REQUEST_ADDITIONAL_EXPERIMENT` wiring parked behind this. | `design/experiment-intent@331efa5` (`docs/idr/EXPERIMENT-DECLARATION.md`, `tests/test_experiment_declaration_fixtures.py`); triage P1-2 (ancestor check: not an ancestor of base). |
+| **D2** | **LANDED** (EXPERIMENT-MERGE, `20e5d98`; merge log `d86ceeb`) | Design record + fixture pins only; implementation deferred. D6 `REQUEST_ADDITIONAL_EXPERIMENT` wiring remains parked behind this. Landing reconciliation refreshed the stale kind count 19→21 (director-only 2→4). | `design/experiment-intent@331efa5` (`docs/idr/EXPERIMENT-DECLARATION.md`, `tests/test_experiment_declaration_fixtures.py`); triage P1-2 (ancestor check: not an ancestor of base). |
 | **D3** | **LANDED** (TASK-ADMIT-1, `f2b6cae`; merge log `ee09c7d`) | Intended W4 delta: re-emitted observation → `failed_typed` with `IDEMPOTENCY_CONFLICT`, sanctioned by WIRING_DESIGN BIND-1 (see §3). CLI F2 seeds repaired (no assertion weakened). | `src/hermes/research/gateway.py:4197` (`_TASK_CONTENT_FIELDS`), `:4235` (`_validate_insert_task`); `tests/test_task_admit_1_duplicate_content.py`; `docs/MERGE-LOG-TASK-ADMIT-1.md`. |
-| **D4** | **QUEUED** (Wave 2) | `condition_type` key + hash-version bump; dual-read/migration posture recorded in that slice. | Triage P2-1 (base `gateway.py:3209-3215` closed keys; default `UNDETERMINED`). |
+| **D4** | **LANDED** (COND-TYPE, `dc4c509`; merge log `efeb1f4`) | `condition_type` key + command-hash **v2**; v1 verify-only dual-read admits the default `UNDETERMINED` only; stored hashes never rehashed. | Triage P2-1 (base `gateway.py:3209-3215` closed keys; default `UNDETERMINED`). |
 | **D5** | **LANDED** (this record + `docs/STATE.md`) | Human override of the recommended key-custody IDR; no key-custody IDR unless that work is ever scoped. Model-API-key policy unchanged. Executable credential subset delivered by D7. | §4 below; `docs/STATE.md` intentional-architecture entry; `docs/ARCHITECTURE.md` §3.10 (credential acquisition owner); `docs/MERGE-LOG-CRED-1.md`. |
 | **D6** | **QUEUED** (Wave 3 pins) | `BRANCH`/`ABANDON`/`REQUEST_HUMAN` behind R2 / P1-12; `REQUEST_ADDITIONAL_EXPERIMENT` behind D2; `REQUEST_REPLICATION`/`PROPOSE_GATE_OVERRIDE` own gates. | Triage P2-8 (base `gateway.py:4226-4234` `NOT_WIRED`); `src/hermes/core/intents.py:124-130` (llm-proposable set). |
 | **D7** | **LANDED** (CRED-1, `b989b6d`; merge log `ce41570`) | Migration 21→22 (`operator_credentials.revoked_at`); census +3 calls / +1 acquisition owner (persistence 19); rehash only on successful resolve; no expiry. | `src/hermes/core/intents.py:128-129`; `src/hermes/persistence/migrations.py:1275` (`_migrate_21_to_22`); `tests/test_cred1_credential_lifecycle.py`, `tests/test_cred1_rehash_on_verify.py`, `tests/test_cred1_token_stdin.py`; `docs/API.md`; `docs/MERGE-LOG-CRED-1.md`. |
 | **D8** | **QUEUED** (Wave 2/3) | Minimal honesty scope only; no broader legal program. | Triage P1-7 remainder (path scrub, PDF audit, NOTICE trademark line, CLA/DCO posture). |
-| **D9** | **QUEUED** (Wave 2) | Windows baseline-red fallout as follow-up fixes; fallback smoke job kept. | Triage P2-12 (CI `windows-latest` on every job); `.github/workflows/ci.yml`. |
+| **D9** | **LANDED** (LINUX-CI, `050188d`; merge log `1c12c03`) | Three additive `ubuntu-latest` jobs; Windows jobs byte-identical; first-run risk profile recorded as follow-up evidence in `docs/LINUX-CI.md`. | Triage P2-12 (CI `windows-latest` on every job); `.github/workflows/ci.yml`. |
 | **D10** | **LANDED** (HR08-PIN-1, `b722b97`; merge log `docs/MERGE-LOG-HR08-PIN-1.md`) | Explicit D1 dependency: the SQL-bypass coverage claim is void if D1 slips. | Triage P2-9; `tests/test_hr08_completed_edge_pin.py`; `src/hermes/research/lifecycle.py:83`, `:114`; `src/hermes/research/completion.py:51-58`, `:315`. |
-| **D11** | **QUEUED** (Wave 2; verify first) | Read-only precomputation; no change to the human-authority boundary. | `slice/decision-packets@eee771c` (`src/hermes/research/decision_packets.py`, `tests/test_decision_packets.py`; not an ancestor of base); triage P3-10. |
-| **D12** | **QUEUED** (Wave 3) | Design note must include a census re-derivation. | Triage P2-7 (base `gateway.py:4253` `_append_audit_event` own transaction; crash window). |
+| **D11** | **LANDED** (DECISION-PACKETS, `c4f084c`; merge log `7d08c2e`) | Verified read-only precomputation (zero mutation-capable calls, no authority, project-scoped, deterministic, bounded); human-authority boundary unchanged. | `slice/decision-packets@eee771c` (`src/hermes/research/decision_packets.py`, `tests/test_decision_packets.py`; not an ancestor of base); triage P3-10. |
+| **D12** | **QUEUED** (Wave 3; sequenced after TAMPER-2) | Design note must include a census re-derivation before landing. Fusing the audit append into the mutation transaction shares the journal append path with TAMPER-2's chain, so it lands after the chain. | Triage P2-7 (base `gateway.py:4253` `_append_audit_event` own transaction; crash window). |
 
-## 3. Wave-1 execution record
+## 3. Execution record (Waves 1–2)
 
-Four slices landed on the base commit `c368886` (RESOLVER-PARITY-1
-landing tip) as fast-forward-only local merges. Each merge log recorded
-the push as drafted-but-not-executed pending the human D9 pin; the wave
-was then pushed as one chain to `dev`.
+Wave 1 (four slices) landed on the base commit `c368886`
+(RESOLVER-PARITY-1 landing tip) as fast-forward-only local merges, then
+wave 1b (four slices) restacked and landed on top; the chain was pushed
+as one to `dev`. Wave 2 (six slices) landed serially on the pushed tip
+with the same discipline; its per-slice evidence lives in
+`docs/MERGE-LOG-*.md` and the suite chain below.
 
 | Slice | Ruling / item | Landed tip | Merge-log commit | Scope evidence |
 | :--- | :--- | :--- | :--- | :--- |
@@ -72,7 +74,35 @@ was then pushed as one chain to `dev`.
 | TASK-ADMIT-1 | `f2b6cae` | 4773 | +14 |
 | TAMPER-1 | `1556706` | 4807 | +34 |
 | CRED-1 | `b989b6d` | 4838 | +31 |
+| ASSERTS-1 / FENCE-FUZZ-1 / HR08-PIN-1 / RULINGS-GAP1-1 | `6e76fee` | 4861 | +23 |
+| HYGIENE-2 | `c8692e2` | 4866 | +5 |
+| COND-TYPE | `dc4c509` | 4878 | +12 |
+| HYGIENE-1 | `e01b636` | 4886 | +8 |
+| EXPERIMENT-MERGE | `20e5d98` | 4917 | +31 |
+| DECISION-PACKETS | `c4f084c` | 4929 | +12 |
+| LINUX-CI | `050188d` | 4929 | 0 |
 
+- **Wave 2 push record (`5e470fa`).**
+- **Final suite at `5e470fa`:** 4926 passed / 3 skipped / 0 failed
+  (collected 4929), after two cross-slice census-pin refreshes for the
+  ruled COND-TYPE refusal site (MALFORMED_PAYLOAD 121→122, total
+  266→267).
+- **Census at `5e470fa`:** 124 transaction-control calls / 28
+  acquisition owners (persistence 19), one rollback-only participant,
+  15 persistence→research imports — unchanged through Wave 2.
+- **Push:** `dev` advanced `6e76fee` → `5e470fa` (fast-forward,
+  single-parent chain).
+- **Mirror sync:** `617bcf5` (tree `668211ce`), tree-equal to the `dev`
+  tip `5e470fa`.
+- **Migration chain:** still **v22**; HYGIENE-1's `2 → 3` rebuild now
+  uses explicit DDL (fresh-DB path only; triggers do not exist at v2).
+- **W4 intended delta:** HYGIENE-1 P3-7b — a repeat human decision
+  under the same correlation with different content now refuses
+  `IDEMPOTENCY_CONFLICT` instead of silently returning the first;
+  CRES-DIGEST replay pins aligned, digest never moves. Recorded in
+  `docs/MERGE-LOG-HYGIENE-1.md`.
+
+- **Wave 1 push record (`ce41570`).**
 - **Final suite at `ce41570`:** 4835 passed / 3 skipped / 0 failed
   (collected 4838).
 - **Census at `ce41570`:** 124 transaction-control calls / 28

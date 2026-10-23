@@ -5,12 +5,12 @@ live ``pytest --collect-only`` on this tree. It is the single
 source of truth for the suite size (NUM-1); live surfaces
 reference it instead of carrying hard numbers.
 
-Collected: 4929
+Collected: 4972
 
 ## Provenance
 
-- Commit: 0d23136
-- Stamped (UTC): 2026-10-21T06:09:23.525656+00:00
+- Commit: ca9ed3b
+- Stamped (UTC): 2026-10-23T08:28:58.315685+00:00
 - Command: `PYTHONPATH=<worktree>/src python scripts/run_tests.py --collect-only`
   (no extra `-q`; `pyproject.toml addopts` already supplies `-q`)
 

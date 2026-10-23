@@ -25,6 +25,7 @@ from hermes.tools.providers.base import (
 from hermes.tools.providers.hazards import (
     SPEC_SCHEMA,
     ProviderHazardSpec,
+    SpecValidationError,
     load_hazard_spec,
 )
 from hermes.tools.providers.normalize import (
@@ -861,3 +862,67 @@ def test_adv08_permanent_transport_failure_stays_a_verdict():
                    WalkRequest(max_results=50), SizeAbortTransport(),
                    limiter, recorder, clock, hazard_spec=spec)
     assert outcome.notes[0] == "SHORTFALL(cause=PARTIAL_CONTENT)"
+
+
+# ── P2-3 — hazard-spec coverage: spec-or-typed-refusal, never unguarded ──
+
+_SHIPPED_SPEC_PROVIDERS = frozenset({
+    "arxiv", "brave", "europepmc", "exa", "openalex", "pmc", "searxng",
+    "tavily",
+})
+_SPEC_REFUSED_PROVIDERS = frozenset({
+    "biorxiv", "core", "crossref", "medrxiv", "pubmed", "semantic-scholar",
+    "unpaywall",
+})
+
+
+def test_every_registered_adapter_has_a_spec_or_is_typed_refused():
+    # The shipped corpus covers 8 of the 15 registered providers; the other 7
+    # have no spec and must refuse at the hazard boundary. Adding a provider
+    # (or shipping a spec) has to update this census deliberately — never
+    # guess endpoints, allowlist hosts, or patterns to fill a gap.
+    from hermes.tools.providers.adapters import PROVIDER_REGISTRY
+    from hermes.tools.providers.paginate import _load_shipped_spec
+
+    shipped: set[str] = set()
+    refused: set[str] = set()
+    for provider_id, adapter_cls in sorted(PROVIDER_REGISTRY.items()):
+        contract_id = adapter_cls.contract.provider_id
+        assert contract_id == provider_id
+        try:
+            spec = _load_shipped_spec(contract_id)
+        except SpecValidationError as exc:
+            assert exc.provider_id == contract_id
+            assert exc.hazard_class == "SPEC_INVALID"
+            refused.add(contract_id)
+        else:
+            assert spec.provider_id == contract_id
+            shipped.add(contract_id)
+    assert shipped == _SHIPPED_SPEC_PROVIDERS
+    assert refused == _SPEC_REFUSED_PROVIDERS
+    assert shipped | refused == set(PROVIDER_REGISTRY)
+
+
+def test_no_shipped_spec_refuses_search_before_any_request():
+    transport = FakeTransport([page(records=[rec("10.1000/a")], total=1)])
+    adapter = FakeAdapter(transport, provider_id="crossref")
+    limiter = FakeLimiter()
+    with pytest.raises(SpecValidationError) as exc:
+        walk(adapter, topic_hints(), WalkRequest(max_results=50), transport,
+             limiter, FakeRecorder(), FakeClock())
+    assert exc.value.provider_id == "crossref"
+    assert exc.value.hazard_class == "SPEC_INVALID"
+    assert isinstance(exc.value, PermanentProviderError)
+    assert transport.calls == 0
+    assert limiter.acquire_calls == 0
+    assert adapter.requests == []
+
+
+def test_explicit_hazard_spec_override_still_admits_a_spec_less_provider():
+    transport = FakeTransport([page(records=[rec("10.1000/a")], total=1)])
+    adapter = FakeAdapter(transport, provider_id="crossref")
+    outcome = walk(adapter, topic_hints(), WalkRequest(max_results=50),
+                   transport, FakeLimiter(), FakeRecorder(), FakeClock(),
+                   hazard_spec=fake_spec(provider_id="crossref"))
+    assert outcome.aggregate == "COMPLETE"
+    assert transport.calls == 1

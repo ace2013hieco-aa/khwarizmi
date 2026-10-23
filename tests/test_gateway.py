@@ -31,6 +31,8 @@ from hermes.research.gateway import (
     CLASSIFICATION_REF,
     DEPENDENCY,
     IDEMPOTENCY_CONFLICT,
+    INTENT_PAYLOAD_MAX_CONTAINERS,
+    INTENT_PAYLOAD_MAX_DEPTH,
     MALFORMED_PAYLOAD,
     NOT_COMPILED,
     NOT_WIRED,
@@ -117,6 +119,33 @@ def task_payload(**overrides) -> dict:
     return payload
 
 
+def nested_dict(depth: int) -> dict:
+    node: dict = {}
+    for _ in range(depth - 1):
+        node = {"n": node}
+    return node
+
+
+def fanout_dict(count: int) -> dict:
+    return {f"k{i}": {} for i in range(count)}
+
+
+def payload_depth(value: object) -> int:
+    if isinstance(value, dict):
+        return 1 + max((payload_depth(v) for v in value.values()), default=0)
+    if isinstance(value, (list, tuple)):
+        return 1 + max((payload_depth(v) for v in value), default=0)
+    return 0
+
+
+def payload_containers(value: object) -> int:
+    if isinstance(value, dict):
+        return 1 + sum(payload_containers(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return 1 + sum(payload_containers(v) for v in value)
+    return 0
+
+
 def proposal_intent(proposed_by: str = "DIRECTOR", payload=None, project_id="p1"):
     return Intent(
         kind=IntentKind.PROPOSE_RESEARCH_PROGRAM,
@@ -129,6 +158,13 @@ def proposal_intent(proposed_by: str = "DIRECTOR", payload=None, project_id="p1"
 
 def events_of(db) -> list[dict]:
     return EventRepository(db).list_for_project("p1")
+
+
+def assert_refused_before_write(db) -> None:
+    types = [e["event_type"] for e in events_of(db)]
+    assert types.count("IntentRejected") == 1
+    assert "IntentApplied" not in types
+    assert [t["task_id"] for t in TaskRepository(db).list_for_project("p1")] == []
 
 
 # ── §6: runtime role enforcement ──
@@ -401,6 +437,154 @@ class TestInsertTask:
     def test_budget_hook_passes(self, db):
         result = apply_intent(db, proposal_intent(), budget_check=lambda intent: None)
         assert result.entity_type == "research_program"
+
+
+# ── P2-10: gateway-wide intent payload shape bounds ──
+
+WIRED_KIND_ROLES = {
+    IntentKind.PROPOSE_RESEARCH_PROGRAM: "DIRECTOR",
+    IntentKind.PROPOSE_CLASSIFICATION_ACTION: "DIRECTOR",
+    IntentKind.RESOLVE_CLASSIFICATION_PROPOSAL: "DETERMINISTIC",
+    IntentKind.RECORD_SCOPE_REVIEW_DECISION: "DETERMINISTIC",
+    IntentKind.RETRACT_SOURCE: "DETERMINISTIC",
+    IntentKind.CURATE_KNOWLEDGE: "DETERMINISTIC",
+    IntentKind.RECORD_CONTRADICTION: "DETERMINISTIC",
+    IntentKind.CONTRADICTION_RESOLUTION: "DETERMINISTIC",
+    IntentKind.RECORD_CLASSIFICATION: "DETERMINISTIC",
+    IntentKind.EMIT_PARALLEL_REGIME_PROGRAM: "DETERMINISTIC",
+    IntentKind.REVOKE_OPERATOR_CREDENTIAL: "DIRECTOR",
+    IntentKind.ROTATE_OPERATOR_CREDENTIAL: "DIRECTOR",
+    IntentKind.EVIDENCE_TRANSITION: "RESEARCHER",
+    IntentKind.INSERT_TASK: "DIRECTOR",
+    IntentKind.ADMIT_TASK: "DETERMINISTIC",
+}
+
+
+class TestPayloadShapeBounds:
+    """GAP-1 P2-10 — depth 16 / container 4096, applied before any write.
+
+    The constants are shape guards, not serializer limits: ``canonical_json``
+    recurses once per container and the deepest shipped proposal draft is
+    depth 3, so 16 leaves more than 5x headroom over admitted traffic while
+    staying an order of magnitude below the interpreter's recursion budget.
+    The 4096-container ceiling is above any admitted intent payload; a
+    minimal container costs two JSON bytes, so 4096 is already far past the
+    4 KiB event-payload cap that governs the journal (which is unchanged).
+    """
+
+    def test_constants_and_headroom_are_documented(self):
+        assert INTENT_PAYLOAD_MAX_DEPTH == 16
+        assert INTENT_PAYLOAD_MAX_CONTAINERS == 4096
+        assert payload_depth(base_payload()) == 3
+        assert payload_depth(task_payload()) <= 3
+        assert 5 * payload_depth(base_payload()) <= INTENT_PAYLOAD_MAX_DEPTH
+        from hermes.research.programs import canonical_json
+        at_depth = nested_dict(INTENT_PAYLOAD_MAX_DEPTH)
+        assert json.loads(canonical_json(at_depth)) == at_depth
+        at_width = fanout_dict(INTENT_PAYLOAD_MAX_CONTAINERS - 1)
+        assert len(json.loads(canonical_json(at_width))) == (
+            INTENT_PAYLOAD_MAX_CONTAINERS - 1)
+
+    def test_depth_at_limit_is_admitted(self, db):
+        payload = task_payload(task_id="deep-ok", idempotency_key="deep-ok",
+                               spec=nested_dict(INTENT_PAYLOAD_MAX_DEPTH - 1))
+        assert payload_depth(payload) == INTENT_PAYLOAD_MAX_DEPTH
+        result = apply_intent(db, Intent(
+            kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
+            project_id="p1", payload=payload))
+        assert result.entity_id == "deep-ok"
+
+    def test_depth_over_limit_is_refused_before_any_write(self, db):
+        payload = task_payload(task_id="deep-bad", idempotency_key="deep-bad",
+                               spec=nested_dict(INTENT_PAYLOAD_MAX_DEPTH))
+        assert payload_depth(payload) == INTENT_PAYLOAD_MAX_DEPTH + 1
+        with pytest.raises(GatewayRejection) as exc:
+            apply_intent(db, Intent(
+                kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
+                project_id="p1", payload=payload))
+        assert exc.value.code == MALFORMED_PAYLOAD
+        assert "nesting depth" in exc.value.reason
+        assert_refused_before_write(db)
+
+    def test_container_count_at_limit_is_admitted(self, db):
+        base = task_payload(task_id="wide-ok", idempotency_key="wide-ok",
+                            spec={})
+        count = INTENT_PAYLOAD_MAX_CONTAINERS - payload_containers(base)
+        payload = task_payload(task_id="wide-ok", idempotency_key="wide-ok",
+                               spec=fanout_dict(count))
+        assert payload_containers(payload) == INTENT_PAYLOAD_MAX_CONTAINERS
+        result = apply_intent(db, Intent(
+            kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
+            project_id="p1", payload=payload))
+        assert result.entity_id == "wide-ok"
+
+    def test_container_count_over_limit_is_refused_before_any_write(self, db):
+        base = task_payload(task_id="wide-bad", idempotency_key="wide-bad",
+                            spec={})
+        count = INTENT_PAYLOAD_MAX_CONTAINERS - payload_containers(base) + 1
+        payload = task_payload(task_id="wide-bad", idempotency_key="wide-bad",
+                               spec=fanout_dict(count))
+        assert payload_containers(payload) == INTENT_PAYLOAD_MAX_CONTAINERS + 1
+        with pytest.raises(GatewayRejection) as exc:
+            apply_intent(db, Intent(
+                kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
+                project_id="p1", payload=payload))
+        assert exc.value.code == MALFORMED_PAYLOAD
+        assert "container count" in exc.value.reason
+        assert_refused_before_write(db)
+
+    def test_pathological_nesting_refuses_without_a_recursion_error(self, db):
+        payload = task_payload(task_id="deep-10k", idempotency_key="deep-10k",
+                               spec=nested_dict(10_000))
+        with pytest.raises(GatewayRejection) as exc:
+            apply_intent(db, Intent(
+                kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
+                project_id="p1", payload=payload))
+        assert exc.value.code == MALFORMED_PAYLOAD
+        assert_refused_before_write(db)
+
+    def test_reference_cycle_is_refused_before_any_write(self, db):
+        cyclic: dict = {}
+        cyclic["self"] = cyclic
+        payload = task_payload(task_id="cycle", idempotency_key="cycle",
+                               spec=cyclic)
+        with pytest.raises(GatewayRejection) as exc:
+            apply_intent(db, Intent(
+                kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
+                project_id="p1", payload=payload))
+        assert exc.value.code == MALFORMED_PAYLOAD
+        assert "reference cycle" in exc.value.reason
+        assert_refused_before_write(db)
+
+    @pytest.mark.parametrize(
+        "kind", list(WIRED_KIND_ROLES), ids=[k.value for k in WIRED_KIND_ROLES])
+    def test_bound_is_applied_gateway_wide_before_dispatch(self, db, kind):
+        deep = nested_dict(INTENT_PAYLOAD_MAX_DEPTH + 1)
+        with pytest.raises(GatewayRejection) as exc:
+            apply_intent(db, Intent(
+                kind=kind, proposed_by=WIRED_KIND_ROLES[kind],
+                project_id="p1", payload=deep))
+        assert exc.value.code == MALFORMED_PAYLOAD
+        assert "nesting depth" in exc.value.reason
+        types = [e["event_type"] for e in events_of(db)]
+        assert types.count("IntentRejected") == 1
+        assert "IntentApplied" not in types
+
+    def test_non_source_spec_value_shape_stays_admitted_w4(self, db):
+        """W4 residual: non-source ``spec`` VALUES stay free-form.
+
+        Tightening them to a typed vocabulary would reject traffic that is
+        currently admitted (the program-id field is not even type-checked),
+        so admission is pinned here instead of changed; the new shape bound
+        only constrains structural depth/width.
+        """
+        spec = {"program_id": 123, "plan_kind": ["evidence_obligation"],
+                "flags": [True, None, 4.5], "nested": {"k": "v"}}
+        result = apply_intent(db, Intent(
+            kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR", project_id="p1",
+            payload=task_payload(task_id="free-spec", idempotency_key="free-spec",
+                                 spec=spec)))
+        assert TaskRepository(db).get(result.entity_id)["spec"] == spec
 
 
 # ── unknown / unwired kinds ──

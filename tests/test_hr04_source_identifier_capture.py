@@ -46,7 +46,11 @@ from hermes.tools.providers.base import (
     TransportResponse,
     WalkRequest,
 )
-from hermes.tools.providers.hazards import SPEC_SCHEMA, load_hazard_spec
+from hermes.tools.providers.hazards import (
+    SPEC_SCHEMA,
+    SpecValidationError,
+    load_hazard_spec,
+)
 from hermes.tools.providers.normalize import (
     RetrievalHints,
     canonicalize_identifiers,
@@ -758,11 +762,12 @@ class TestStep1ProviderSourceIdentityClosure:
             assert spec.provider_id == pid
 
     def test_provider_without_shipped_spec_fails_closed(self):
-        # 7 of 11 allowlist providers have no shipped hazard spec — the walk
-        # refuses them fail-closed rather than guessing a spec (honest state)
+        # 7 of 15 registry providers have no shipped hazard spec — the walk
+        # refuses them with the hazard boundary's typed error before any
+        # request rather than guessing a spec (honest state)
         transport = FakeTransport([page(records=[], total=0)])
         adapter = FakeAdapter(transport, provider_id="pubmed")
-        with pytest.raises(ValueError, match="no shipped hazard spec"):
+        with pytest.raises(SpecValidationError, match="no shipped hazard spec"):
             walk(adapter, topic_hints(), WalkRequest(max_results=50),
                  transport, FakeLimiter(), FakeRecorder(), FakeClock())
 

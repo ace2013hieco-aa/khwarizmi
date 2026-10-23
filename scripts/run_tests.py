@@ -1,7 +1,7 @@
 """Isolated pytest runner — scrubs the host Hermes venv from sys.path.
 
 When khwarizmi-research is developed inside the Hermes desktop app, the app's
-own venv (C:\\Users\\...\\hermes\\hermes-agent\\venv) leaks onto sys.path
+own venv (``.../hermes/hermes-agent/venv``) leaks onto sys.path
 before our project venv. Its `hypothesis` plugin is broken under Python 3.14
 and crashes pytest at session teardown, even though all tests pass.
 

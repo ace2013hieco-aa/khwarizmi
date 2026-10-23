@@ -117,6 +117,7 @@ from hermes.tools.providers.base import (
 from hermes.tools.providers.hazards import (
     HazardContext,
     ProviderHazardSpec,
+    SpecValidationError,
     evaluate_hazards,
 )
 from hermes.tools.providers.normalize import (
@@ -879,8 +880,10 @@ def _load_shipped_spec(provider: str) -> ProviderHazardSpec:
 
     path = Path(__file__).resolve().parent / "hazard_specs" / f"{provider}.json"
     if not path.exists():
-        raise ValueError(
-            f"no shipped hazard spec for {provider!r} — pass hazard_spec= explicitly")
+        raise SpecValidationError(
+            f"no shipped hazard spec for {provider!r} — refusing before any "
+            f"request (pass hazard_spec= explicitly for a declared override)",
+            provider_id=provider, hazard_class="SPEC_INVALID")
     return load_hazard_spec(provider, _json.loads(path.read_text(encoding="utf-8")))
 
 

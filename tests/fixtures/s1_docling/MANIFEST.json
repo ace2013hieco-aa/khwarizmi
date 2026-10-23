@@ -12,7 +12,7 @@
    "raw_record_equal": true,
    "rerun_identical": true,
    "sha256": "79c5237e3f63953a73f2b0d6894327702ee1f7e981450c251bb1b5cb4f8d7b8f",
-   "source_path_at_capture": "C:\\Users\\Ali Zoghi\\AppData\\Local\\Temp\\opencode\\s1-source\\papers\\2305.10601v2.pdf",
+   "source_path_at_capture": "papers/2305.10601v2.pdf",
    "spans": 224,
    "tables": 7
   },
@@ -28,7 +28,7 @@
    "raw_record_equal": true,
    "rerun_identical": true,
    "sha256": "5b07f2c903d293934b36ef43a0029a6de63da528f8237d0c8642070165717815",
-   "source_path_at_capture": "C:\\Users\\Ali Zoghi\\AppData\\Local\\Temp\\opencode\\s1-source\\papers\\2506.05109v1.pdf",
+   "source_path_at_capture": "papers/2506.05109v1.pdf",
    "spans": 194,
    "tables": 0
   },
@@ -44,7 +44,7 @@
    "raw_record_equal": true,
    "rerun_identical": true,
    "sha256": "5da7e0a446bde09fd27cd5d4bdb8846f0a7369995f128e9d18f180d39defc575",
-   "source_path_at_capture": "C:\\Users\\Ali Zoghi\\AppData\\Local\\Temp\\opencode\\s1-source\\papers\\2603.24639v2.pdf",
+   "source_path_at_capture": "papers/2603.24639v2.pdf",
    "spans": 348,
    "tables": 7
   }

@@ -146,6 +146,9 @@ _TASK_PAYLOAD_KEYS = frozenset({
     "parent_task_id", "cost_class", "concurrency_group", "max_retries",
 })
 
+INTENT_PAYLOAD_MAX_DEPTH = 16
+INTENT_PAYLOAD_MAX_CONTAINERS = 4096
+
 
 class GatewayRejection(IntentRejectedError):
     """Structured gateway rejection: kind + stable code + reason.
@@ -229,6 +232,49 @@ def _require_provenance_bounds(intent: Intent) -> None:
                 MALFORMED_PAYLOAD,
                 f"{name} exceeds max length {limit}: {len(value)}",
             )
+
+
+def _require_payload_bounds(intent: Intent) -> None:
+    """GAP-1 P2-10 — refuse an over-nested or over-wide payload pre-write.
+
+    Applied gateway-wide before any validator dispatches (and before the
+    caller-supplied budget/governance hooks), so every wired kind sees the
+    same ``MALFORMED_PAYLOAD`` refusal with zero durable state written. The
+    root payload is depth 1 and every dict/list/tuple node counts toward the
+    container bound; a reference cycle is a refusal too (it is not a shape
+    any admitted intent can carry, and it would otherwise defeat the walk).
+    """
+    containers = 0
+    active: set[int] = set()
+
+    def _walk(value: object, depth: int) -> str | None:
+        nonlocal containers
+        if not isinstance(value, (dict, list, tuple)):
+            return None
+        if depth > INTENT_PAYLOAD_MAX_DEPTH:
+            return (f"payload nesting depth {depth} exceeds "
+                    f"{INTENT_PAYLOAD_MAX_DEPTH}")
+        marker = id(value)
+        if marker in active:
+            return "payload contains a reference cycle"
+        active.add(marker)
+        containers += 1
+        if containers > INTENT_PAYLOAD_MAX_CONTAINERS:
+            return (f"payload container count exceeds "
+                    f"{INTENT_PAYLOAD_MAX_CONTAINERS}")
+        try:
+            items = value.values() if isinstance(value, dict) else value
+            for item in items:
+                violation = _walk(item, depth + 1)
+                if violation is not None:
+                    return violation
+        finally:
+            active.discard(marker)
+        return None
+
+    violation = _walk(intent.payload, 1)
+    if violation is not None:
+        raise _reject(intent.kind, MALFORMED_PAYLOAD, violation)
 
 
 def _require_role(intent: Intent) -> None:
@@ -4535,9 +4581,10 @@ def apply_intent(
     """The single authoritative mutation path (v3 §8, P3).
 
     Deterministic admission: kind → role → project → **provenance bounds** →
-    budget → per-kind validator → mutation (atomic with its own event) →
-    ``IntentApplied`` audit event. Any rejection emits ``IntentRejected`` and
-    raises ``GatewayRejection`` (code = stable category).
+    **payload shape bounds** → budget → per-kind validator → mutation (atomic
+    with its own event) → ``IntentApplied`` audit event. Any rejection emits
+    ``IntentRejected`` and raises ``GatewayRejection`` (code = stable
+    category).
 
     The provenance-bounds stage is IDR-045 C5, enforced pre-write by
     ``_require_provenance_bounds`` so an invalid field can never reach a
@@ -4586,6 +4633,7 @@ def apply_intent(
         # transactions and commit rows, so a bound enforced after dispatch
         # would refuse an intent whose row is already durable.
         _require_provenance_bounds(intent)
+        _require_payload_bounds(intent)
 
         if budget_check is not None:
             try:

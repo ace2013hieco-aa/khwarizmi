@@ -30,6 +30,7 @@ from hermes.tools.providers.hazards import (
     SPEC_SCHEMA,
     HazardVerdict,
     ProviderHazardSpec,
+    SpecValidationError,
     load_hazard_spec,
 )
 from hermes.tools.providers.paginate import fetch_batch
@@ -1024,3 +1025,23 @@ def test_illegal_no_full_text_kind_raises(monkeypatch):
         run_fetch([make_source("sr_1")],
                   [{"status": 200, "body": b"x"}],
                   spec=fetch_spec(fetch=_EUROPE_PMC_FETCH))
+
+
+# ── P2-3 — the fetch driver refuses a spec-less provider before any I/O ──
+
+
+def test_no_shipped_spec_refuses_fetch_before_any_request():
+    transport = FetchTransport([])
+    adapter = FetchAdapter(provider_id="unpaywall")
+    limiter = FetchLimiter()
+    request = FetchRequest(max_sources=10, size_cap_bytes=1_000_000,
+                           retry_policy=RetryPolicy())
+    with pytest.raises(SpecValidationError) as exc:
+        fetch_batch(adapter, [make_source("sr_1")], request, transport,
+                    limiter, object(), FetchClock())
+    assert exc.value.provider_id == "unpaywall"
+    assert exc.value.hazard_class == "SPEC_INVALID"
+    assert isinstance(exc.value, PermanentProviderError)
+    assert transport.calls == 0
+    assert limiter.acquired == []
+    assert adapter.fetch_requests == []
