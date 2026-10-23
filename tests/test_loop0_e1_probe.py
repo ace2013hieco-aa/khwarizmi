@@ -18,7 +18,9 @@ record). What is asserted now:
 * a stage run's prompt carries ``runtime.payload`` envelopes — the methodology
   id and every stage name reach the model as content (E1);
 * a review child's prompt carries ``runtime.review`` envelopes — the drafts
-  themselves, never a bare digest of the delegation spec (E1/G4).
+  themselves, never a bare digest of the delegation spec (E1/G4);
+* E4 is a characterisation pin: proposals are admitted before their sibling
+  tool batch; a sibling tool failure does not retract them.
 
 If this regresses, fix the behaviour — do not weaken these assertions, and do
 not delete the file (the audit branch keeps the before picture).
@@ -289,16 +291,18 @@ def test_plane_path_prompts_carry_the_payload_and_the_review_drafts() -> None:
         assert not any(_HEX64.match(item.text) for item in request.prompt)
 
 
-# ═══════════════════════ 3. E4 — the draft crosses before the tool fails ═══
+# ═══════════════ 3. E4 — proposals are admitted before their siblings ═══════
 
 
-def test_the_draft_crosses_the_applier_before_the_tool_batch_fails() -> None:
-    """E4 pin: proposals are durable before the tools that justify them run.
+def test_proposals_are_admitted_before_the_sibling_tool_batch() -> None:
+    """Characterisation pin: a proposal is admitted before its sibling tools.
 
-    Tick order is model phase (drafts validated and swept through the injected
-    applier — `apply_intent` in production) and only then the tool batch. A
-    tool failure terminates the run `FAILED`, but the earlier drafts already
-    crossed the applier.
+    The tick's drafts and tool calls come from one model response. The drafts
+    are validated and admitted first; the tool batch then runs. This is the
+    documented ordering, not a defect: a tick-N proposal is justified by
+    evidence from ticks 1..N-1, a tool cannot consume a same-tick admission,
+    and a sibling tool failure does not retract the admitted proposal. If the
+    ordering ever changes, this pin is what notices.
     """
     model = ProposingToolModel()
     applier = RecordingApplier()
@@ -308,13 +312,13 @@ def test_the_draft_crosses_the_applier_before_the_tool_batch_fails() -> None:
                          orchestration=applier,
                          capabilities=FailingCapability(),
                          profiles={"e4-probe": _e4_profile()})
-    print(f"[LOOP-0 probe] E4: state={result.state} "
+    print(f"[LOOP-0 probe] E4 (documented ordering): state={result.state} "
           f"termination={result.termination} "
           f"applier_calls={len(applier.calls)}")
 
     assert result.state == TaskStatus.FAILED.value
     assert result.termination == "TOOL_FAILED"
     assert len(applier.calls) == 1, \
-        "the draft did not cross the applier before the tool batch failed"
+        "the documented ordering changed: the draft was not admitted first"
     assert applier.calls[0].kind is IntentKind.INSERT_TASK
     assert [item.intent.kind.value for item in result.proposals] == ["INSERT_TASK"]

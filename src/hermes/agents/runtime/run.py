@@ -632,7 +632,15 @@ class AgentRuntime:
     def _tick(self, spec: ProfileSpec, context: TaskContext, state: _RunState,
               run_id: str, tick: int, token: RunCancelToken | None,
               deadline: float | None) -> bool:
-        """One bounded tick. Returns True when the run must stop."""
+        """One bounded tick. Returns True when the run must stop.
+
+        Ordering contract: the model response carries both the draft set and
+        the tool calls. The proposals are admitted before the tool batch runs;
+        the tools are siblings of the proposals, not their justification. The
+        tool phase reads no proposal/admission state, so no tool consumes a
+        same-tick admitted artifact. A TOOL_FAILED run therefore keeps the
+        proposals admitted before the sibling tool failed.
+        """
         self._emit(kind="TICK_STARTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"profile": spec.name})

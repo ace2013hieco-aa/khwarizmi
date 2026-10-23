@@ -9,8 +9,8 @@ Collected: 5062
 
 ## Provenance
 
-- Commit: 3111f76
-- Stamped (UTC): 2026-10-23T17:53:51.976573+00:00
+- Commit: 87f2cd2
+- Stamped (UTC): 2026-10-23T19:06:31.090531+00:00
 - Command: `PYTHONPATH=<worktree>/src python scripts/run_tests.py --collect-only`
   (no extra `-q`; `pyproject.toml addopts` already supplies `-q`)
 

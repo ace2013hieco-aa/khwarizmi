@@ -81,6 +81,9 @@ Notes:
 - **S6** is the baseline LOOP-5 must move: the draft is admitted before the
   tool fails, and the run terminates `TOOL_FAILED` with one other refusal.
   LOOP-5's expected movement is on this row, not on the rest of the table.
+  Under ruling A (2026-10-23), this row is the documented, intended
+  behaviour — a pin, not a defect marker; the earlier "must move" framing is
+  historical.
 - **S7**'s clock advances by 11 seconds on the first model call against a
   10-second declared bound; the draft is admitted before the terminal act, and
   the run reports `TIMEOUT`.
