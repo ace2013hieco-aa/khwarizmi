@@ -367,7 +367,14 @@ class FailureClassificationRepository:
         """Every cited evidence ref must be reachable from the producing task
         (two-hop ``derived_from``, the ``_source_artifact_resolves``
         precedent) and must never be another failure classification (D8
-        advisory boundary)."""
+        advisory boundary).
+
+        The contradiction detector recognizes a closed six-prefix set
+        (``contradiction_candidates.detector_resolve_ref``); widening what
+        this check admits without widening that set creates a silent drop —
+        the ref is admitted, then discarded at candidate derivation with no
+        diagnostic. Two closed sets, coupled implicitly: a change to either
+        one is a change to the pair."""
         if ":" not in ref:
             raise FailureClassificationBindingError(
                 f"classification write refused: evidence ref {ref!r} is not "

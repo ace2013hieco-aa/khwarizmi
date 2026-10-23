@@ -5,6 +5,24 @@ derivation of contradiction-detector candidate rows from recorded
 classifications. No transactions, no leases, no journal, no
 authority, no identity authoring, no provider calls.
 
+The evidence resolver recognizes exactly six typed prefixes — ``evidence``,
+``source_result``, ``source_payload``, ``source_search``,
+``failure_classification``, ``feature_binding`` — plus the bare-ID row
+check. Any other ref returns ``None`` and is silently dropped: no log, no
+counter, no diagnostic key, no journal event. That is acceptable today
+because admission
+(``FailureClassificationRepository._verify_evidence_owned`` in
+``src/hermes/persistence/failure_classifications.py``) admits only typed
+refs reachable from the producing task by the two-hop ``derived_from``
+check, so a ref kind this resolver does not recognize cannot reach a
+persisted classification's evidence list. The drop is latent, not live.
+
+The coupling is an obligation, not an enforcement: this prefix set must
+stay a subset of what admission can produce. If admission is ever widened
+to admit a new kind, this set must be widened in the same slice;
+otherwise the drop becomes live and silent. Keeping the boundary true is
+a reviewer obligation, not a property this module can enforce.
+
 INTERNAL implementation location — not a supported public surface
 (no ``__all__``; behavior is pinned by
 ``tests/test_s1_detector_rows.py`` through ``Controller``).

@@ -40,7 +40,7 @@ remaining Director question carried by the same adjudication bundle
 | P1-11 | VALID | Ruled Q1 (ACKNOWLEDGE). Claim alignments executed (§5); any verdict-model change is future scope. |
 | P1-12 | VALID | Ruled Q2. Driver deferred (WP9); lifecycle module docstring aligned (§5). |
 | P2-15 | VALID | Resolved doc-only in this slice: shared (edge-reachable) evidence is NOT cross-project citable; `_evidence_resolver` docstring aligned (§5). Code relaxation stays gate-blocked (project isolation). |
-| P2-16 | NEEDS-INVESTIGATION | Remains open — Director scope call on detector dimensions beyond the ratified contract. No action. |
+| P2-16 | NEEDS-INVESTIGATION | **RULED A — DOCUMENT THE BOUNDARY.** Documented in `docs/triage/P2-16-DETECTOR-BLIND-SPOTS.md`: the closed six-prefix evidence set and seven-field candidate row are accepted, with the coupling obligation recorded in `src/hermes/research/contradiction_candidates.py` and `src/hermes/persistence/failure_classifications.py` (`slice/p2-16-boundary`). B (diagnostic) and C (contract extension) declined — the ref-kind gap is unreachable by construction and the dimensional gap has no agreed semantics. **Last open GAP-2 item; no behavior change.** |
 | P2-17 | VALID | Queued **CX-OVERLAP-1**: store the fresh in-transaction overlap on the recorded row. Gate: RECORD validator (N9-adjacent). |
 | P2-18 | STALE | No action — eager S5 supersession predates the report base (`24225df`). |
 | P2-19 | STALE | No action — gates can never be empty (executed probe). |
