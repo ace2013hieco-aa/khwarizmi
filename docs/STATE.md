@@ -108,6 +108,22 @@ slices + `docs/idr/` history. Read as history, never as contract.
   (human-held, env-only, never wired) remains unchanged. Boundary
   acceptance only — not a validity, reproducibility, or admissibility
   claim.
+- Database-writer trust boundary — DOCUMENTED-AND-ACCEPTED
+  (GAP-1 P2-2; ruling A): SQLite write access lets an actor insert or
+  rewrite decision/intent rows, including a `HumanDecisionReceived` row
+  cited as authority; the gateway admits it. `proposed_by` is a checked
+  claim, not authorship (gateway-validated against `AgentProfile`/role
+  partition; runtime-filled from the trusted spec): it bounds what the
+  runtime says, not who wrote the row. TAMPER-2's unkeyed per-event chain
+  makes journal tampering evident (only an out-of-band tip detects a
+  re-chain), not forgery: a forger writes a valid chain; chain is not
+  authorship. Model output proposes; deterministic code and the
+  human-authority gates decide; the audit trail records what the database
+  says, not who typed it. No command signing, MAC, key material or
+  custody is adopted (D5 stands); signing is a new authority surface and
+  custody track. Boundary acceptance only — not a validity,
+  reproducibility, or admissibility claim, and not an
+  audit-trail-is-forgery-proof claim.
 
 ## Known residual debt
 

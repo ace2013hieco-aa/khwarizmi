@@ -274,8 +274,10 @@ file name **is** the sha256 of the file's own bytes. The body records
 `extraction_version` (= `GR3_EXTRACTOR_VERSION` = `"1"`), the
 twin-namespace markers, `source_set` (each ref with its own content hash
 and size), `edges`, `skipped`, and `counts`. Rationale: a fixture is
-then verifiable by regeneration (and by name), needs no signature to
-detect tampering, and carries its own provenance. The body is ASCII-only
+then verifiable by regeneration (and by name). No signature is needed to
+detect corruption or a stale name; a deliberate replacement that
+recomputes the name is caught by regeneration, not by the name. The
+fixture still carries its own provenance. The body is ASCII-only
 and LF-only so the artifact cannot be mangled by a tooling encoding
 choice, and `docs/gr3-b4/b4-fixtures/.gitattributes` pins `*.json` as
 **non-text** (`-text`): this repo's checkout configuration would otherwise risk normalising LF→CRLF on checkout and silently invalidating

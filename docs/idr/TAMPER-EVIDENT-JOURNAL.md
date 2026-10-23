@@ -580,3 +580,370 @@ Replacing the database file wholesale, or `DROP TRIGGER` followed by a
 rewrite, is **not covered** — neither raises the named errors. Detecting
 those is TAMPER-2 (hash chain + re-chain tool), which remains
 chartered-deferred — deferred, not dropped.
+
+## Addendum — TAMPER-2 design decisions (2026-10-23)
+
+Phase-1 design note for TAMPER-2. Decisions only: no column, trigger,
+migration or `src/` change exists at this revision, so the Status paragraph
+above remains accurate. What follows is binding on the implementing slice.
+
+### A1. Chain version
+
+```
+CHAIN_VERSION = "hermes.journal.chain.v1"
+GENESIS       = sha256_hex("hermes.journal.chain.v1/genesis")
+              = 1cc5f8a885ca75f3edb337cef85b5f7835283725e46f72e629e225dbbcd46ba2
+```
+
+frozen, and matching `tests/fixtures/tamper_evident/journal_clean.json`.
+
+v1 **is** the §1.4 preimage: the 11-field list of §1.3, the
+`h(n-1) + "\n" + body(n)` concatenation, SHA-256, lowercase hex. Any change
+to it — a field added or removed, a different separator, a different digest,
+a different genesis domain string — is a **new chain version**
+(`hermes.journal.chain.v2`), never an in-place edit. v1 rows must stay
+verifiable under v1 rules forever. The version is a property of the journal
+as a whole, not of a row: there is no per-row version column, a bump is a
+schema-version step, and a journal is only ever verified under the version
+its schema declares. A bump therefore ships as one migration that re-chains
+every row in that same transaction.
+
+### A2. Q1 — chain origin: BACKFILL (ruled)
+
+Every pre-existing row is chained, in `event_id` ascending order, from
+`GENESIS`. Coverage claim: the whole journal as stored at migration time.
+
+The load-bearing consequence: **the backfill is an `UPDATE events`**, and
+the triggers shipped by 20 → 21 abort every `UPDATE events` with
+`HERMES_JOURNAL_IMMUTABLE_UPDATE`. A backfill written as the obvious
+`UPDATE ... WHERE chain_hash IS NULL` cannot work — the migration that adds
+the chain is blocked by the triggers that are already there. The migration
+must therefore open a `DROP TRIGGER` window **inside its own transaction**:
+drop both, add the columns, backfill, recreate both last (exact order in
+A7.1).
+
+That window cannot leak. SQLite DDL is transactional, so a failure anywhere
+in the backfill rolls the drop back and both triggers return with the rest
+of the transaction; there is no committed state in which the journal is
+mutable.
+
+Rejected — **forward-only** (pre-existing rows stay `NULL`): no `UPDATE`
+needed, but it permanently marks every legacy row `CHAIN_UNCHAINED_ROW`, so
+verify is useless on exactly the journals that most need it, and the
+coverage claim degrades to "everything after an unrecorded date". Rejected —
+**hybrid** (chain from the first post-migration row, declare the past out of
+scope) for the same reason.
+
+### A3. Q2 — verification point: EXPLICIT + CLI only (ruled)
+
+Nothing in `src/` verifies the chain automatically. No startup path, no
+migration, no repository read, no gateway step, no backup/snapshot hook. The
+one entry point is the CLI (A7.5).
+
+Why never a startup path:
+
+- Startup already runs migrations. A chain check there converts a chain
+  defect into a failure to boot: an old journal, a half-migrated database,
+  or any fixture DB whose 45 raw `INSERT INTO events` sites left
+  `chain_hash` NULL would take the process down. "Tamper-evident" would
+  degrade to "unbootable", and the operator could not distinguish a chain
+  finding from a broken install.
+- A chain defect is evidence for a human, not a control-flow input. The
+  certified invariant is that determinism owns control; a hash comparison
+  must not decide a transition, and must not decide whether the process
+  starts.
+- Verification must stay off every read path, or the 24 tamper sites and
+  their consumer tests would begin failing for a new reason and hide the
+  fail-closed behaviour they exist to prove.
+
+Verify is read-only and exits non-zero on any defect.
+
+### A4. Q3 — re-chain cost bound
+
+The largest frozen fixture is 3 rows; a 3-row re-chain is below timer
+resolution (< 1 ms). The bound below is **measured** on the implementation
+host with the reference implementation
+(`tests/tamper_evident_reference.py`) over a synthetic journal of
+~200-byte payloads, `event_id` 1..n:
+
+| n | hashing only | full SQLite re-chain |
+|---|---|---|
+| 1,000 | 0.011 s | — |
+| 10,000 | 0.108 s | 0.146 s |
+| 50,000 | 0.563 s | — |
+
+The full figure is the whole operation: `BEGIN`, drop both triggers, n
+single-row `UPDATE`s, recreate both triggers, `COMMIT`. Throughput is ~69k
+rows/s and linear (~92k rows/s hashing alone), so the bound is **~15 s per
+1,000,000 rows**. No production journal size is recorded anywhere in the
+repo, so the 1M figure is an extrapolation from a measured 10k, not a
+measurement of a real journal.
+
+Posture: **one transaction for the whole re-chain.** Consequences the tool
+must respect:
+
+- The write lock is held for the entire run. At ~350k rows the run exceeds
+  the 5 s `busy_timeout`, so re-chaining is a quiesced-database operation,
+  never something run beside a live controller.
+- Rows are read on one cursor in `event_id` order and updated on another;
+  only `prev_hash`/`chain_hash` change, so the scan order is stable and
+  memory is O(1) in journal size.
+- A crash mid-run rolls back to the previous chain and both triggers; the
+  tool is never half-applied.
+
+### A5. Q4 — `_json_dumps` canonicality
+
+`_json_dumps` (`repositories.py:85-88`) is
+`json.dumps(..., sort_keys=True, ensure_ascii=False)` with default
+separators, so a stored payload reads `{"a": 1, "b": 2}` where
+`canonical_json` would produce `{"a":1,"b":2}`. §1.3 hashes the **stored
+bytes**, so this is harmless today: the digest covers whichever encoding is
+actually on disk, and no row is ambiguous about its own bytes. For v1 there
+is no "correct" payload encoding beyond "what is stored".
+
+Tightening it is a **chain-version** change, not an edit. The precise
+reason: v1 verification would still pass, because each row hashes its own
+bytes — but §4 precondition 4 requires the canonical-bytes contract to be
+frozen *and shared with an external verifier*. Changing the encoder changes
+which byte string counts as *the* encoding of a payload, so "same payload,
+same digest" becomes version-dependent, and a verifier that canonicalizes
+payloads itself instead of hashing stored bytes would disagree. Any
+tightening therefore ships as v2, with its own migration and a full
+re-chain.
+
+One consequence of `ensure_ascii=False` is recorded because it is a real
+failure mode: non-ASCII is stored as UTF-8 text and the preimage is UTF-8
+encoded, so a lone surrogate reaching the DB by a file-level edit makes
+encoding raise — reported as `CHAIN_UNENCODABLE_ROW`, never skipped.
+
+### A6. The stage-S residual, honestly
+
+TAMPER-1 named `DROP TRIGGER` and DB-file swap as not covered. TAMPER-2
+covers what can honestly be covered and refuses to over-claim the rest.
+
+**`DROP TRIGGER`** is invisible to row-by-row hashing: dropping a trigger
+changes no row byte, so no chain walk can see it. It becomes a **named
+structural finding**, `CHAIN_TRIGGERS_MISSING`, produced by
+`missing_append_only_triggers(conn)` reading `sqlite_master` for both
+trigger names, and checked *before* the row walk (a missing refusal layer is
+a precondition, not a row defect). Honest limit: this detects **absence**
+only. A trigger dropped, used, and recreated identically is
+indistinguishable from one that was never dropped; the chain detects the
+*row* mutation the window allowed, and only an anchor makes the window
+itself suspicious.
+
+**DB-file swap.** Replacing the database wholesale with a self-consistent,
+fully re-chained file is **undetectable without an out-of-band anchor**.
+That is the entire content of `anchor=`, and nothing more: the caller
+supplies a 64-hex tip digest obtained through a channel the database owner
+cannot rewrite, and a mismatch is `CHAIN_TIP_MISMATCH`. This design ships
+**no sidecar anchor file, no signature, no MAC, no key material**; an anchor
+store is P2-4 and explicitly out of scope. Until one exists, the honest
+statement is: a swapped file verifies.
+
+**Still not caught**, unchanged from §1.6:
+
+- **Tail truncation** — deleting the last *k* rows leaves a shorter,
+  self-consistent chain. Only `anchor` detects it.
+- **Full re-chain** — an actor with DDL rights recomputes every row and
+  produces a valid chain. More hashing cannot fix this; only an anchor can.
+- **`created_at` rewrite** — excluded from the preimage by §1.1, by design.
+
+Claims discipline, restated because it is the thing most likely to be lost
+in implementation: a green chain is **never** authority, **never**
+scientific validity, **never** reproducibility, **never** authorship. It is
+a mechanically true statement about the bytes in one file.
+
+### A7. Implementation surface
+
+#### A7.1 Migration `22 → 23`
+
+`_migrate_22_to_23`, registered last, `SUPPORTED_VERSION = 23`. Statement
+order inside the transaction opened by `migrate_to_latest`
+(`migrations.py:1358`) — this order is mandatory:
+
+1. `DROP TRIGGER IF EXISTS trg_events_append_only_update`
+2. `DROP TRIGGER IF EXISTS trg_events_append_only_delete`
+3. `ALTER TABLE events ADD COLUMN prev_hash TEXT`
+4. `ALTER TABLE events ADD COLUMN chain_hash TEXT`
+5. Backfill: every row in `event_id` ascending from `GENESIS`, recomputed
+   from the row's own 11 stored fields — never copied.
+6. Re-create **both** triggers from the §2.1 DDL, **last**.
+
+Steps 3-4 are guarded by `pragma_table_info`, the `schema_version` row is
+written only when version 23 is absent, and both triggers are dropped and
+recreated unconditionally, so the step is **idempotent** — and it must be,
+because the re-chain (A7.5) re-executes this body on an already-v23
+database. The implementing slice must pin that idempotency with a test that
+runs `_migrate_22_to_23` twice and still verifies `CHAIN_OK`. No table
+rebuild, no `SELECT *` copy, no touch of `created_at` (`ADD COLUMN` does
+not rewrite rows, so it is byte-identical before and after), and no
+transaction-control call of its own — the runner owns it.
+
+#### A7.2 Writer
+
+`_append_event_to_db` (`repositories.py:97`) computes and inserts both
+digests inside the caller's already-open transaction. Tip read, id
+reservation and `INSERT` share that one transaction; the read is never
+hoisted above acquisition.
+
+- **Tip** = the `chain_hash` of the **highest `event_id` row carrying a
+  non-NULL `chain_hash`**, or `GENESIS` when there is none. Not "the last
+  row": 45 raw `INSERT INTO events` fixture sites bypass the writer and
+  leave `chain_hash` NULL, and a last-row read would chain onto NULL and
+  make every later append unverifiable. Unchained rows stay visible as
+  `CHAIN_UNCHAINED_ROW` — never absorbed, never silently bridged. The tip
+  rule exists so appends keep working; verification still stops at the first
+  hole.
+- **`event_id` reservation.** `event_id` is field 1 of the preimage but is
+  assigned at `INSERT`. The writer reserves it first, from the AUTOINCREMENT
+  high-water mark (`sqlite_sequence.seq` for `events`, falling back to
+  `MAX(event_id)+1`), and inserts it explicitly. Reservation, tip read and
+  `INSERT` share the caller's transaction, and every caller already holds a
+  write transaction before invoking the writer (`BEGIN IMMEDIATE` in the
+  repository owners, `BEGIN` in `append_transactional`), so SQLite's
+  single-writer rule leaves exactly one tip and one next id at a time.
+
+The deferred-`BEGIN` caller is the weak one and is stated plainly: with
+`BEGIN` in `append_transactional` the write lock is taken at the `INSERT`,
+not at the tip read, so if another writer commits between the tip read and
+the write, SQLite fails the lock upgrade with `SQLITE_BUSY` and the append
+rolls back. The writer must never fork the chain to survive that: a forked
+chain — two rows sharing a `prev_hash` — is `CHAIN_PREV_MISMATCH` for the
+verifier, not a silent branch.
+
+#### A7.3 Verification API
+
+New module `src/hermes/persistence/journal_chain.py`, importing
+`canonical_json` and `sha256_hex` from `hermes.research.programs` — one
+canonicalizer authority, never a local copy.
+
+```
+verify_journal_chain(rows, *, anchor=None, allow_unchained=False) -> dict
+    # pure; rows are mappings or sqlite3.Row, supplied in event_id order
+verify_journal(conn, *, anchor=None) -> dict
+    # DB-facing: structural check first, then the walk over
+    # SELECT ... FROM events ORDER BY event_id
+missing_append_only_triggers(conn) -> tuple[str, ...]
+```
+
+Result keys: `ok, code, event_id, expected, actual, genesis, tip` (§1.5),
+plus `chain_version` and `findings: tuple[str, ...]` on the DB-facing
+wrapper. Codes, exact and closed: `CHAIN_OK`,
+`CHAIN_EVENT_ID_OUT_OF_ORDER`, `CHAIN_UNCHAINED_ROW`, `CHAIN_PREV_MISMATCH`,
+`CHAIN_HASH_MISMATCH`, `CHAIN_UNENCODABLE_ROW`, `CHAIN_TIP_MISMATCH`, and
+`CHAIN_TRIGGERS_MISSING` (structural; the DB wrapper only — the pure walker
+never returns it, so the M1-M11 fixture contract is untouched).
+
+Stop at the first defect. Structural findings precede the walk:
+`CHAIN_TRIGGERS_MISSING` outranks any row defect, because with the refusal
+layer gone the row-level finding is not the most important one. `ok` is true
+only for `CHAIN_OK` with an empty `findings`.
+
+#### A7.4 Re-chain
+
+```
+rechain_journal(conn) -> {rows, old_tip, new_tip, changed}
+```
+
+Drop both triggers, recompute every row in `event_id` order from `GENESIS`,
+recreate both triggers, one transaction. It issues no control call of its
+own: it asserts an open transaction and refuses otherwise. That transaction
+is the migration runner's, never its own: `journal rechain` reaches this
+body through `migrate_to_latest(conn, start_version=22)`, which opens
+`BEGIN` at `migrations.py:1358` and commits at `:1361`, so
+`rechain_journal` is the body and the runner is the owner. `changed` counts
+rows whose recomputed pair differs from what was stored; `old_tip` is the
+pre-existing tip or `None`.
+
+Its docstring and the CLI output must say the sharpest thing in this design:
+**a re-chain blesses the current bytes.** After tampering, re-chaining
+produces a journal that verifies and no longer records that anything
+happened. It is a deliberate act for a known-good journal (a rebuild, an
+import, an encoding migration), never a repair, and never a response to a
+red verify.
+
+#### A7.5 CLI
+
+On the existing `argparse` structure (`cli.py:783`), a `journal` group with
+two subcommands, both taking `--db` (default: the configured
+`cfg.sqlite.database_path`) and an optional `--anchor <64-hex>`:
+
+- `hermes journal verify [--db PATH] [--anchor HEX] [--json]` — read-only;
+  prints the code, `event_id`, expected/actual, tip and any structural
+  finding; exits 1 on any defect (including `CHAIN_TRIGGERS_MISSING`), 0
+  only on `CHAIN_OK` with no findings. `allow_unchained` is deliberately not
+  exposed: the CLI verifier is strict.
+- `hermes journal rechain [--db PATH] [--anchor HEX] --confirm-rechain` —
+  refuses without the flag; prints `old_tip`, `new_tip` and the row count.
+  With `--anchor` it verifies *before* re-chaining and **refuses** when the
+  current tip does not match, because re-chaining a journal that has already
+  diverged from the out-of-band digest would launder exactly the case the
+  anchor exists to catch.
+
+Transaction posture, stated because the census is frozen (A8): the re-chain
+rides the migration runner's existing `BEGIN`/`COMMIT`/`ROLLBACK`
+(`migrations.py:1358-1363`) by re-applying step 22 rather than adding an
+owner. That requires one runner change, stated exactly:
+`migrate_to_latest` gains an optional `start_version: int | None = None`.
+`None` preserves today's behaviour exactly — `current = _get_version(conn)`
+at `:1350` — and a supplied value is used as the loop start in place of it,
+so `migrate_to_latest(conn, start_version=22)` on a v23 database runs
+`_MIGRATIONS[22]` and nothing else, opening the transaction the current
+signature never opens on that database. It is an internal maintenance hook
+for this one caller, not a public migration API: no other `src/` path
+passes it, and startup keeps calling the no-argument form.
+
+Why this cannot move the census: the parameter adds **no** `BEGIN`,
+`COMMIT` or `ROLLBACK` statement of its own — it only changes the first
+argument of the `range()` at `:1356`, and the runner's existing three calls
+at `:1358-1363` are reused verbatim — so the frozen figures (124 / 28 / 19
+/ 1 / 15) cannot move. The alternative, a dedicated owner opening its own
+transaction around `rechain_journal`, was rejected precisely because it
+would add +2 or +3 transaction-control calls and +1 owner, and A8 forbids
+both.
+
+`journal rechain` must refuse unless
+`_get_version(conn) == SUPPORTED_VERSION`, because on a v22 database
+`start_version=22` would run a **migration**, not a re-chain — a different
+operation with a different meaning. Both refusals are unconditional and
+neither has an override: a database not at `SUPPORTED_VERSION` is refused
+("run migrations first"), and a missing `--confirm-rechain` is refused.
+
+#### A7.6 What the implementing slice must prove
+
+- Migrate a populated v22 database: `verify_journal` is `CHAIN_OK`,
+  `created_at` is byte-identical, and `UPDATE`/`DELETE` raise the named
+  errors again.
+- A fresh append after the migration chains onto the backfilled tip.
+- An append after a NULL-chained row chains onto the last non-NULL tip,
+  and that row still reports `CHAIN_UNCHAINED_ROW`.
+- Drop one trigger: `CHAIN_TRIGGERS_MISSING`; restore: `CHAIN_OK`.
+- Re-chain a tampered journal: `changed > 0`, new tip, then `CHAIN_OK`.
+- Re-chain with a stale `--anchor`: refuses, file untouched.
+- The runner accepts `start_version`, and a re-chain on a v23 database runs
+  exactly one migration body — `_migrate_22_to_23`, once — inside one
+  transaction.
+- `migrate_to_latest()` with no arguments behaves byte-identically to
+  before: the existing runner tests pass unchanged as the regression test.
+- The 24 tamper sites still refuse-then-force, and no production read path
+  verifies the chain.
+
+### A8. Census and B4
+
+- **Transaction census stays 124 / 28 / 19 / 1 / 15.** No new
+  transaction-control call: the migration rides the runner's existing one
+  and the re-chain rides the migration. The `start_version` parameter
+  (A7.5) is a loop bound, not a transaction — it adds no call site, so the
+  five figures are untouched by it. A dedicated maintenance owner was
+  considered and rejected — +2 or +3 calls and +1 owner (126 / 29 or
+  127 / 29), which the charter forbids. `database.acquire_writer_lock` was
+  considered and rejected: `tests/test_hygiene_structural.py:106` pins it
+  as having zero `src/` callers.
+- **B4.** `docs/idr/TAMPER-EVIDENT-JOURNAL.md` is not in the governed
+  corpus. The 12 are `AGENTS.md`, `docs/API.md`, `docs/ARCHITECTURE.md`,
+  `docs/STATE.md` and `docs/idr/IDR-018/023/024/025/026/027/028/036.md`
+  (`GOVERNED_CORPUS_REFS`, `src/hermes/research/corpus.py:118`). Editing
+  this file is therefore not expected to move any B4 digest, and the
+  implementing phase must still run `tests/test_b4_ref_graphs.py` and prove
+  it stays 24.

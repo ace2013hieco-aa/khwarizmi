@@ -780,6 +780,135 @@ def _vault_verify(args, cfg: HermesConfig) -> int:
     return 0
 
 
+def _journal_db_path(args, cfg: HermesConfig) -> Path:
+    """``--db`` when given, else the configured database path."""
+    explicit = getattr(args, "db", None)
+    return Path(explicit) if explicit else Path(cfg.sqlite.database_path)
+
+
+def _journal_verify(args, cfg: HermesConfig) -> int:
+    """`hermes journal verify` — walk the per-event chain (read-only).
+
+    The one explicit verification entry point (TAMPER-2 A3): nothing in
+    ``src/`` verifies the chain automatically, so a chain defect can never
+    turn an old journal into a failure to boot. Exit 0 only on ``CHAIN_OK``
+    with no structural findings; any defect exits 1.
+
+    A green result is a statement about the bytes in this file, never
+    authority. A wholesale replacement of a self-consistent file is
+    undetectable without an out-of-band ``--anchor`` (P2-4, out of scope).
+    """
+    from .persistence.database import connect
+    from .persistence.journal_chain import verify_journal
+    from .persistence.migrations import SUPPORTED_VERSION, _get_version
+
+    db_path = _journal_db_path(args, cfg)
+    if not db_path.exists():
+        emit("No database found. Run `hermes init` first.")
+        return 1
+
+    conn = connect(str(db_path))
+    try:
+        version = _get_version(conn)
+        if version != SUPPORTED_VERSION:
+            emit(f"Refused: schema v{version} is not v{SUPPORTED_VERSION} — "
+                 "the journal has no chain to verify; run migrations first.")
+            return 1
+        result = verify_journal(conn, anchor=getattr(args, "anchor", None))
+    finally:
+        conn.close()
+
+    if getattr(args, "as_json", False):
+        doc = dict(result)
+        doc["findings"] = list(doc.get("findings", ()))
+        emit_lines(json.dumps(doc, indent=2, sort_keys=True).split("\n"))
+    else:
+        emit(f"  Chain:       {result['code']} ({result['chain_version']})")
+        if result["event_id"] is not None:
+            emit(f"  Event:       #{result['event_id']}")
+        if result["expected"] is not None:
+            emit(f"  Expected:    {result['expected']}")
+        if result["actual"] is not None:
+            emit(f"  Actual:      {result['actual']}")
+        emit(f"  Tip:         {result['tip'] or '-'}")
+        emit(f"  Genesis:     {result['genesis']}")
+        for finding in result.get("findings", ()):
+            emit(f"  Finding:     {finding} is missing from sqlite_master")
+        if result["ok"] and getattr(args, "anchor", None) is None:
+            emit("  Note:        a self-consistent replacement file verifies; "
+                 "only --anchor detects one.")
+
+    ok = result["code"] == "CHAIN_OK" and not result.get("findings")
+    if not ok:
+        emit("Journal chain does not verify.", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _journal_rechain(args, cfg: HermesConfig) -> int:
+    """`hermes journal rechain` — recompute the whole chain (deliberate act).
+
+    **A re-chain blesses the current bytes.** After tampering it produces a
+    journal that verifies and no longer records that anything happened, so it
+    is refused without ``--confirm-rechain`` and is never a repair.
+
+    The recomputation rides the migration runner's existing transaction
+    (``migrate_to_latest(conn, start_version=22)`` re-executes the 22 -> 23
+    body), which is why this path adds no transaction owner. With ``--anchor``
+    the journal is verified first and a mismatch refuses without touching the
+    file: re-chaining a journal that already diverged from the out-of-band
+    digest would launder exactly the case the anchor exists to catch.
+    """
+    from .persistence.database import connect
+    from .persistence.journal_chain import journal_tip, verify_journal
+    from .persistence.migrations import (
+        SUPPORTED_VERSION,
+        _get_version,
+        migrate_to_latest,
+    )
+
+    if not getattr(args, "confirm_rechain", False):
+        emit("Refused: re-chaining blesses the current bytes — it makes a "
+             "tampered journal verify again. Pass --confirm-rechain to "
+             "proceed.")
+        return 1
+
+    db_path = _journal_db_path(args, cfg)
+    if not db_path.exists():
+        emit("No database found. Run `hermes init` first.")
+        return 1
+
+    conn = connect(str(db_path))
+    try:
+        version = _get_version(conn)
+        if version != SUPPORTED_VERSION:
+            emit(f"Refused: schema v{version} is not v{SUPPORTED_VERSION} — "
+                 "run migrations first.")
+            return 1
+
+        anchor = getattr(args, "anchor", None)
+        if anchor is not None:
+            before = verify_journal(conn, anchor=anchor)
+            if not before["ok"] or before["findings"]:
+                emit(f"Refused: the journal does not verify against the "
+                     f"anchor [{before['code']}] — re-chaining would launder "
+                     "the divergence. The file was not touched.")
+                return 1
+
+        old_tip = journal_tip(conn)
+        rows = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        migrate_to_latest(conn, start_version=22)
+        new_tip = journal_tip(conn)
+    finally:
+        conn.close()
+
+    emit(f"  Rows:        {rows}")
+    emit(f"  Old tip:     {old_tip}")
+    emit(f"  New tip:     {new_tip}")
+    emit("  Note:        re-chained — the current bytes are now blessed.")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hermes",
@@ -898,6 +1027,35 @@ def _build_parser() -> argparse.ArgumentParser:
                                    "\"ok\", \"findings\": [...]}); exit is "
                                    "1 when refused.")
 
+    journal_p = sub.add_parser(
+        "journal", help="Tamper-evident journal chain (TAMPER-2).")
+    journal_sub = journal_p.add_subparsers(dest="journal_command")
+    journal_verify = journal_sub.add_parser(
+        "verify", help="Verify the per-event hash chain (read-only; exit 1 on "
+                       "any defect or structural finding).")
+    journal_verify.add_argument("--db", default=None,
+                                help="Database path (default: configured).")
+    journal_verify.add_argument(
+        "--anchor", default=None,
+        help="Out-of-band tip digest (64 lowercase hex) to compare against.")
+    journal_verify.add_argument(
+        "--json", dest="as_json", action="store_true",
+        help="Emit the verdict as one JSON document (stable schema: "
+             "{ok, code, event_id, expected, actual, genesis, tip, "
+             "chain_version, findings}).")
+    journal_rechain = journal_sub.add_parser(
+        "rechain", help="Recompute the whole chain (blesses the current "
+                        "bytes; deliberate act only).")
+    journal_rechain.add_argument("--db", default=None,
+                                 help="Database path (default: configured).")
+    journal_rechain.add_argument(
+        "--anchor", default=None,
+        help="Refuse when the current tip does not match this digest.")
+    journal_rechain.add_argument(
+        "--confirm-rechain", dest="confirm_rechain", action="store_true",
+        help="Required: acknowledge that re-chaining blesses the current "
+             "bytes and is never a repair.")
+
     return p
 
 
@@ -967,6 +1125,15 @@ def _dispatch(args: argparse.Namespace, cfg: HermesConfig,
             return _vault_verify(args, cfg)
         emit("Usage: hermes vault {project|verify} <project_id> "
               "--vault-root <path>")
+        return 0
+    if cmd == "journal":
+        jc = getattr(args, "journal_command", None)
+        if jc == "verify":
+            return _journal_verify(args, cfg)
+        if jc == "rechain":
+            return _journal_rechain(args, cfg)
+        emit("Usage: hermes journal {verify|rechain} [--db PATH] "
+              "[--anchor HEX]")
         return 0
     if cmd == "run":
         return _run(args, cfg)

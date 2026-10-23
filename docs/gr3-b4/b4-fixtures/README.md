@@ -8,9 +8,12 @@ packaged for TEXP-001 twin consumption. Full decision record:
 ## What a fixture is
 
 One canonical-JSON file per reference graph. The FILE NAME is the
-sha256 of the file's own bytes, so a fixture is addressed by its
-content and any edit is detectable without a signature. Each body
-records:
+sha256 of the file's own bytes, so a corrupted, truncated or partially
+written file is refused at read time. A replaced file whose name was
+recomputed is caught only by regeneration against the governed corpus
+(`tests/test_b4_ref_graphs.py`) — code in this repository — not by the
+name. The binding is corruption-evident and regeneration-evident, not
+tamper-evident. Each body records:
 
 - `fixture_id` + `rationale` — which stratum this graph is;
 - `fixture_schema_version`, `extraction_version` — the extractor rule
@@ -30,10 +33,10 @@ records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `20204aaf0f01ee13ceb0bd1f36a63ee25e0bb48c76ca17add5fb03a6baba5181.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `3bbe04e61501c82d151576df39f111cc1f461619d38f635d268da54763cbf94f.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `f8a80697615ea62faa54493fa3eb70cc2aff74b4d630cfc150ca7ee412ff0861.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `1b8aaec724dbc62b7ecbee653d9b00a8da8f46fb5e1ad916196b2e915ce861d7.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `c3fca6dc8d74377d83461cc35fa7b71b9a5dbc23e25b3504672a4c31f44ddfc9.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `ddc877b07b9718da809fe56a7e055e2e74c817db3f809ed2dcc34bc1057301ab.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -122,6 +125,16 @@ records:
 > retry rule) — so `b4-c1` / `b4-c2` / `b4-c4` were regenerated
 > deliberately per §Regenerating: `357b9ee3… → 20204aaf…`,
 > `03127be4… → 3bbe04e6…`, `b5b21189… → c3fca6dc…`. `b4-c3` is unchanged
+> (IDR-only stratum). Edge sets, `sources` counts, and `skipped` lists are
+> identical (5 / 19 / 10 / 5; 6 / 12 / 8 / 4; 21 / 28 / 15 / 18), so the
+> citation structure is invariant — only the pinned byte identities
+> moved, and this table is the regeneration's own output.
+
+> **Re-derivation (P2-2 — `slice/p2-2-boundary`).** The governed
+> `docs/STATE.md` edit (GAP-1 P2-2 DB-writer trust-boundary entry) moved
+> one governed source identity, so `b4-c1` / `b4-c2` / `b4-c4` were
+> regenerated deliberately per §Regenerating: `20204aaf… → f8a80697…`,
+> `3bbe04e6… → 1b8aaec7…`, `c3fca6dc… → ddc877b0…`. `b4-c3` is unchanged
 > (IDR-only stratum). Edge sets, `sources` counts, and `skipped` lists are
 > identical (5 / 19 / 10 / 5; 6 / 12 / 8 / 4; 21 / 28 / 15 / 18), so the
 > citation structure is invariant — only the pinned byte identities

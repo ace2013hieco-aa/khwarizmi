@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from hermes.core import Clock, utc_now
@@ -48,6 +49,7 @@ from hermes.core.task_status import (
     validate_task_transition,
 )
 from hermes.persistence.event_validation import validate_event
+from hermes.persistence.journal_chain import chain_row, journal_tip
 from hermes.persistence.source_outcomes import _source_artifact_resolves
 from hermes.research.claims import (
     CLAIM_SCHEMA_VERSION,
@@ -60,7 +62,11 @@ from hermes.research.claims import (
     claim_id_of,
 )
 from hermes.research.extraction import EXTRACT_TEMPLATE
-from hermes.research.programs import CompilationResult, CompilationStatus
+from hermes.research.programs import (
+    CompilationResult,
+    CompilationStatus,
+    program_to_dict,
+)
 from hermes.research.regimes import (
     RegimeResolutionError,
     parse_regime_ref,
@@ -94,6 +100,44 @@ def _json_loads(value: str | None) -> Any:
     return json.loads(value)
 
 
+def _next_event_id(conn: sqlite3.Connection) -> int:
+    """Reserve the next ``events.event_id`` from the AUTOINCREMENT high-water mark.
+
+    ``event_id`` is field 1 of the chain preimage but is assigned at INSERT,
+    so the writer reserves it first and inserts it explicitly. The reservation,
+    the tip read and the INSERT all share the caller's transaction, and every
+    caller already holds a write transaction, so SQLite's single-writer rule
+    leaves exactly one next id at a time (TAMPER-2 addendum A7.2).
+    """
+    row = conn.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name = 'events'").fetchone()
+    if row is not None and row[0] is not None:
+        return int(row[0]) + 1
+    row = conn.execute("SELECT MAX(event_id) FROM events").fetchone()
+    return (row[0] or 0) + 1
+
+
+@dataclass(frozen=True)
+class AuditRecord:
+    """One audit-journal row, built but not yet written.
+
+    AUDIT-TXN (IDR-013 addendum A1.2): the gateway's ``IntentApplied`` /
+    ``IntentRejected`` record travels as an explicit value — never through
+    connection state, a thread-local or a module global — so the caller can
+    hand it to whichever transaction owns the mutation and the row lands in
+    that same transaction. ``payload`` is the builder's finished mapping;
+    ``_append_event_to_db`` validates and chains it exactly as it does for
+    every other event.
+    """
+
+    event_type: str
+    project_id: str | None
+    correlation_id: str
+    caused_by: str
+    reason: str
+    payload: dict[str, Any]
+
+
 def _append_event_to_db(
     conn: sqlite3.Connection,
     clock: Clock,
@@ -114,19 +158,46 @@ def _append_event_to_db(
     TaskRepository. F-04 validates the event at the persistence boundary
     (S6) before INSERT — payload size cap, event-type check, secret
     rejection.
+
+    TAMPER-2 (IDR TAMPER-EVIDENT-JOURNAL §1.4 / A7.2): the row is chained as
+    it is appended. ``event_id`` is reserved first, the tip is read, both
+    digests are computed over the values about to be stored, and the INSERT
+    names ``event_id``, ``prev_hash`` and ``chain_hash`` explicitly — all
+    inside the caller's already-open transaction, never hoisted. The tip is
+    the highest ``event_id`` carrying a chain hash (or ``GENESIS``), so a raw
+    ``INSERT INTO events`` that left ``chain_hash`` NULL is skipped over
+    rather than chained onto; such rows stay visible to verification as
+    ``CHAIN_UNCHAINED_ROW``.
     """
     validate_event(event_type, payload)
 
     ts = clock()
+    event_id = _next_event_id(conn)
+    artifact_ids_json = _json_dumps(artifact_ids or [])
+    payload_json = _json_dumps(payload or {})
+    prev_hash = journal_tip(conn)
+    chain_hash = chain_row(prev_hash, {
+        "event_id": event_id,
+        "event_type": event_type,
+        "project_id": project_id,
+        "task_id": task_id,
+        "from_state": from_state,
+        "to_state": to_state,
+        "correlation_id": correlation_id,
+        "caused_by": caused_by,
+        "reason": reason,
+        "artifact_ids_json": artifact_ids_json,
+        "payload_json": payload_json,
+    })
     conn.execute(
         """INSERT INTO events
-           (event_type, project_id, task_id, from_state, to_state,
+           (event_id, event_type, project_id, task_id, from_state, to_state,
             correlation_id, caused_by, reason, artifact_ids_json,
-            payload_json, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (event_type, project_id, task_id, from_state, to_state,
-         correlation_id, caused_by, reason,
-         _json_dumps(artifact_ids or []), _json_dumps(payload or {}), ts),
+            payload_json, created_at, prev_hash, chain_hash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, event_type, project_id, task_id, from_state, to_state,
+         correlation_id, caused_by, reason, artifact_ids_json, payload_json,
+         ts, prev_hash, chain_hash),
     )
 
 
@@ -391,10 +462,17 @@ class TaskRepository:
         self._conn = conn
         self._clock = clock or utc_now
 
-    def create(self, node: NodeContract) -> dict:
+    def create(
+        self, node: NodeContract, *, audit: AuditRecord | None = None,
+    ) -> dict:
         """Insert a new task node. Fails on duplicate idempotency_key+attempt.
 
         F-11: Cycle detection — rejects dependencies that would create a cycle.
+
+        ``audit`` (AUDIT-TXN A1.2): the IntentApplied record, appended inside
+        this task's transaction immediately before COMMIT. The gateway only
+        reaches this method when the task is new (a duplicate is returned
+        before ``create``), so the row and the task share one commit.
         """
         ts = self._clock()
 
@@ -440,6 +518,15 @@ class TaskRepository:
                 correlation_id=str(uuid.uuid4()),
                 caused_by="controller",
             )
+            if audit is not None:
+                _append_event_to_db(
+                    self._conn, self._clock, audit.event_type,
+                    project_id=audit.project_id,
+                    correlation_id=audit.correlation_id,
+                    caused_by=audit.caused_by,
+                    reason=audit.reason,
+                    payload=audit.payload,
+                )
             self._conn.execute("COMMIT")
         except Exception:
             self._conn.execute("ROLLBACK")
@@ -797,13 +884,23 @@ class EventRepository:
         reason: str = "",
         payload: dict | None = None,
         retry_without_project: bool = False,
+        audit: AuditRecord | None = None,
     ) -> None:
         """Append one journal row inside ITS OWN transaction — the gateway's
         audit/decision writes now live here (B7), replacing the manual
         BEGIN/COMMIT/ROLLBACK the gateway used to hold. ``retry_without_project``
         mirrors the audit-write's stale-project fallback: on an FK failure
         the row is re-attempted with project_id=NULL (the record of a
-        rejected/stale admission still lands in the journal)."""
+        rejected/stale admission still lands in the journal).
+
+        ``audit`` (AUDIT-TXN A1.2) is the caller's IntentApplied record. When
+        this append IS the mutation (a proposal whose event is the record),
+        the audit row is written immediately before COMMIT in the same
+        transaction, so no crash can separate them. The fused path never
+        passes ``retry_without_project``: a ROLLBACK-then-retry here would
+        undo the mutation (A1.3), and the project column is known-valid by
+        then.
+        """
         import sqlite3 as _sqlite3
         self._conn.execute("BEGIN")
         try:
@@ -822,6 +919,15 @@ class EventRepository:
                     self._conn, clock, event_type,
                     project_id=None, correlation_id=correlation_id,
                     caused_by=caused_by, reason=reason, payload=payload,
+                )
+            if audit is not None:
+                _append_event_to_db(
+                    self._conn, clock, audit.event_type,
+                    project_id=audit.project_id,
+                    correlation_id=audit.correlation_id,
+                    caused_by=audit.caused_by,
+                    reason=audit.reason,
+                    payload=audit.payload,
                 )
             self._conn.execute("COMMIT")
         except Exception:
@@ -1162,25 +1268,35 @@ class OperatorCredentialRepository:
     def revoke(
         self, operator_id: str, *, reason: str = "",
         project_id: str | None = None,
+        audit: AuditRecord | None = None,
     ) -> dict:
         """CRED-1 — revoke a ratified credential. Terminal and
         archive-not-delete: ``revoked_at`` is stamped, the row survives
         (history is never rewritten), and every later verify/exists
         refuses. Idempotent: an identical re-apply returns
-        ``duplicate=True`` with ZERO new rows/events."""
+        ``duplicate=True`` with ZERO new rows/events.
+
+        ``audit`` (AUDIT-TXN A1.2) rides into the worker's transaction and is
+        appended there only on a real revocation; a replay writes nothing and
+        the gateway journals the IntentApplied row on its own."""
         return self._apply_credential_mutation(
-            "revoke", operator_id, reason=reason, project_id=project_id)
+            "revoke", operator_id, reason=reason, project_id=project_id,
+            audit=audit)
 
     def rotate(
         self, operator_id: str, *, project_id: str | None = None,
+        audit: AuditRecord | None = None,
     ) -> dict:
         """CRED-1 — mint a fresh server-side token for the credential and
         replace the stored hash. The plaintext token is returned in the
         result row (``row["new_token"]``) — it never enters an intent
         payload or a journal event. Refused for an unknown or revoked
-        operator. Each rotation kills the previous token."""
+        operator. Each rotation kills the previous token.
+
+        ``audit`` (AUDIT-TXN A1.2) is appended inside the rotation's own
+        transaction, immediately before its COMMIT."""
         return self._apply_credential_mutation(
-            "rotate", operator_id, project_id=project_id)
+            "rotate", operator_id, project_id=project_id, audit=audit)
 
     def upgrade_legacy_hash(self, operator_id: str, token: str) -> bool:
         """CRED-1 — transparently re-hash a LEGACY (bare SHA-256) row to
@@ -1212,6 +1328,7 @@ class OperatorCredentialRepository:
         reason: str = "",
         token: str | None = None,
         project_id: str | None = None,
+        audit: AuditRecord | None = None,
     ) -> dict:
         """The single transactional worker behind revoke / rotate /
         upgrade (CRED-1): ONE acquisition boundary for credential writes.
@@ -1220,11 +1337,17 @@ class OperatorCredentialRepository:
         and the loser observes the winner's state. The mutation and its
         journal event land atomically; replay paths are zero-effect
         (revoke: duplicate; upgrade: no-op). The rotate new-token value
-        travels in the RETURNED dict only — never in the event payload."""
+        travels in the RETURNED dict only — never in the event payload.
+
+        ``audit`` (AUDIT-TXN A1.2): appended immediately before COMMIT on the
+        branch that actually mutates. A revoke replay mutates nothing, so it
+        appends nothing and the gateway journals the duplicate itself.
+        """
         import secrets
 
         self._conn.execute("BEGIN IMMEDIATE")
         try:
+            mutated = False
             row = self._conn.execute(
                 "SELECT token_hash, revoked_at FROM operator_credentials "
                 "WHERE operator_id = ?", (operator_id,)).fetchone()
@@ -1257,6 +1380,7 @@ class OperatorCredentialRepository:
                 outcome = {"duplicate": False, "upgraded": False,
                            "row": {"operator_id": operator_id,
                                    "revoked_at": ts}}
+                mutated = True
             elif action == "rotate":
                 new_token = secrets.token_urlsafe(32)
                 self._conn.execute(
@@ -1271,6 +1395,7 @@ class OperatorCredentialRepository:
                 outcome = {"duplicate": False, "upgraded": False,
                            "row": {"operator_id": operator_id,
                                    "new_token": new_token}}
+                mutated = True
             elif action == "upgrade":
                 # CRED-1 C: re-verify inside the transaction, then a
                 # compare-and-swap — a concurrent rotation can never be
@@ -1294,6 +1419,15 @@ class OperatorCredentialRepository:
                                    "row": {}}
             else:
                 raise ValueError(f"unknown credential mutation {action!r}")
+            if audit is not None and mutated:
+                _append_event_to_db(
+                    self._conn, self._clock, audit.event_type,
+                    project_id=audit.project_id,
+                    correlation_id=audit.correlation_id,
+                    caused_by=audit.caused_by,
+                    reason=audit.reason,
+                    payload=audit.payload,
+                )
             self._conn.execute("COMMIT")
             return outcome
         except Exception:
@@ -1442,6 +1576,7 @@ class ResearchProgramRepository:
         produced_by: str = "director",
         reason: str = "",
         new_slot_declarations: Sequence[dict] = (),
+        audit: AuditRecord | None = None,
     ) -> dict:
         """Persist a compiled program atomically with its event (IDR-013).
 
@@ -1460,9 +1595,16 @@ class ResearchProgramRepository:
         derivation (v6 §28.2 Model D integrity checks — fail-closed, nothing
         written, no event). Returns the existing row for a duplicate genuine
         compilation (idempotent, no event).
-        """
-        from hermes.research.programs import program_to_dict
 
+        ``audit`` (AUDIT-TXN A1.2): the IntentApplied record. The duplicate
+        decision is a PRE-READ outside this transaction (the gateway passes a
+        record only when that read said "new"), so the handed record is
+        appended on WHICHEVER branch this transaction lands — the new write or
+        an in-transaction duplicate — immediately before that branch's COMMIT.
+        That closes the pre-read/write race without a second signal, and
+        exactly one side appends: the gateway writes only when the pre-read
+        said duplicate and this method therefore received no record.
+        """
         # 1. Only COMPILED programs have a write path (E6/E7).
         if not result.compiled or result.program is None:
             raise ResearchProgramError(
@@ -1725,6 +1867,15 @@ class ResearchProgramRepository:
                         "(idempotent duplicate; a new version changes the "
                         "contract, IDR-018)"
                     )
+                if audit is not None:
+                    _append_event_to_db(
+                        self._conn, self._clock, audit.event_type,
+                        project_id=audit.project_id,
+                        correlation_id=audit.correlation_id,
+                        caused_by=audit.caused_by,
+                        reason=audit.reason,
+                        payload=audit.payload,
+                    )
                 self._conn.execute("COMMIT")
                 return _research_program_row_to_dict(existing)
 
@@ -1827,6 +1978,15 @@ class ResearchProgramRepository:
                        if new_slot_declarations else {}),
                 },
             )
+            if audit is not None:
+                _append_event_to_db(
+                    self._conn, self._clock, audit.event_type,
+                    project_id=audit.project_id,
+                    correlation_id=audit.correlation_id,
+                    caused_by=audit.caused_by,
+                    reason=audit.reason,
+                    payload=audit.payload,
+                )
             self._conn.execute("COMMIT")
         except Exception:
             if self._conn.in_transaction:

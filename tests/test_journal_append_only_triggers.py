@@ -85,10 +85,10 @@ def _assert_refused(conn: sqlite3.Connection, sql: str, message: str) -> None:
 # ── fresh + upgrade reachability ──
 
 def test_fresh_db_migrates_to_latest_with_triggers():
-    assert SUPPORTED_VERSION == 22
-    assert len(_MIGRATIONS) == 22
+    assert SUPPORTED_VERSION == 23
+    assert len(_MIGRATIONS) == 23
     conn = connect(":memory:")
-    assert migrate_to_latest(conn, clock=CLOCK) == 22
+    assert migrate_to_latest(conn, clock=CLOCK) == 23
 
     triggers = _triggers(conn)
     assert set(triggers) == {UPDATE_TRIGGER, DELETE_TRIGGER}
@@ -113,7 +113,7 @@ def test_upgrade_from_v20_adds_triggers_and_preserves_rows():
     assert _triggers(conn) == {}
     before = _rows(conn)
 
-    assert migrate_to_latest(conn, clock=CLOCK) == 22
+    assert migrate_to_latest(conn, clock=CLOCK) == 23
     assert set(_triggers(conn)) == {UPDATE_TRIGGER, DELETE_TRIGGER}
     assert _rows(conn) == before
     _assert_refused(
@@ -198,7 +198,7 @@ def test_fresh_full_migration_preserves_pre_rebuild_rows():
     _append_raw(conn, "EarlyEvent")
     before = _rows(conn)
 
-    assert migrate_to_latest(conn, clock=CLOCK) == 22
+    assert migrate_to_latest(conn, clock=CLOCK) == 23
     assert _rows(conn) == before
     assert set(_triggers(conn)) == {UPDATE_TRIGGER, DELETE_TRIGGER}
     _assert_refused(

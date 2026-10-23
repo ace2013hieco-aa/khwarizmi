@@ -20,8 +20,11 @@ Design (all pure: no DB, no clock, no network, no writes):
   gated by the same deterministic admissibility gate as the write path.
 - ``reference_graph_bytes`` / ``reference_graph_digest`` — canonical
   JSON (``programs.canonical_json``) plus sha256 over those exact bytes.
-  The fixture FILE NAME is the digest, so a fixture is addressed by its
-  content and any edit to the file is detectable without a signature.
+  The fixture FILE NAME is the sha256 of its bytes, so a corrupted,
+  truncated or partially written file is refused at read time. A
+  replaced file whose name was recomputed is caught only by regeneration
+  against the governed corpus — code in this repository. The binding is
+  corruption-evident and regeneration-evident, not tamper-evident.
 - ``parse_reference_graph`` — strict, closed-key reader (EC-F01 style):
   unknown keys, count drift, non-governed refs, or a self-edge fail
   closed, nothing returned.

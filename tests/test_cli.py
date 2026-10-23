@@ -550,6 +550,9 @@ def test_audit_json_stable_schema(tmp_path, capsys):
         "artifact_ids_json", "caused_by", "correlation_id", "created_at",
         "event_id", "event_type", "from_state", "payload_json",
         "project_id", "reason", "task_id", "to_state",
+        # TAMPER-2: the row gained the two chain columns; `audit --json`
+        # emits exactly the events-table columns, so they are part of it.
+        "prev_hash", "chain_hash",
     }
     for e in doc["events"]:
         assert set(e.keys()) == schema, sorted(e.keys())

@@ -67,7 +67,9 @@ class TestMigrations:
         # TAMPER-1: version 21 adds the append-only triggers on events.
         # CRED-1: version 22 adds operator_credentials.revoked_at
         # (credential revocation; archive-not-delete).
-        assert SUPPORTED_VERSION == 22
+        # TAMPER-2: version 23 adds events.prev_hash/chain_hash
+        # (per-event journal hash chain, backfilled).
+        assert SUPPORTED_VERSION == 23
 
     def test_migration_17_adds_content_type(self):
         """P4 closure remediation matrix, all four cases."""
@@ -88,10 +90,11 @@ class TestMigrations:
             conn.execute(
                 "ALTER TABLE provider_interactions DROP COLUMN content_type")
             # claim-ground G13 added version 20, TAMPER-1 version 21
-            # (append-only triggers on events), and CRED-1 version 22
-            # (operator_credentials.revoked_at): rewind them too so the
+            # (append-only triggers on events), CRED-1 version 22
+            # (operator_credentials.revoked_at), and TAMPER-2 version 23
+            # (events.prev_hash/chain_hash): rewind them too so the
             # simulated state is a genuine v16 database.
-            conn.execute("DELETE FROM schema_version WHERE version IN (17, 18, 19, 20, 21, 22)")
+            conn.execute("DELETE FROM schema_version WHERE version IN (17, 18, 19, 20, 21, 22, 23)")
             assert conn.execute(
                 "SELECT MAX(version) v FROM schema_version").fetchone()["v"] \
                 == 16
@@ -106,7 +109,7 @@ class TestMigrations:
                     "source_url_redacted, created_at) "
                     "VALUES ('fx-old', 'p1', 'openalex', '1', '1', 'h', "
                     "'{}', 'HTTP_200', 'RECORDED_SUCCESS', 't', 'u', 't')")
-            assert migrate_to_latest(conn) == 22
+            assert migrate_to_latest(conn) == 23
             cols = {r["name"] for r in conn.execute(
                 "SELECT name FROM pragma_table_info("
                 "'provider_interactions')").fetchall()}
@@ -117,8 +120,8 @@ class TestMigrations:
                     "WHERE interaction_id = 'fx-old'").fetchone()
                 assert row["content_type"] is None
                 assert row["provider_id"] == "openalex"
-            # Idempotent re-run: no error, still v22.
-            assert migrate_to_latest(conn) == 22
+            # Idempotent re-run: no error, still v23.
+            assert migrate_to_latest(conn) == 23
             conn.close()
 
     def test_migrate_to_latest_returns_version(self):

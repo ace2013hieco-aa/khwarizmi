@@ -60,8 +60,10 @@ from hermes.core.intents import (
 )
 from hermes.core.node import AgentProfile, NodeContract, NodeType
 from hermes.core.task_status import TaskStatus
+from hermes.persistence.event_validation import EventValidationError, validate_event
 from hermes.persistence.repositories import (
     ArtifactRepository,
+    AuditRecord,
     DatasetManifestRepository,
     DependencyError,
     EventRepository,
@@ -353,6 +355,7 @@ def _validate_propose_research_program(
     *,
     program_repo: ResearchProgramRepository,
     clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """PROPOSE_RESEARCH_PROGRAM: draft payload → compile → record → event.
 
@@ -575,6 +578,11 @@ def _validate_propose_research_program(
         intent.project_id, result,
         produced_by=intent.proposed_by, reason=reason,
         new_slot_declarations=payload.get("new_slot_declarations") or (),
+        # AUDIT-TXN A1.2: hand the record only when the PRE-READ said "new".
+        # record() appends it on whichever branch it lands (new write or an
+        # in-transaction duplicate), so exactly one side appends even if the
+        # row appears between this read and the transaction.
+        audit=audit if existing is None else None,
     )
     return IntentResult(
         kind=intent.kind,
@@ -603,6 +611,7 @@ def _validate_emit_parallel_regime_program(
     *,
     program_repo: ResearchProgramRepository,
     clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """EMIT_PARALLEL_REGIME_PROGRAM: the deterministic controller's internal
     intent for ADR-041 AC-7 (parallel-regime-test program emission).
@@ -816,6 +825,9 @@ def _validate_emit_parallel_regime_program(
         produced_by=intent.proposed_by,  # 'DETERMINISTIC' — origin preserved
         reason=intent.justification,
         new_slot_declarations=(),
+        # AUDIT-TXN A1.2: as in the proposal branch, the pre-read decides
+        # whether the record is handed down (see record()'s docstring).
+        audit=audit if existing is None else None,
     )
     return IntentResult(
         kind=intent.kind,
@@ -840,6 +852,7 @@ def _validate_propose_classification_action(
     intent: Intent,
     *,
     clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """PROPOSE_CLASSIFICATION_ACTION: a Q-05 permitted action for a
     re-review candidate, ADMITTED as a proposal — the audit event IS the
@@ -984,6 +997,10 @@ def _validate_propose_classification_action(
             # actions so the B3 consumer can read it from the recorded event.
             "target_regime": payload.get("target_regime") or "",
         },
+        # AUDIT-TXN A1.2: the proposal event IS the mutation, so the audit
+        # row is appended inside that same transaction. No retry fallback:
+        # a fused ROLLBACK-retry would undo the mutation (A1.3).
+        audit=audit,
     )
     return IntentResult(
         kind=intent.kind, entity_type="classification_action_proposal",
@@ -1008,6 +1025,7 @@ def _decision_append_transactional(
     payload: dict,
     verdict_key: str | None,
     verdict_value: str,
+    audit: AuditRecord | None = None,
 ) -> tuple[str, str | None]:
     """F6 (audit): the one-verdict check and the append run in ONE
     BEGIN IMMEDIATE transaction - a concurrent contradictory verdict can
@@ -1015,7 +1033,12 @@ def _decision_append_transactional(
     autocommit, so two racing applies could both pass it and land two
     contradictory decisions on the same proposal). Returns
     (outcome, prior_verdict) with outcome in appended / duplicate /
-    conflict."""
+    conflict.
+
+    ``audit`` (AUDIT-TXN A1.2) is appended immediately before COMMIT on the
+    ``appended`` branch only. A duplicate or conflict writes no decision, so
+    it appends nothing and the gateway journals the duplicate itself.
+    """
     import json as _json
 
     conn.execute("BEGIN IMMEDIATE")
@@ -1043,6 +1066,14 @@ def _decision_append_transactional(
             conn, clock, event_type,
             project_id=project_id, correlation_id=correlation_id,
             caused_by=caused_by, payload=payload)
+        if audit is not None:
+            _append_event_to_db(
+                conn, clock, audit.event_type,
+                project_id=audit.project_id,
+                correlation_id=audit.correlation_id,
+                caused_by=audit.caused_by,
+                reason=audit.reason,
+                payload=audit.payload)
         conn.execute("COMMIT")
         return ("appended", None)
     except Exception:
@@ -1055,6 +1086,7 @@ def _validate_resolve_classification_proposal(
     intent: Intent,
     *,
     clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """RESOLVE_CLASSIFICATION_PROPOSAL: the ratified HUMAN decision on a
     pending classification-action proposal (internal-only — the human has
@@ -1191,7 +1223,7 @@ def _validate_resolve_classification_proposal(
             "rationale": rationale or "",
             "operator_id": operator_id,
         },
-        verdict_key="decision", verdict_value=decision)
+        verdict_key="decision", verdict_value=decision, audit=audit)
     if outcome == "duplicate":
         return IntentResult(
             kind=intent.kind, entity_type="classification_action_proposal",
@@ -1286,6 +1318,7 @@ _EVIDENCE_TRANSITION_PAYLOAD_KEYS = frozenset({
 
 def _validate_evidence_transition(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """EVIDENCE_TRANSITION — the ratified branch-transition ADMISSION
     (IDR-041 AC-4). Validates the transition shape (ratified evidence
@@ -1404,7 +1437,7 @@ def _validate_evidence_transition(
             "ratification_ref": ratification_ref or "",
             "rationale": rationale or "",
         },
-        verdict_key=None, verdict_value="")
+        verdict_key=None, verdict_value="", audit=audit)
     if outcome == "duplicate":
         return IntentResult(
             kind=intent.kind, entity_type="evidence_transition_proposal",
@@ -1963,6 +1996,7 @@ def _retract_source_emit_retracted_event(
 
 def _validate_retract_source(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """RETRACT_SOURCE — the ratified S5 supersede-and-invalidate cascade
     (v6 §7/S5), implemented Step 5 per the Step 4 decision gate (verdict
@@ -2126,6 +2160,14 @@ def _validate_retract_source(
             invalidated_artifacts=invalidated_artifacts,
             invalidated_tasks=invalidated_tasks,
             invalidated_curated=invalidated_curated)
+        if audit is not None:
+            _append_event_to_db(
+                conn, clock, audit.event_type,
+                project_id=audit.project_id,
+                correlation_id=audit.correlation_id,
+                caused_by=audit.caused_by,
+                reason=audit.reason,
+                payload=audit.payload)
         conn.execute("COMMIT")
     except GatewayRejection:
         if conn.in_transaction:
@@ -2201,6 +2243,7 @@ def _canonical_or_none(value: Any) -> str | None:
 
 def _validate_curate_knowledge(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """CURATE_KNOWLEDGE — the Step 7 curated-knowledge registry admission
     (v6 §16.6), implemented per the Step 7E charter §9 ordering.
@@ -2880,6 +2923,14 @@ def _validate_curate_knowledge(
             artifact_ids=basis_sorted,
             payload=admission_payload)
         # 6. commit
+        if audit is not None:
+            _append_event_to_db(
+                conn, clock, audit.event_type,
+                project_id=audit.project_id,
+                correlation_id=audit.correlation_id,
+                caused_by=audit.caused_by,
+                reason=audit.reason,
+                payload=audit.payload)
         conn.execute("COMMIT")
     except GatewayRejection:
         if conn.in_transaction:
@@ -3018,6 +3069,7 @@ def _cx_classification_facts(conn: Any, project_id: str, artifact_id: str,
 
 def _validate_record_contradiction(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """RECORD_CONTRADICTION — deterministic derived-state admission
     (CHG-1, internal-only — detectors propose pairs, the deterministic
@@ -3255,6 +3307,14 @@ def _validate_record_contradiction(
                      "evidence_overlap": overlap,
                      "detector_version": detector_version,
                      "supersedes_ref": supersedes_ref or None})
+        if audit is not None:
+            _append_event_to_db(
+                conn, clock, audit.event_type,
+                project_id=audit.project_id,
+                correlation_id=audit.correlation_id,
+                caused_by=audit.caused_by,
+                reason=audit.reason,
+                payload=audit.payload)
         conn.execute("COMMIT")
     except GatewayRejection:
         if conn.in_transaction:
@@ -3286,6 +3346,7 @@ def _contradiction_resolution_id(contradiction_id: str) -> str:
 
 def _validate_contradiction_resolution(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """CONTRADICTION_RESOLUTION — the ratified HUMAN verdict closing an
     OPEN contradiction (CHG-1, internal-only — the human has no agent
@@ -3476,6 +3537,14 @@ def _validate_contradiction_resolution(
                      "resolution_id": resolution_id,
                      "human_decision_ref": human_decision_ref,
                      "operator_id": operator_id})
+        if audit is not None:
+            _append_event_to_db(
+                conn, clock, audit.event_type,
+                project_id=audit.project_id,
+                correlation_id=audit.correlation_id,
+                caused_by=audit.caused_by,
+                reason=audit.reason,
+                payload=audit.payload)
         conn.execute("COMMIT")
     except GatewayRejection:
         if conn.in_transaction:
@@ -3504,6 +3573,7 @@ _RECORD_CLASSIFICATION_PAYLOAD_KEYS = frozenset({
 
 def _validate_record_classification(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """RECORD_CLASSIFICATION — operator-asserted failure-classification
     admission (P6, internal-only — the human has no agent profile; the
@@ -3750,7 +3820,7 @@ def _validate_record_classification(
         outcome = FailureClassificationRepository(
             conn, clock).record(
                 intent.project_id, record, draft,
-                producing_task_id=producing_task_id)
+                producing_task_id=producing_task_id, audit=audit)
     except FailureClassificationBindingError as exc:
         raise _reject(kind, EVIDENCE_REF, str(exc)) from None
     except FailureClassificationIntegrityError as exc:
@@ -3770,6 +3840,7 @@ def _validate_record_classification(
 
 def _validate_record_scope_review_decision(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """RECORD_SCOPE_REVIEW_DECISION — the S16 scope-review intake
     (IDR-041 §4). Validated at admission: the ``proposal_id`` must be an
@@ -3854,7 +3925,8 @@ def _validate_record_scope_review_decision(
             "rationale": rationale or "",
             "operator_id": operator_id,
         },
-        verdict_key="scope_decision", verdict_value=scope_decision)
+        verdict_key="scope_decision", verdict_value=scope_decision,
+        audit=audit)
     if outcome == "duplicate":
         return IntentResult(
             kind=intent.kind, entity_type="scope_review_decision",
@@ -3887,6 +3959,7 @@ _MAX_CREDENTIAL_REVOKE_REASON_LENGTH = 1024
 
 def _validate_operator_credential_mutation(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """REVOKE_OPERATOR_CREDENTIAL / ROTATE_OPERATOR_CREDENTIAL — the
     CRED-1 credential-lifecycle admissions.
@@ -3936,10 +4009,12 @@ def _validate_operator_credential_mutation(
     try:
         if intent.kind is IntentKind.REVOKE_OPERATOR_CREDENTIAL:
             outcome = repo.revoke(
-                operator_id, reason=reason, project_id=intent.project_id)
+                operator_id, reason=reason, project_id=intent.project_id,
+                audit=audit)
             event_type = EventType.OPERATOR_CREDENTIAL_REVOKED.value
         else:
-            outcome = repo.rotate(operator_id, project_id=intent.project_id)
+            outcome = repo.rotate(
+                operator_id, project_id=intent.project_id, audit=audit)
             event_type = EventType.OPERATOR_CREDENTIAL_ROTATED.value
     except ValueError as exc:
         # The worker's fail-closed refusals (unknown operator, revoked
@@ -4455,6 +4530,7 @@ def _validate_insert_task(
     task_repo: TaskRepository,
     program_repo: ResearchProgramRepository,
     clock: Callable[[], str],
+    audit: AuditRecord | None = None,
 ) -> IntentResult:
     """INSERT_TASK / ADMIT_TASK: strict payload → atomic task admission.
 
@@ -4525,7 +4601,7 @@ def _validate_insert_task(
             event_type=EventType.TASK_CREATED.value,
         )
     try:
-        row = task_repo.create(node)
+        row = task_repo.create(node, audit=audit)
     except DependencyError as exc:
         raise _reject(
             intent.kind, DEPENDENCY,
@@ -4665,47 +4741,65 @@ def apply_intent(
                     intent.kind, MALFORMED_PAYLOAD,
                     f"governance consult refused: {exc}") from exc
 
+        # AUDIT-TXN (IDR-013 addendum A1.2/A1.3): the applied audit record is
+        # built ONCE, here, and validated with the same 4 KiB / secret /
+        # event-type gate the writer applies — before any validator can open
+        # a transaction. An over-cap or secret-bearing record refuses
+        # pre-write and journals IntentRejected like every other refusal;
+        # under fusion a late refusal would otherwise unwind a committed
+        # mutation. The record is then handed to the dispatched validator as
+        # explicit data (never connection state).
+        audit = _append_audit_event(clock, intent, applied=True)
+        try:
+            validate_event(audit.event_type, audit.payload)
+        except EventValidationError as exc:
+            raise _reject(
+                intent.kind, MALFORMED_PAYLOAD,
+                f"audit payload refused before dispatch: {exc}") from exc
+
         if intent.kind is IntentKind.PROPOSE_RESEARCH_PROGRAM:
             result = _validate_propose_research_program(
-                conn, intent, program_repo=program_repo, clock=clock)
+                conn, intent, program_repo=program_repo, clock=clock,
+                audit=audit)
         elif intent.kind is IntentKind.PROPOSE_CLASSIFICATION_ACTION:
             result = _validate_propose_classification_action(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.RESOLVE_CLASSIFICATION_PROPOSAL:
             result = _validate_resolve_classification_proposal(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.RECORD_SCOPE_REVIEW_DECISION:
             result = _validate_record_scope_review_decision(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.RETRACT_SOURCE:
             result = _validate_retract_source(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.CURATE_KNOWLEDGE:
             result = _validate_curate_knowledge(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.RECORD_CONTRADICTION:
             result = _validate_record_contradiction(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.CONTRADICTION_RESOLUTION:
             result = _validate_contradiction_resolution(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.RECORD_CLASSIFICATION:
             result = _validate_record_classification(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.EMIT_PARALLEL_REGIME_PROGRAM:
             result = _validate_emit_parallel_regime_program(
-                conn, intent, program_repo=program_repo, clock=clock)
+                conn, intent, program_repo=program_repo, clock=clock,
+                audit=audit)
         elif intent.kind in (IntentKind.REVOKE_OPERATOR_CREDENTIAL,
                              IntentKind.ROTATE_OPERATOR_CREDENTIAL):
             result = _validate_operator_credential_mutation(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind is IntentKind.EVIDENCE_TRANSITION:
             result = _validate_evidence_transition(
-                conn, intent, clock=clock)
+                conn, intent, clock=clock, audit=audit)
         elif intent.kind in (IntentKind.INSERT_TASK, IntentKind.ADMIT_TASK):
             result = _validate_insert_task(
                 conn, intent, task_repo=task_repo, program_repo=program_repo,
-                clock=clock)
+                clock=clock, audit=audit)
         else:
             raise _reject(
                 intent.kind, NOT_WIRED,
@@ -4716,40 +4810,51 @@ def apply_intent(
                 f"TRANSITION, INSERT_TASK, ADMIT_TASK)",
             )
     except GatewayRejection:
-        _append_audit_event(conn, clock, intent, applied=False)
+        _write_audit_event(
+            conn, clock, _append_audit_event(clock, intent, applied=False))
         raise
     except Exception:
-        _append_audit_event(conn, clock, intent, applied=False)
+        _write_audit_event(
+            conn, clock, _append_audit_event(clock, intent, applied=False))
         raise
 
-    _append_audit_event(conn, clock, intent, applied=True)
+    # AUDIT-TXN A1.3 invariant 2: on a duplicate the call wrote NO mutation,
+    # so its audit row stands alone (the mutation it reports is durable from
+    # the earlier admission, which fused its own audit row). On a real write
+    # the owner already appended the record inside the mutation transaction —
+    # writing it again here would duplicate it and break the crash window.
+    if result.duplicate:
+        _write_audit_event(conn, clock, audit)
     return result
 
 
 def _append_audit_event(
-    conn: Any,
     clock: Callable[[], str],
     intent: Intent,
     *,
     applied: bool,
-) -> None:
-    """Append the IntentApplied / IntentRejected audit event (own transaction).
+) -> AuditRecord:
+    """Build the IntentApplied / IntentRejected audit record (pure).
+
+    AUDIT-TXN (IDR-013 addendum A1.2): this is a BUILDER, not a writer. It
+    returns the record so ``apply_intent`` can hand it to the transaction
+    that owns the mutation (fused append) or write it on its own (duplicate /
+    rejection). The payload and its provenance-clamping logic are unchanged
+    from the pre-fusion writer.
 
     The ``events.project_id`` column references ``projects`` (FK enforced), so
     when the rejection is a missing/stale project the column falls back to
     NULL — the project id stays in the payload (rejection is never dropped
-    from the audit trail).
+    from the audit trail). That fallback lives in ``_write_audit_event``,
+    which owns the retry.
 
     IDR-045 D2: provenance fields are appended **only when non-default**
     (``None``-guarded) so the default payload stays byte-identical (V2/V3).
-    Per-field max lengths (C5) are **not** enforced here: this function runs
-    after the validator has already committed its row, so raising from here
-    refused an intent whose mutation was already durable and left no
-    ``IntentApplied``/``IntentRejected`` row (MERGE-AUDIT-045 F2). The bounds
-    are enforced pre-write by ``_require_provenance_bounds`` from
-    ``apply_intent``, and fail-closed at construction in ``Intent.__post_init__``.
-    The gateway's role gate reads ``proposed_by`` only — ``origin_*`` is
-    never authority (V1).
+    Per-field max lengths (C5) are **not** enforced here: this builder runs
+    before dispatch, and the bounds are enforced pre-write by
+    ``_require_provenance_bounds`` from ``apply_intent``, and fail-closed at
+    construction in ``Intent.__post_init__``. The gateway's role gate reads
+    ``proposed_by`` only — ``origin_*`` is never authority (V1).
     """
     kind_label = (intent.kind.value if isinstance(intent.kind, IntentKind)
                   else str(intent.kind))
@@ -4794,13 +4899,78 @@ def _append_audit_event(
         payload[_name] = _value
     if _provenance_bounds:
         payload["provenance_bounded"] = _provenance_bounds
-    correlation_id = f"intent-{kind_label}-{clock()}"
-    EventRepository(conn).append_transactional(
-        clock, event_type,
+    return AuditRecord(
+        event_type=event_type,
         project_id=intent.project_id,
-        correlation_id=correlation_id,
+        correlation_id=f"intent-{kind_label}-{clock()}",
         caused_by=intent.proposed_by,
         reason="" if applied else "intent rejected",
         payload=payload,
+    )
+
+
+def _write_audit_event(
+    conn: Any,
+    clock: Callable[[], str],
+    record: AuditRecord,
+) -> None:
+    """Write one audit row in ITS OWN transaction.
+
+    AUDIT-TXN (A1.2/A1.3): used ONLY where the call wrote no mutation — a
+    duplicate replay and a rejection. A rejection produces no mutation, so
+    there is nothing to fuse and nothing that can be stranded; keeping its
+    own transaction is also what keeps the ``retry_without_project`` FK
+    fallback available. The fused mutation path never reaches this function,
+    so ``append_transactional``'s ROLLBACK-retry can never run inside a
+    mutation transaction.
+
+    Refusal journaling stays total even when the echoed value is itself why
+    the row cannot be written (an over-cap or secret-bearing justification):
+    the record is bounded once, marked, and written — the refusal code and
+    reason are never lost.
+    """
+    try:
+        _append_audit_row(conn, clock, record)
+    except EventValidationError as exc:
+        justification = record.payload.get("justification")
+        if not isinstance(justification, str):
+            raise
+        bounded = dict(record.payload)
+        if exc.field == "payload_json":
+            bounded["justification"] = justification[:1024]
+            marker = f"justification=<truncated {len(justification)}->1024>"
+        else:
+            # A secret-format match (or any other value defect): the echo is
+            # omitted, never sanitised into something that looks authored.
+            bounded.pop("justification", None)
+            marker = f"justification=<omitted: {exc.reason}>"
+        bounded["audit_bounded"] = [marker]
+        _append_audit_row(
+            conn, clock,
+            AuditRecord(
+                event_type=record.event_type,
+                project_id=record.project_id,
+                correlation_id=record.correlation_id,
+                caused_by=record.caused_by,
+                reason=record.reason,
+                payload=bounded,
+            ),
+        )
+
+
+def _append_audit_row(
+    conn: Any,
+    clock: Callable[[], str],
+    record: AuditRecord,
+) -> None:
+    """The single own-transaction write of an ``AuditRecord``."""
+    EventRepository(conn).append_transactional(
+        clock, record.event_type,
+        project_id=record.project_id,
+        correlation_id=record.correlation_id,
+        caused_by=record.caused_by,
+        reason=record.reason,
+        payload=record.payload,
         retry_without_project=True,
     )
+

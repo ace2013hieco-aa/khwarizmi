@@ -19,6 +19,18 @@ PROVENANCE_STRIP (reviewed; the ONLY fields that are normalized)::
                              :223, :283, ... minted with uuid.uuid4()). Replaced
                              by the literal ``<uuid4>``; non-uuid values are kept.
 
+DERIVED_STRIP (TAMPER-2; derived from the above, carries no content of its
+own)::
+
+    events.prev_hash / events.chain_hash — the per-event chain digests
+                             (IDR TAMPER-EVIDENT-JOURNAL §1.4) are computed
+                             over the 11 content fields *including*
+                             correlation_id, so two runs that mint fresh uuid4
+                             correlation ids necessarily produce different
+                             digests. Replaced by the literal ``<chain>`` for
+                             the same reason the uuid is: the digest is a
+                             function of fields already compared verbatim.
+
 Nothing else is stripped. Content fields (payload_json, artifact metadata,
 contradiction parties/overlap/detector_version, created_at under the frozen
 clock) are compared verbatim. Identity scheme (G1) is NOT changed here.
@@ -53,6 +65,10 @@ _UUID4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 PROVENANCE_STRIP: tuple[tuple[str, str], ...] = (("events", "correlation_id"),)
+
+DERIVED_STRIP: tuple[tuple[str, str], ...] = (
+    ("events", "prev_hash"), ("events", "chain_hash"),
+)
 
 _CLASSES = ("DECLARED_CONSTRAINT_VIOLATION", "IMPLEMENTATION_FAILURE")
 
@@ -125,7 +141,8 @@ def run_detector(conn: sqlite3.Connection) -> dict[str, Any]:
 
 def canonical_dump(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
     """Every user table, rows sorted by canonical JSON, with the declared
-    provenance strip applied and nothing else changed."""
+    provenance strip (and its derived chain digests) applied and nothing else
+    changed."""
     out: dict[str, list[dict[str, Any]]] = {}
     tables = [r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' "
@@ -139,6 +156,9 @@ def canonical_dump(conn: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
                 if tbl == table and isinstance(row.get(col), str) \
                         and _UUID4.match(row[col]):
                     row[col] = "<uuid4>"
+            for tbl, col in DERIVED_STRIP:
+                if tbl == table and row.get(col) is not None:
+                    row[col] = "<chain>"
             rows.append(row)
         rows.sort(key=lambda r: json.dumps(r, sort_keys=True, default=str))
         out[table] = rows

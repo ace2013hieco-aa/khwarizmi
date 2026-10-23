@@ -256,6 +256,7 @@ def test_8b_schema_version_is_8(db):
     # CHG-1/CHG-2: version 16 adds contradictions + provider_interactions
     # TAMPER-1: version 21 adds the append-only triggers on events
     # CRED-1: version 22 adds operator_credentials.revoked_at
-    assert SUPPORTED_VERSION == 22
+    # TAMPER-2: version 23 adds events.prev_hash/chain_hash
+    assert SUPPORTED_VERSION == 23
     from hermes.persistence.database import get_schema_version
-    assert get_schema_version(db) == 22
+    assert get_schema_version(db) == 23

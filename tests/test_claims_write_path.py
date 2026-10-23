@@ -724,9 +724,17 @@ def test_migration_v4_to_v5_upgrade_path():
         fn(conn, clock)
         conn.execute("COMMIT")
     assert get_schema_version(conn) == 4
-    ProjectRepository(conn).create("p1", "Test")
+    # Written raw, as a v4 database's own writer wrote it: the v23 writer
+    # appends chain columns that do not exist at v4.
+    conn.execute(
+        "INSERT INTO projects (project_id, name, lifecycle_state, "
+        "operational_mode, iteration, created_at, updated_at) "
+        "VALUES ('p1', 'Test', 'CREATED', 'ACTIVE', 1, ?, ?)",
+        ("2026-01-01T00:00:00.000000+00:00",
+         "2026-01-01T00:00:00.000000+00:00"),
+    )
     migrate_to_latest(conn)
-    assert get_schema_version(conn) == 22  # TAMPER-1: 20 → 21 (append-only triggers on events); CRED-1: 21 → 22 (operator_credentials.revoked_at); claim-ground G13: 19 → 20 (model provenance); # Q-02: 8 → 9; IDR-041: 9 → 10; A4: 10 → 11; F9: 11 → 12; M1: 12 → 13; M4: 13 → 14; Step 7: 14 → 15; CHG-1/CHG-2: 15 → 16; P4 closure: 16 → 17; Step 3 FIX 1: 17 → 18 (advisory related_claim_ids); 18 → 19 (ADR-041: parallel-regime-test columns on research_programs)
+    assert get_schema_version(conn) == 23  # TAMPER-2: 22 → 23 (events.prev_hash/chain_hash); TAMPER-1: 20 → 21 (append-only triggers on events); CRED-1: 21 → 22 (operator_credentials.revoked_at); claim-ground G13: 19 → 20 (model provenance); # Q-02: 8 → 9; IDR-041: 9 → 10; A4: 10 → 11; F9: 11 → 12; M1: 12 → 13; M4: 13 → 14; Step 7: 14 → 15; CHG-1/CHG-2: 15 → 16; P4 closure: 16 → 17; Step 3 FIX 1: 17 → 18 (advisory related_claim_ids); 18 → 19 (ADR-041: parallel-regime-test columns on research_programs)
     # new tables usable after upgrade
     conn.execute(
         """INSERT INTO dataset_manifests

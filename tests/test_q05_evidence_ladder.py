@@ -868,7 +868,7 @@ class TestSubstrateAndReadSurface:
         from hermes.persistence.migrations import SUPPORTED_VERSION
         v = db.execute(
             "SELECT MAX(version) FROM schema_version").fetchone()[0]
-        assert v == SUPPORTED_VERSION == 22
+        assert v == SUPPORTED_VERSION == 23
         # M4/HR-05: research_claims carries the closed support_state column.
         col = db.execute(
             "SELECT name FROM pragma_table_info('research_claims') "
@@ -985,10 +985,11 @@ class TestSubstrateAndReadSurface:
             "DELETE FROM schema_version WHERE version = 18")
         # ADR-041: version 19 (parallel-regime-test columns on
         # research_programs) too — roll back past it. TAMPER-1: version 21
-        # (append-only triggers on events) and CRED-1: version 22
-        # (operator_credentials.revoked_at) — roll back past those too.
+        # (append-only triggers on events), CRED-1: version 22
+        # (operator_credentials.revoked_at) and TAMPER-2: version 23
+        # (events.prev_hash/chain_hash) — roll back past those too.
         conn.execute(
-            "DELETE FROM schema_version WHERE version IN (19, 20, 21, 22)")
+            "DELETE FROM schema_version WHERE version IN (19, 20, 21, 22, 23)")
         conn.execute(
             "INSERT INTO events (event_type, project_id, correlation_id, "
             "caused_by, payload_json, created_at) VALUES "

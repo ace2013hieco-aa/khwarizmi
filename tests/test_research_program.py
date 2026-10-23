@@ -868,14 +868,14 @@ class TestMigration:
     def test_fresh_db_migrates_to_latest(self):
         conn = connect(":memory:")
         migrate_to_latest(conn)
-        assert get_schema_version(conn) == SUPPORTED_VERSION == 22  # Q-02: 8 → 9; IDR-041: 9 → 10; A4: 10 → 11; F9: 11 → 12; M1: 12 → 13; M4: 13 → 14; Step 7: 14 → 15; CHG-1/CHG-2: 15 → 16; P4 closure: 16 → 17; Step 3 FIX 1: 17 → 18 (advisory related_claim_ids); 18 → 19 (ADR-041: parallel-regime-test columns on research_programs); TAMPER-1: 20 → 21 (append-only triggers on events); CRED-1: 21 → 22 (operator_credentials.revoked_at)
+        assert get_schema_version(conn) == SUPPORTED_VERSION == 23  # Q-02: 8 → 9; IDR-041: 9 → 10; A4: 10 → 11; F9: 11 → 12; M1: 12 → 13; M4: 13 → 14; Step 7: 14 → 15; CHG-1/CHG-2: 15 → 16; P4 closure: 16 → 17; Step 3 FIX 1: 17 → 18 (advisory related_claim_ids); 18 → 19 (ADR-041: parallel-regime-test columns on research_programs); TAMPER-1: 20 → 21 (append-only triggers on events); CRED-1: 21 → 22 (operator_credentials.revoked_at); TAMPER-2: 22 → 23 (events.prev_hash/chain_hash)
         conn.close()
 
     def test_migration_replay_idempotent(self):
         conn = connect(":memory:")
         migrate_to_latest(conn)
         migrate_to_latest(conn)
-        assert get_schema_version(conn) == 22
+        assert get_schema_version(conn) == 23
         conn.close()
 
     def test_v3_to_v4_upgrade_path(self):
@@ -888,8 +888,15 @@ class TestMigration:
             fn(conn, clock)
             conn.execute("COMMIT")
         assert get_schema_version(conn) == 3
-        # v3 data survives
-        ProjectRepository(conn).create("p1", "Test")
+        # v3 data survives. Written raw, as a v3 database's own writer wrote
+        # it: the v23 writer appends chain columns that do not exist yet.
+        conn.execute(
+            "INSERT INTO projects (project_id, name, lifecycle_state, "
+            "operational_mode, iteration, created_at, updated_at) "
+            "VALUES ('p1', 'Test', 'CREATED', 'ACTIVE', 1, ?, ?)",
+            ("2026-01-01T00:00:00.000000+00:00",
+             "2026-01-01T00:00:00.000000+00:00"),
+        )
         conn.execute(
             """INSERT INTO scope_briefs (brief_id, project_id, version,
                content_hash, supersedes_id, scope_text_json, rationale,
@@ -900,7 +907,7 @@ class TestMigration:
              "2026-01-01T00:00:00.000000+00:00"),
         )
         migrate_to_latest(conn)
-        assert get_schema_version(conn) == 22
+        assert get_schema_version(conn) == 23
         assert ProjectRepository(conn).get("p1")["lifecycle_state"] == "CREATED"
         # new tables usable after upgrade
         rp = ResearchProgramRepository(conn)

@@ -261,7 +261,7 @@ def test_g13_migration_adds_nullable_provenance_columns(db):
     cols = {row["name"] for row in db.execute(
         "SELECT name FROM pragma_table_info('research_claims')")}
     assert {"model_ref", "prompt_template_version", "run_id"} <= cols
-    assert get_schema_version(db) == SUPPORTED_VERSION == 22
+    assert get_schema_version(db) == SUPPORTED_VERSION == 23
 
 
 def test_g13_provenance_is_null_when_not_asserted_never_fabricated(db):

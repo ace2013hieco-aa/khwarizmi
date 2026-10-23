@@ -34,7 +34,7 @@ EXPECTED_REFUSAL_CODE_COUNTS = {
     "DEPENDENCY": 4,
     "EVIDENCE_REF": 26,
     "IDEMPOTENCY_CONFLICT": 3,
-    "MALFORMED_PAYLOAD": 123,  # COND-TYPE +1; GAP-1 P2-10 payload-shape +1
+    "MALFORMED_PAYLOAD": 124,  # COND-TYPE +1; P2-10 +1; AUDIT-TXN +1
     "NOT_COMPILED": 2,
     "NOT_WIRED": 1,
     "OPERATOR": 5,
@@ -137,7 +137,9 @@ def test_gateway_refusal_code_census_is_exact() -> None:
         "refusal codes must be bare module constants raised in place; "
         f"string-built or non-raise refusals defeat the census: {anomalies}")
     assert counts == EXPECTED_REFUSAL_CODE_COUNTS
-    assert sum(counts.values()) == 268  # COND-TYPE +1 site; GAP-1 P2-10 +1 site
+    # COND-TYPE +1 site; GAP-1 P2-10 +1 site; AUDIT-TXN +1 site (the
+    # pre-dispatch audit-payload gate in apply_intent).
+    assert sum(counts.values()) == 269
 
 
 def test_proposal_refusal_code_count_is_deterministic() -> None:

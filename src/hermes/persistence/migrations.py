@@ -16,8 +16,9 @@ from __future__ import annotations
 import sqlite3
 
 from hermes.core import Clock, utc_now
+from hermes.persistence.journal_chain import rechain_journal
 
-SUPPORTED_VERSION = 22
+SUPPORTED_VERSION = 23
 
 # ── append-only journal triggers (IDR TAMPER-EVIDENT-JOURNAL §2.1) ──
 #
@@ -46,6 +47,18 @@ def _create_events_append_only_triggers(conn: sqlite3.Connection) -> None:
     """(Re-)create the append-only triggers on ``events`` (IDR §2.1)."""
     for statement in _EVENTS_APPEND_ONLY_TRIGGER_DDL:
         conn.execute(statement)
+
+
+def _drop_events_append_only_triggers(conn: sqlite3.Connection) -> None:
+    """Drop both append-only triggers on ``events`` (the re-chain window).
+
+    Only the chain migration and the re-chain tool open this window, always
+    inside the caller's transaction: SQLite DDL is transactional, so a
+    failure anywhere rolls the drop back and both triggers return with the
+    rest of the transaction.
+    """
+    conn.execute("DROP TRIGGER IF EXISTS trg_events_append_only_update")
+    conn.execute("DROP TRIGGER IF EXISTS trg_events_append_only_delete")
 
 
 def _migrate_0_to_1(conn: sqlite3.Connection, clock: Clock) -> None:
@@ -1312,8 +1325,52 @@ def _migrate_21_to_22(conn: sqlite3.Connection, clock: Clock) -> None:
     )
 
 
-# ── migration registry (indexed by version number) ──
+def _migrate_22_to_23(conn: sqlite3.Connection, clock: Clock) -> None:
+    """Migration 22 → 23 (TAMPER-2 / GAP-1 D1: per-event hash chain).
 
+    Appends the two NULLABLE chain columns to ``events`` and backfills every
+    existing row from ``GENESIS`` in ``event_id`` ascending order (addendum
+    A2/A7.1), so the whole journal as stored at migration time is covered.
+    ``created_at`` is not touched — ``ADD COLUMN`` does not rewrite rows — and
+    no table is rebuilt.
+
+    Statement order is mandatory and load-bearing: the backfill is an
+    ``UPDATE events``, and the triggers shipped by 20 → 21 abort every
+    ``UPDATE events`` with ``HERMES_JOURNAL_IMMUTABLE_UPDATE``. The migration
+    therefore opens a ``DROP TRIGGER`` window inside its own transaction —
+    drop both, add the columns, re-chain, recreate both **last**. SQLite DDL
+    is transactional, so a failure anywhere rolls the drop back; there is no
+    committed state in which the journal is mutable.
+
+    Idempotent: the ``ADD COLUMN`` steps are guarded by ``pragma_table_info``,
+    the ``schema_version`` row is written only when 23 is absent, and the
+    triggers are dropped and recreated unconditionally — the re-chain tool
+    (``migrate_to_latest(conn, start_version=22)``) re-executes this body on
+    an already-v23 database.
+
+    No transaction-control call of its own: the runner owns the transaction.
+    """
+    ts = clock()
+    _drop_events_append_only_triggers(conn)
+    columns = {row["name"] for row in conn.execute(
+        "SELECT name FROM pragma_table_info('events')",
+    ).fetchall()}
+    if "prev_hash" not in columns:
+        conn.execute("ALTER TABLE events ADD COLUMN prev_hash TEXT")
+    if "chain_hash" not in columns:
+        conn.execute("ALTER TABLE events ADD COLUMN chain_hash TEXT")
+    rechain_journal(conn)
+    _create_events_append_only_triggers(conn)
+    applied = {row[0] for row in conn.execute(
+        "SELECT version FROM schema_version").fetchall()}
+    if 23 not in applied:
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+            (23, ts),
+        )
+
+
+# ── migration registry (indexed by version number) ──
 _MIGRATIONS = [
     _migrate_0_to_1,  # version 0 → 1
     _migrate_1_to_2,  # version 1 → 2
@@ -1337,14 +1394,27 @@ _MIGRATIONS = [
     _migrate_19_to_20,  # version 19 → 20 (claim-ground G13: model_ref/prompt_template_version/run_id on research_claims)
     _migrate_20_to_21,  # version 20 → 21 (TAMPER-1: append-only triggers on events)
     _migrate_21_to_22,  # version 21 → 22 (CRED-1: operator_credentials.revoked_at)
+    _migrate_22_to_23,  # version 22 → 23 (TAMPER-2: per-event journal hash chain)
 ]
 
 
-def migrate_to_latest(conn: sqlite3.Connection, clock: Clock | None = None) -> int:
+def migrate_to_latest(
+    conn: sqlite3.Connection,
+    clock: Clock | None = None,
+    start_version: int | None = None,
+) -> int:
     """Run all pending migrations. Returns the resulting schema version.
 
     Should be called once at startup. Migrations run in order within a
     transaction (IDR-010).
+
+    ``start_version`` is an internal maintenance hook for exactly one caller
+    (``hermes journal rechain``, addendum A7.5): it replaces the loop start,
+    so ``migrate_to_latest(conn, start_version=22)`` re-executes the 22 → 23
+    body — and nothing else — inside the transaction the runner already
+    opens. ``None`` preserves the startup behaviour exactly (the loop starts
+    at the stored schema version). It adds no transaction-control call and no
+    owner: it only changes the first argument of the ``range()`` below.
     """
     clk = clock or utc_now
     current = _get_version(conn)
@@ -1353,7 +1423,9 @@ def migrate_to_latest(conn: sqlite3.Connection, clock: Clock | None = None) -> i
         from hermes.persistence.database import SchemaVersionError
         raise SchemaVersionError(current, SUPPORTED_VERSION)
 
-    for i in range(current, len(_MIGRATIONS)):
+    start = current if start_version is None else start_version
+
+    for i in range(start, len(_MIGRATIONS)):
         migration = _MIGRATIONS[i]
         conn.execute("BEGIN")
         try:

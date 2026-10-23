@@ -42,7 +42,7 @@ Non-negotiables (each is structural, not a rule):
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from hermes.core import Clock, utc_now
 from hermes.core.task_status import TaskStatus
@@ -67,6 +67,9 @@ from hermes.research.regimes import (
     parse_regime_ref,
     resolve_regime,
 )
+
+if TYPE_CHECKING:
+    from hermes.persistence.repositories import AuditRecord
 
 __all__ = [
     "FAILURE_CLASSIFICATION_ARTIFACT_TYPE",
@@ -139,6 +142,7 @@ class FailureClassificationRepository:
         producing_task_id: str,
         claimed: FailureClassification | None = None,
         reason: str = "",
+        audit: AuditRecord | None = None,
     ) -> dict:
         """Persist an ADMITTED failure classification atomically (row + edges).
 
@@ -155,6 +159,11 @@ class FailureClassificationRepository:
         The caller supplies (``record``, ``draft``) — the write path re-runs
         the substrate with the real resolver bundle and never trusts an
         authored hash or an ADMITTED claim (D1, EC-V6).
+
+        ``audit`` (AUDIT-TXN A1.2): the IntentApplied record, appended inside
+        this transaction immediately before COMMIT when the classification is
+        NEW. A REUSED row writes nothing, so it appends nothing and the
+        gateway journals the duplicate itself.
         """
         if record.project_id != project_id:
             raise FailureClassificationError(
@@ -317,6 +326,18 @@ class FailureClassificationRepository:
                     "(artifact_id, upstream_id, edge_type, created_at) "
                     "VALUES (?, ?, ?, ?)",
                     (artifact_id, upstream_id, edge_type, ts),
+                )
+            if audit is not None and decision == "NEW":
+                from hermes.persistence.repositories import (
+                    _append_event_to_db,
+                )
+                _append_event_to_db(
+                    self._conn, self._clock, audit.event_type,
+                    project_id=audit.project_id,
+                    correlation_id=audit.correlation_id,
+                    caused_by=audit.caused_by,
+                    reason=audit.reason,
+                    payload=audit.payload,
                 )
             self._conn.execute("COMMIT")
         except FailureClassificationError:

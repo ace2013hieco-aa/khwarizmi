@@ -9,6 +9,15 @@ mutation, and re-creates them from the exact DDL captured in
 ``sqlite_master`` — so each adapted site proves both the refusal and the
 consumer's fail-closed behavior, and the discipline survives the mutation.
 
+TAMPER-2: a forced mutation now also invalidates the per-event chain. The
+row's stored ``chain_hash`` no longer matches its own bytes, so an explicit
+``hermes journal verify`` (or ``verify_journal``) reports
+``CHAIN_HASH_MISMATCH`` from that row onward. That is correct and expected —
+the chain is the second detection layer, not a third refusal layer. It
+changes no test here because **no production read path verifies the chain**
+(verification is explicit only, IDR addendum A3), so a tampered fixture keeps
+exercising exactly the consumer behavior it was written for.
+
 Not a test module (name does not match ``test_*.py``).
 """
 from __future__ import annotations
