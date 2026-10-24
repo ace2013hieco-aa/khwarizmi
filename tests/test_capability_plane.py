@@ -4,8 +4,9 @@ Covers the plane's whole contract:
 
 - **authority, default-deny and first** — no grant, wrong profile, unreachable
   capability, risk above the ceiling, unapproved capability (`PROPOSAL`),
-  mutating tool (`ROLE`), declared reach without `sandboxed=True` (`ROLE`), and
-  the ordering proof that an unauthorized attempt runs nothing, consumes no rate
+  mutating tool (`ROLE`), the R5 sandbox-declaration legality matrix (TOOL kind
+  may run in-process without `sandboxed=True`; SANDBOX kind may not), and the
+  ordering proof that an unauthorized attempt runs nothing, consumes no rate
   token, writes no ledger record, and records no arguments;
 - **lease attribution** — `LOCK` on a missing/blank lease-generation tag, and the
   source-level re-derivation of where `LOCK` and `RATIONALE` actually come from
@@ -87,6 +88,7 @@ from hermes.tools.capabilities.types import (
     EVIDENCE_REF,
     GATEWAY_DEFINED_CODES,
     IDEMPOTENCY_CONFLICT,
+    IN_PROCESS_ENVIRONMENT,
     INPUT_TYPES,
     LOCK,
     MALFORMED_PAYLOAD,
@@ -177,6 +179,9 @@ TOOLS: tuple[Tool, ...] = (
     Tool(tool_id="svc.risky", summary="Declares high risk.", risk=RiskLevel.HIGH),
     Tool(tool_id="svc.reach", summary="Declares network reach.",
          risk=RiskLevel.HIGH, network=True),
+    Tool(tool_id="svc.url", summary="Fetches a declared URL.",
+         network=True,
+         inputs=(InputField(name="url", type="string"),)),
     Tool(tool_id="svc.scoped", summary="Reads inside a declared scope.",
          filesystem_scope="work",
          inputs=(InputField(name="path", type="string"),),
@@ -213,6 +218,7 @@ CAPABILITIES: tuple[Capability, ...] = (
     Capability(capability_id="cap.write", tool_id="svc.write"),
     Capability(capability_id="cap.risky", tool_id="svc.risky"),
     Capability(capability_id="cap.reach", tool_id="svc.reach"),
+    Capability(capability_id="cap.url", tool_id="svc.url"),
     Capability(capability_id="cap.scoped", tool_id="svc.scoped"),
     Capability(capability_id="cap.sandboxed", tool_id="svc.sandboxed",
                kind=CapabilityKind.SANDBOX),
@@ -434,6 +440,15 @@ def build_rig(*, sandbox_enabled: bool = False, gated: bool = True,
         _record("svc.authish", arguments)
         return ToolResult(payload="authish ran")
 
+    def reach(arguments: dict[str, Any], context: ToolCallContext
+              ) -> ToolResult:
+        _record("svc.reach", arguments)
+        return ToolResult(payload="reach ran")
+
+    def url(arguments: dict[str, Any], context: ToolCallContext) -> ToolResult:
+        _record("svc.url", arguments)
+        return ToolResult(payload=f"url:{arguments.get('url', '')}")
+
     implementations = {
         "svc.echo": echo,
         "svc.lookup": lookup,
@@ -446,6 +461,8 @@ def build_rig(*, sandbox_enabled: bool = False, gated: bool = True,
         "svc.fragile": fragile,
         "svc.big": big,
         "svc.authish": authish,
+        "svc.reach": reach,
+        "svc.url": url,
     }
     for tool_id in drop_implementations:
         implementations.pop(tool_id, None)
@@ -940,12 +957,52 @@ def test_a_mutating_tool_refuses_role_before_anything_else() -> None:
     assert rig.calls == []
 
 
-def test_declared_reach_without_sandboxed_true_refuses_role() -> None:
+def test_a_tool_kind_network_capability_is_legal_without_sandboxed_true() -> None:
+    """OPS-5 R5 — a TOOL that reaches the network runs in-process with
+    `sandboxed=False`; the envelope records that fact instead of an isolation
+    claim. The old permission-ticket refusal is gone for TOOL kind."""
     rig = build_rig()
-    refusal = refusal_of(rig.call("cap.reach"))
-    assert refusal.code == ROLE
-    assert "without declaring sandboxed=True" in refusal.detail
-    assert rig.calls == []
+    observation = observation_of(rig.call("cap.reach"))
+    assert observation.ok()
+    assert rig.calls == ["svc.reach"]
+    envelope = envelope_of(observation)
+    assert envelope.authority.decision == "GRANTED"
+    assert envelope.environment == IN_PROCESS_ENVIRONMENT
+    assert f"environment={IN_PROCESS_ENVIRONMENT}" in envelope.reconstruct()
+    assert envelope.to_mapping()["environment"] == IN_PROCESS_ENVIRONMENT
+
+
+@pytest.mark.parametrize(
+    ("kind", "sandboxed", "legal"),
+    (
+        (CapabilityKind.TOOL, False, True),
+        (CapabilityKind.TOOL, True, True),
+        (CapabilityKind.SANDBOX, False, False),
+        (CapabilityKind.SANDBOX, True, True),
+    ),
+    ids=(
+        "TOOL/unsandboxed",
+        "TOOL/sandboxed",
+        "SANDBOX/unsandboxed",
+        "SANDBOX/sandboxed",
+    ),
+)
+def test_the_sandbox_declaration_legality_matrix(
+        kind: CapabilityKind, sandboxed: bool, legal: bool) -> None:
+    """OPS-5 R5 — `sandboxed` is a declaration of required isolation, not a
+    permission ticket. TOOL kind is legal either way; SANDBOX kind is legal
+    only over a tool that declares isolation (registry.py:167, unchanged)."""
+    registry = CapabilityRegistry(allowlist=frozenset({"cap.matrix"}))
+    registry.register_tool(Tool(
+        tool_id="svc.matrix", summary="Declares network reach.",
+        network=True, sandboxed=sandboxed))
+    capability = Capability(capability_id="cap.matrix",
+                            tool_id="svc.matrix", kind=kind)
+    if legal:
+        assert registry.register_capability(capability) is capability
+    else:
+        with pytest.raises(ProviderValidationError, match="sandboxed=True"):
+            registry.register_capability(capability)
 
 
 # ── lease attribution: LOCK ──
@@ -1257,6 +1314,17 @@ def test_a_path_inside_the_declared_scope_is_allowed() -> None:
                                           arguments={"path": "work/a.txt"}))
     assert observation.ok() is True
     assert rig.received[0]["path"] == "work/a.txt"
+
+
+def test_a_url_on_a_network_tool_is_not_a_filesystem_path() -> None:
+    """The path rules judge a DECLARED filesystem boundary. A network-only
+    tool receives a URL, not an absolute path — the old scan refused every
+    such call before the egress gate could vet the host (OPS-5A)."""
+    rig = build_rig()
+    observation = observation_of(rig.call(
+        "cap.url", arguments={"url": "https://api.openalex.org/works"}))
+    assert observation.ok() is True
+    assert rig.received[0]["url"] == "https://api.openalex.org/works"
 
 
 def test_a_process_construct_in_an_argument_refuses() -> None:

@@ -72,6 +72,7 @@ __all__ = [
     "GATEWAY_DEFINED_CODES",
     "IDEMPOTENCY_CONFLICT",
     "INPUT_TYPES",
+    "IN_PROCESS_ENVIRONMENT",
     "LOCK",
     "MALFORMED_PAYLOAD",
     "MAX_ARGUMENT_BYTES",
@@ -134,6 +135,12 @@ RISK_ORDER: tuple[str, ...] = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 #: a capability argument set is a closed, flat, recordable structure, not a
 #: nested document. Richer shapes belong to artifacts.
 INPUT_TYPES: tuple[str, ...] = ("string", "integer", "number", "boolean", "array")
+
+#: The recorded environment of a side-effecting TOOL that runs in the
+#: controller's own process with no sandbox (OPS-5 R5). `Tool.environment` may
+#: carry a more specific value; an empty one means in-process and is recorded
+#: as this string, never omitted — the record must not imply isolation.
+IN_PROCESS_ENVIRONMENT = "in-process (no sandbox)"
 
 
 # ── enums ──
@@ -240,8 +247,14 @@ class Tool:
     process: bool = False
     timeout_seconds: float = 30.0
     hazard_spec: str = ""
+    #: `sandboxed` is a declaration of REQUIRED isolation, not a permission
+    #: ticket. A `SANDBOX`-kind capability may only address a tool that declares
+    #: it (`registry.py:167`). A `TOOL`-kind capability may declare network /
+    #: filesystem / process reach and run in-process with `sandboxed=False`;
+    #: the envelope then records `environment` (OPS-5 R5) instead of claiming
+    #: an isolation the plane never applied.
     sandboxed: bool = False
-    environment: str = ""  # e.g. a sandbox runner name; "" = in-process
+    environment: str = ""  # "" = in-process (recorded as IN_PROCESS_ENVIRONMENT)
 
     def input_field(self, name: str) -> InputField | None:
         for spec in self.inputs:

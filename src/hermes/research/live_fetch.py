@@ -62,10 +62,12 @@ __all__ = [
     "ALLOWLIST_HOSTS",
     "DEFAULT_PER_CALL_TIMEOUT_SECONDS",
     "RATE_LIMITER_PERSISTENCE",
+    "EgressRefusal",
     "LiveFetchWiring",
     "allowlist_from_config",
     "build_live_fetch_wiring",
     "default_dns_resolve",
+    "preflight_egress",
     "rate_profiles_from_autonomy",
     "source_policy_from_autonomy",
 ]
@@ -86,6 +88,67 @@ ALLOWLIST_HOSTS: tuple[str, ...] = (
     "pubmed.ncbi.nlm.nih.gov",
 )
 DEFAULT_PER_CALL_TIMEOUT_SECONDS = 10.0
+
+
+class EgressRefusal(ProviderValidationError):
+    """A named pre-dial egress refusal (OPS-5 R1).
+
+    Subclasses the lifecycle's refusal type, so every existing caller still
+    receives a ``ProviderValidationError`` and the message is unchanged. The
+    attributes carry the rule's named code, the host, and the rule detail so a
+    capability call can journal the refusal with both, never just a class name.
+    """
+
+    def __init__(self, code: str, host: str, detail: str) -> None:
+        super().__init__(
+            f"live fetch egress refused [{code}] {host or '<no host>'}: {detail}")
+        self.code = code
+        self.host = host
+        self.detail = detail
+
+
+def _egress_policy(allowlist: tuple[str, ...]) -> EgressPolicy:
+    """The ONE rule layer, expressed over the code-owned host surface."""
+    if not allowlist:
+        raise ProviderValidationError(
+            "live fetch egress refused: an EMPTY host allowlist is "
+            "incoherent (no request could ever be issued) — the D5 "
+            "provider surface is the floor")
+    return EgressPolicy(
+        allowlist=tuple(f"https://{host}" for host in allowlist))
+
+
+def _vet_url(
+    policy: EgressPolicy,
+    url: str,
+    resolve: Any,
+) -> Any:
+    """Vet one URL, re-raising the rule layer's refusal with its named code."""
+    def _resolve_for_vet(host: str, port: int) -> tuple[str, ...]:
+        return tuple(resolve(host))
+
+    try:
+        return policy.vet(url, resolve=_resolve_for_vet)
+    except EgressRefused as exc:
+        raise EgressRefusal(exc.code, exc.host, exc.detail) from None
+
+
+def preflight_egress(
+    url: str,
+    *,
+    allowlist: tuple[str, ...] = ALLOWLIST_HOSTS,
+    resolve: Any | None = None,
+) -> Any:
+    """Vet a URL against the code-owned D5 surface before any I/O (OPS-5A).
+
+    The same rule layer and the same floor the dial-path gate uses: scheme,
+    userinfo, origin (including an explicit non-default port), DNS and the
+    public-address rule. A capability that accepts a model-named URL calls this
+    first, so an out-of-allowlist host is refused before a dial and the refusal
+    is journalable with its named code and host (R1). Returns the vetted target.
+    """
+    return _vet_url(_egress_policy(tuple(allowlist)), url,
+                    resolve or default_dns_resolve)
 
 
 class _AllowlistedTransport:
@@ -131,30 +194,15 @@ class _AllowlistedTransport:
         self._inner = inner
         self._allowlist = tuple(allowlist)
         self._resolve = resolve or default_dns_resolve
-        if not self._allowlist:
-            raise ProviderValidationError(
-                "live fetch egress refused: an EMPTY host allowlist is "
-                "incoherent (no request could ever be issued) — the D5 "
-                "provider surface is the floor")
         # The ONE rule layer: the code-owned host surface expressed as the
         # https origins ``vet`` allowlists (the explicit-port form is a
         # different origin and is therefore refused there).
-        self._policy = EgressPolicy(
-            allowlist=tuple(f"https://{host}" for host in self._allowlist))
-
-    def _resolve_for_vet(self, host: str, port: int) -> tuple[str, ...]:
-        """Bridge the gate's injected ``resolve(host)`` to ``vet``'s
-        ``resolve(host, port)`` shape (https-only, so ``port`` is always the
-        scheme default the gate's resolver has always assumed)."""
-        return tuple(self._resolve(host))
+        self._policy = _egress_policy(self._allowlist)
 
     def request(self, spec: RequestSpec) -> TransportResponse:
-        try:
-            target = self._policy.vet(spec.url, resolve=self._resolve_for_vet)
-        except EgressRefused as exc:
-            raise ProviderValidationError(
-                f"live fetch egress refused [{exc.code}] "
-                f"{exc.host or '<no host>'}: {exc.detail}") from None
+        # The vetted target's address is pinned below; `_vet_url` keeps the
+        # named rule code on the raised `EgressRefusal`.
+        target = _vet_url(self._policy, spec.url, self._resolve)
         # FIX-D — pin the vetted address for exactly this request: the
         # guarded opener dials the pinned address (Host header / TLS SNI
         # keep the hostname), so a resolver flip between vet and dial

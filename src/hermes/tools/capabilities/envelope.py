@@ -66,8 +66,10 @@ __all__ = [
 ]
 
 #: Envelope schema version. A future shape change bumps this rather than
-#: reinterpreting an old record.
-ENVELOPE_VERSION = "hermes-invocation-envelope/v1"
+#: reinterpreting an old record. v2 adds `environment` (OPS-5 R5): a
+#: side-effecting TOOL records `in-process (no sandbox)`, so no envelope can
+#: imply an isolation the plane did not apply.
+ENVELOPE_VERSION = "hermes-invocation-envelope/v2"
 
 #: The sections that must be present on every recorded invocation.
 REQUIRED_SECTIONS: tuple[str, ...] = (
@@ -209,6 +211,7 @@ class InvocationEnvelope:
     invoked_at: str
     who_profile: str = ""
     lease_generation: str = ""
+    environment: str = ""  # recorded execution environment (R5)
     why: str = ""
     idempotency_key: str = ""
     authority: EnvelopeAuthority = field(default_factory=EnvelopeAuthority)
@@ -273,6 +276,7 @@ class InvocationEnvelope:
             "capability_id": self.capability_id,
             "tool_id": self.tool_id,
             "idempotency_key": self.idempotency_key,
+            "environment": self.environment,
             **self.sections(),
         }
 
@@ -292,6 +296,8 @@ class InvocationEnvelope:
             f"authority={self.authority.decision}",
             f"result={observation.status if observation else '<missing>'}",
         ]
+        if self.environment:
+            parts.append(f"environment={self.environment}")
         if self.hazard_class and self.hazard_class != "NONE":
             parts.append(f"hazard={self.hazard_class}")
         if self.rate_decision:

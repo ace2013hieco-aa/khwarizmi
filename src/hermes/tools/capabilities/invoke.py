@@ -91,6 +91,7 @@ from hermes.tools.capabilities.types import (
     CAPABILITY_REFUSAL_CODES,
     EVIDENCE_REF,
     IDEMPOTENCY_CONFLICT,
+    IN_PROCESS_ENVIRONMENT,
     LOCK,
     MALFORMED_PAYLOAD,
     MAX_ARGUMENT_BYTES,
@@ -323,6 +324,7 @@ class _Trace:
     tool_id: str = ""
     profile: str = ""
     lease_generation: str = ""
+    environment: str = ""
     why: str = ""
     idempotency_key: str = ""
     authority: EnvelopeAuthority = field(default_factory=EnvelopeAuthority)
@@ -391,6 +393,12 @@ class CapabilityInvoker:
             capability = self._resolve_capability(request.capability_id)
             trace.tool_id = capability.tool_id
             tool = self._resolve_tool(capability)
+            # R5 — a side-effecting TOOL runs in this process unless its
+            # declaration names another environment. Record that fact on every
+            # path (it rides the envelope), never leave it implied.
+            trace.environment = tool.environment or (
+                "" if tool.accepts_no_side_effects()
+                else IN_PROCESS_ENVIRONMENT)
             # 1. AUTHORITY — before anything that could execute.
             self._authorize(request, capability, tool, trace)
             # 2. Declared arguments, then credential refusal (names, then
@@ -555,12 +563,15 @@ class CapabilityInvoker:
                            f"capability never authors state; the effect must be "
                            f"proposed as an intent and admitted by the "
                            f"Orchestration API")
-        if not tool.accepts_no_side_effects() and not tool.sandboxed:
-            trace.authority = self._authority(request, decision="REFUSED",
-                                              refusal_code=ROLE, approved=approved)
-            raise _Refusal(ROLE,
-                           f"tool {tool.tool_id!r} declares network/filesystem/"
-                           f"process reach without declaring sandboxed=True")
+        # OPS-5 R5 — `sandboxed` is not a permission ticket. A TOOL-kind
+        # capability may declare network/filesystem/process reach and run
+        # in-process with `sandboxed=False`; rejecting it here would be a false
+        # requirement, and setting the flag would be a false record. The
+        # declaration that DOES require isolation is checked at registration:
+        # a SANDBOX-kind capability may only address a tool with
+        # `sandboxed=True` (registry.py:167), and the availability gate below
+        # refuses when no sandbox is configured. The in-process fact is recorded
+        # on the envelope (`environment`) rather than implied away.
         trace.authority = self._authority(request, decision="GRANTED",
                                           approved=approved)
         trace.why = request.rationale
@@ -721,6 +732,13 @@ class CapabilityInvoker:
                     ROLE,
                     f"argument {name!r} contains a network construct and tool "
                     f"{tool.tool_id!r} declares network=False")
+            # The path rules judge a DECLARED filesystem boundary. A tool with
+            # no `filesystem_scope` cannot reach the filesystem, so a URL or
+            # other slash-bearing value is not an absolute path / traversal —
+            # reading it as one makes every network tool uncallable (OPS-5A:
+            # `source_fetch`'s URL was refused here before the egress gate).
+            if not tool.filesystem_scope:
+                continue
             for token in _PATH_TOKENS.findall(text):
                 if token.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", token):
                     raise _Refusal(
@@ -733,8 +751,7 @@ class CapabilityInvoker:
                         ROLE,
                         f"argument {name!r} contains a traversal in {token!r} — "
                         f"refused as a sandbox-escape-shaped input")
-                if tool.filesystem_scope and not (
-                        token == tool.filesystem_scope
+                if not (token == tool.filesystem_scope
                         or token.startswith(tool.filesystem_scope + "/")):
                     raise _Refusal(
                         ROLE,
@@ -950,6 +967,7 @@ class CapabilityInvoker:
             invoked_at=self._clock.now_utc(),
             who_profile=trace.profile,
             lease_generation=trace.lease_generation,
+            environment=trace.environment,
             why=trace.why,
             idempotency_key=trace.idempotency_key,
             authority=trace.authority,
