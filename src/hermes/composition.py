@@ -92,19 +92,21 @@ DEFAULT_MODEL_HTTP_TIMEOUT_SECONDS = 120.0
 
 _DIALECTS = ("anthropic", "openai")
 
-#: The code-owned host allowlist — one canonical host per dialect. A
-#: ``CloudModelSpec.host`` override may only name a host already declared
-#: here, so a key-bearing transport is never redirected to an undeclared
-#: host. The default is therefore exactly the two dialect hosts.
+#: The code-owned host allowlist — one canonical host per dialect, plus the
+#: one reviewed gateway endpoint. A ``CloudModelSpec.host`` override may only
+#: name a host already declared here, so a key-bearing transport is never
+#: redirected to an undeclared host. The default is therefore exactly the
+#: dialect hosts plus the reviewed gateway entry.
 #: (HOST-ALLOWLIST: the override exists for a compatible gateway, but a
 #: runtime-supplied host is precisely the hole — the credential rides the
 #: header to whatever host the config names. Adding a gateway endpoint is a
-#: code-owned change — one entry here plus its dialect — never a free-form
-#: config value; "no new endpoints" keeps this list at the two canonical
-#: hosts for now.)
+#: code-owned change — one entry here, its dialect, and its `_PROVIDER_HOSTS`
+#: binding — never a free-form config value. ``www.oxionai.com`` is
+#: deliberately absent: it answers HTTP 403 (Cloudflare 1010); only the apex
+#: is admitted.)
 _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
     "anthropic": frozenset({"api.anthropic.com"}),
-    "openai": frozenset({"api.openai.com"}),
+    "openai": frozenset({"api.openai.com", "oxionai.com"}),
 }
 
 #: The code-owned hosted-model registry (OPS-1 Decision A2): the policy surface
@@ -116,6 +118,17 @@ _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
 _MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
     "anthropic": ("anthropic", "ANTHROPIC_API_KEY"),
     "openai": ("openai", "OPENAI_API_KEY"),
+    "oxionai": ("openai", "OXIONAI_API_KEY"),
+}
+
+#: The endpoint binding for a provider whose id is not its dialect (OPS-6:
+#: a compatible gateway). A canonical provider falls back to its dialect's
+#: default host; anything else must be bound here, so a gateway can never
+#: silently inherit the vendor host. The value must also be in
+#: ``_DIALECT_HOSTS`` for the provider's dialect — `CloudModelSpec` enforces
+#: that at construction.
+_PROVIDER_HOSTS: Final[Mapping[str, str]] = {
+    "oxionai": "oxionai.com",
 }
 
 
@@ -264,9 +277,16 @@ def specs_from_tiers(
         key = (provider_id, model_id)
         if key not in specs:
             try:
-                specs[key] = CloudModelSpec(
+                spec = CloudModelSpec(
                     provider_id=provider_id, dialect=dialect,
-                    model_id=model_id, api_key_env=api_key_env)
+                    model_id=model_id, api_key_env=api_key_env,
+                    host=_PROVIDER_HOSTS.get(provider_id, ""))
+                if not spec.host and provider_id != spec.dialect:
+                    raise ValueError(
+                        f"provider {provider_id!r} has no code-owned endpoint "
+                        f"binding in _PROVIDER_HOSTS — a gateway must name its "
+                        f"host in code, never in config")
+                specs[key] = spec
             except ValueError as exc:
                 problems.append(
                     f"provider {provider_id!r} declares an unusable "

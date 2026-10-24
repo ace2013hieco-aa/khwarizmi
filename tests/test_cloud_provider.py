@@ -95,11 +95,13 @@ def _anthropic_reply(text: str, *, stop: str = "end_turn",
                              content_type="application/json")
 
 
-def _openai_reply(text: str | None, *, tool_calls: bool = False) -> TransportResponse:
+def _openai_reply(text: str | None, *, tool_calls: bool = False,
+                  finish_reason: str = "stop") -> TransportResponse:
     message: dict[str, Any] = {"content": text}
     if tool_calls:
         message["tool_calls"] = [{"id": "c1"}]
-    body = {"choices": [{"message": message, "finish_reason": "stop"}],
+    body = {"choices": [{"message": message,
+                         "finish_reason": finish_reason}],
             "usage": {"prompt_tokens": 5, "completion_tokens": 3}}
     return TransportResponse(status=200, body=json.dumps(body).encode("utf-8"),
                              content_type="application/json")
@@ -467,6 +469,32 @@ class TestOpenAIDialect:
         spec = dialect.request(call, system="s", user="u", secret="k")
         assert "response_format" not in json.loads(spec.body)
 
+    @pytest.mark.parametrize("empty", [None, "", "   "])
+    def test_empty_content_at_the_output_budget_is_a_named_refusal(
+            self, empty: str | None) -> None:
+        """Reasoning models spend the budget and return no draft — name it."""
+        provider = _provider(ScriptedTransport(
+            _openai_reply(empty, finish_reason="length")), dialect="openai")
+        with pytest.raises(PermanentProviderError) as info:
+            provider.invoke(_call(provider, provider_id="openai",
+                                  model_id="test-gpt"))
+        message = str(info.value)
+        assert "EMPTY_COMPLETION" in message
+        assert "output budget" in message
+        assert "max_output_tokens" in message
+        assert "completion_tokens=3" in message
+        assert info.value.hazard_class == "MALFORMED_200"
+        assert not isinstance(info.value, TransientProviderError)
+
+    def test_empty_content_with_stop_is_not_a_budget_refusal(self) -> None:
+        """A stop with no content is a different fact; the seam stays raw."""
+        provider = _provider(ScriptedTransport(_openai_reply("")),
+                             dialect="openai")
+        response = provider.invoke(_call(provider, provider_id="openai",
+                                         model_id="test-gpt"))
+        assert response.text == ""
+        assert response.finish_reason == "stop"
+
 
 # ── provider rules ──
 
@@ -671,6 +699,30 @@ class TestHostOverride:
         assert _spec(host=" API.anthropic.com ").host == "api.anthropic.com"
         assert _spec(host="api.anthropic.com").make_dialect().host == \
             "api.anthropic.com"
+
+    def test_the_reviewed_gateway_host_is_accepted_for_the_openai_dialect(
+            self) -> None:
+        spec = _spec(provider_id="oxionai", dialect="openai",
+                     model_id="claude-opus-5.5",
+                     api_key_env="OXIONAI_API_KEY", host="oxionai.com")
+        assert spec.host == "oxionai.com"
+        assert spec.make_dialect().host == "oxionai.com"
+
+    def test_the_gateway_www_host_is_refused(self) -> None:
+        """The probed www host answers HTTP 403; only the apex is admitted."""
+        with pytest.raises(ValueError, match="host allowlist"):
+            _spec(provider_id="oxionai", dialect="openai",
+                  model_id="claude-opus-5.5",
+                  api_key_env="OXIONAI_API_KEY", host="www.oxionai.com")
+
+    def test_the_gateway_host_does_not_widen_other_dialects_or_hosts(self) -> None:
+        with pytest.raises(ValueError, match="never redirected to an undeclared host"):
+            _spec(provider_id="oxionai", dialect="openai",
+                  model_id="claude-opus-5.5",
+                  api_key_env="OXIONAI_API_KEY", host="evil.example")
+        with pytest.raises(ValueError, match="host allowlist"):
+            _spec(provider_id="anthropic", dialect="anthropic",
+                  model_id="m", host="oxionai.com")
 
     @pytest.mark.parametrize("host", [
         "evil.example",

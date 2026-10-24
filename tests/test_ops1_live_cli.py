@@ -23,6 +23,7 @@ from hermes.composition import (
     CompositionError,
     build_live_composition,
     specs_from_tiers,
+    tier_refs_from_config,
 )
 from hermes.config import HermesConfig, ModelTierConfig
 from hermes.core.intents import Intent, IntentKind
@@ -355,6 +356,50 @@ def test_refs_dedupe_to_one_spec_per_provider_model() -> None:
         "ANTHROPIC_API_KEY": KEY, "OPENAI_API_KEY": KEY + "-o"})
     assert sorted((spec.provider_id, spec.model_id) for spec in specs) == [
         ("anthropic", "test-model"), ("openai", "gpt")]
+
+
+def test_oxionai_resolves_to_the_gateway_host_and_its_own_key_variable() -> None:
+    """The reviewed gateway entry targets its own host and reads its own key."""
+    cfg = HermesConfig(model_tiers=ModelTierConfig(
+        m="oxionai:claude-opus-5.5"))
+    assert tier_refs_from_config(cfg) == {"m": "oxionai:claude-opus-5.5"}
+
+    specs = specs_from_tiers(cfg, environ={"OXIONAI_API_KEY": KEY})
+
+    assert len(specs) == 1
+    spec = specs[0]
+    assert (spec.provider_id, spec.model_id) == ("oxionai", "claude-opus-5.5")
+    assert (spec.dialect, spec.host) == ("openai", "oxionai.com")
+    assert spec.api_key_env == "OXIONAI_API_KEY"
+    assert spec.make_dialect().host == "oxionai.com"
+
+
+def test_the_gateway_key_is_never_satisfied_by_the_openai_key() -> None:
+    cfg = HermesConfig(model_tiers=ModelTierConfig(
+        m="oxionai:claude-opus-5.5"))
+    with pytest.raises(CompositionError, match="OXIONAI_API_KEY is not set"):
+        specs_from_tiers(cfg, environ={"OPENAI_API_KEY": KEY})
+    spec = specs_from_tiers(
+        cfg, environ={"OXIONAI_API_KEY": KEY, "OPENAI_API_KEY": KEY})[0]
+    assert spec.api_key_env == "OXIONAI_API_KEY"
+
+
+def test_an_unknown_provider_is_refused_naming_the_tier_ref() -> None:
+    cfg = HermesConfig(model_tiers=ModelTierConfig(m="nowhere:model"))
+    with pytest.raises(CompositionError) as info:
+        specs_from_tiers(cfg, environ={})
+    assert ("tier 'm': provider 'nowhere' is not in the model registry"
+            in str(info.value))
+
+
+def test_a_gateway_without_a_code_owned_endpoint_refuses(monkeypatch) -> None:
+    """A non-canonical provider can never silently inherit the vendor host."""
+    monkeypatch.setitem(composition._MODEL_REGISTRY, "unbound",
+                        ("openai", "UNBOUND_API_KEY"))
+    cfg = HermesConfig(model_tiers=ModelTierConfig(m="unbound:model"))
+    with pytest.raises(CompositionError) as info:
+        specs_from_tiers(cfg, environ={"UNBOUND_API_KEY": "k"})
+    assert "no code-owned endpoint binding" in str(info.value)
 
 
 def test_no_tiers_resolves_to_no_specs() -> None:

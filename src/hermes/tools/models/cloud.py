@@ -449,13 +449,28 @@ class OpenAIChatDialect:
                              "the message content was not text",
                              hazard="MALFORMED_200")
         usage = _mapping(data.get("usage"))
+        completion = _count(usage.get("completion_tokens"))
         reason = first.get("finish_reason")
         finish = {"stop": "stop", "length": "length"}.get(
             str(reason), str(reason or "stop"))
+        # A reasoning model can spend the whole output budget on hidden
+        # reasoning tokens and return `content: null` with
+        # `finish_reason: "length"` — a well-formed 200 that says the budget,
+        # not the model, produced no draft. Handing "" to the contract parser
+        # would retry the same budget and report the wrong cause, so this is a
+        # named, non-retryable refusal that names the budget to raise.
+        if not (content or "").strip() and finish == "length":
+            raise _permanent(
+                provider_id, "EMPTY_COMPLETION",
+                "the reply had no content and finish_reason='length' — the "
+                "output budget (max_output_tokens) was exhausted before any "
+                f"text (completion_tokens={completion}); raise the model's "
+                "output budget (reasoning tokens count against it)",
+                hazard="MALFORMED_200")
         return ModelResponse(
             text=content or "",
             usage=TokenUsage(_count(usage.get("prompt_tokens")),
-                             _count(usage.get("completion_tokens"))),
+                             completion),
             finish_reason=finish)
 
 
