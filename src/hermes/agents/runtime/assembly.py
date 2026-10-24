@@ -48,6 +48,7 @@ __all__ = [
     "REFUSAL_ORIGIN",
     "RETRY_ORIGIN",
     "REVIEW_ORIGIN",
+    "TASK_ORIGIN",
     "ContextAssembler",
     "assemble_payload_envelopes",
     "default_context_assembler",
@@ -55,10 +56,17 @@ __all__ = [
     "proposal_envelopes",
     "retry_envelope",
     "review_envelopes",
+    "task_input_envelope",
 ]
 
 #: The origin every payload envelope carries — the field a reader filters on.
 PAYLOAD_ORIGIN = "runtime.payload"
+
+#: The origin the operator's task input carries (OPS-7): the question and the
+#: refs the task supplied. It is deliberately neither ``runtime.payload`` (the
+#: stage's structural identity) nor ``runtime.tick`` (loop state): a reader can
+#: tell operator-supplied text from both.
+TASK_ORIGIN = "runtime.task"
 
 #: The origin every review-draft envelope carries.
 PROPOSAL_ORIGIN = "runtime.review"
@@ -117,6 +125,36 @@ def assemble_payload_envelopes(context: TaskContext
         _document_envelope(PAYLOAD_ORIGIN, f"{context.task_id}:{key}",
                            {key: context.payload[key]})
         for key in sorted(context.payload)
+    )
+
+
+def task_input_envelope(
+    *,
+    task_id: str,
+    question: str,
+    external_refs: Mapping[str, str],
+    admission_refs: Sequence[str],
+) -> UntrustedContent:
+    """Render the operator's task input as one ``runtime.task`` envelope.
+
+    The question is free text; the refs are **ids**, never fetched content —
+    there is nothing fetched at projection time. The document is canonical, so
+    equal inputs assemble to equal envelopes, and every value enters as
+    untrusted content: data the model reads, never an instruction it obeys.
+    The origin is `TASK_ORIGIN`, which keeps operator text distinguishable
+    from the stage payload and from loop state.
+
+    This is the OPS-7 seam: the driver projects the task input into the run's
+    context, and the default assembler renders it beside every other payload.
+    """
+    return _document_envelope(
+        TASK_ORIGIN,
+        f"{task_id}:task_input",
+        {
+            "question": question,
+            "external_refs": dict(external_refs),
+            "admission_refs": sorted(admission_refs),
+        },
     )
 
 

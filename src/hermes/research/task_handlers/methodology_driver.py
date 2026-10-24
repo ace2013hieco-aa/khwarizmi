@@ -10,8 +10,9 @@ What the driver does, once per stage, in this order
 1. **Projects** each stage of a parsed workflow document onto one task
    (``stage_projections`` / ``project_stage``): the stage's profile, its declared
    governance action and a :class:`TaskContext` whose lease generation is the
-   wiring's own fence generation. Projection is pure data — no run, no model and
-   no write happens here.
+   wiring's own fence generation and whose ``runtime.task`` envelope carries the
+   operator's question and ref ids. Projection is pure data — no run, no model
+   and no write happens here.
 2. **Consults governance before the stage runs** (:func:`preflight`): the BIND-4
    read-only consult, reached through the *one already-declared* consumer — this
    driver exercises the methodology plane's own per-stage preflight rather than
@@ -53,8 +54,9 @@ slice refuses rather than implements (:func:`claim_limits` /
 
 Import discipline
 -----------------
-``hermes.agents.runtime.wiring`` + ``.types`` (the W2 driver it binds),
-``hermes.core.task_status``, the methodology plane's public surface
+``hermes.agents.runtime.wiring`` + ``.types`` + ``.assembly`` (the W2 driver it
+binds, its context types, and the one context-assembly port that renders task
+input), ``hermes.core.task_status``, the methodology plane's public surface
 (``hermes.methodology.workflows``, whose declared preflight this exercises) and
 ``hermes.methodology.substrate`` (the derived-state boundary), plus stdlib.
 Never ``hermes.persistence``, never a repository, never a raw connection or
@@ -74,6 +76,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
+from hermes.agents.runtime.assembly import task_input_envelope
 from hermes.agents.runtime.types import TaskContext
 from hermes.agents.runtime.wiring import RuntimeWiring, WiredRun
 from hermes.core.task_status import TaskStatus
@@ -189,19 +192,35 @@ def project_stage(
     task_id: str,
     lease_generation: str,
     predecessor_stage: str = "",
+    inputs: MethodologyInputs | None = None,
 ) -> StageProjection:
     """Project one declared stage onto one task context — pure, no execution.
 
-    The context carries the ``(project, task, lease)`` attribution and the
-    stage's structural payload; the recorded predecessor *node* is deliberately
-    absent here (it is derived during the run and added by the driver), so the
-    projection is a function of the document alone.
+    The context carries the ``(project, task, lease)`` attribution, the
+    stage's structural payload and — when the caller supplies the run's
+    :class:`MethodologyInputs` — one ``runtime.task`` envelope holding the
+    operator's question and the ref **ids** they supplied. That envelope is
+    the OPS-7 seam: operator text reaches the model as untrusted content,
+    origin-labelled, rather than only as a governance rationale.
+
+    The recorded predecessor *node* is deliberately absent here (it is derived
+    during the run and added by the driver), so the projection is a function of
+    the document, the caller's inputs and the run's attribution alone — never
+    of execution state.
     """
     stage_task_id = f"{task_id}:{stage.stage}"
+    task_envelopes = ()
+    if inputs is not None:
+        task_envelopes = (task_input_envelope(
+            task_id=stage_task_id,
+            question=inputs.question,
+            external_refs=inputs.external_refs,
+            admission_refs=inputs.admission_refs),)
     context = TaskContext(
         task_id=stage_task_id,
         project_id=project_id,
         lease_generation=lease_generation,
+        context=task_envelopes,
         payload={
             "stage": stage.stage,
             "methodology_id": config.methodology_id,
@@ -223,13 +242,16 @@ def stage_projections(
     project_id: str,
     task_id: str,
     lease_generation: str,
+    inputs: MethodologyInputs | None = None,
 ) -> tuple[StageProjection, ...]:
     """Project every declared stage of a workflow document, in chain order.
 
-    Deterministic and total: the same document, project, task and lease yield the
-    same projections, and each projection names its declared predecessor stage
-    (the first names none). Nothing runs, so a caller can inspect the shape of a
-    run before any plane is touched.
+    Deterministic and total: the same document, project, task, lease and
+    inputs yield the same projections, and each projection names its declared
+    predecessor stage (the first names none). The operator's task input is
+    projected into every stage, so a later stage sees the question too. Nothing
+    runs, so a caller can inspect the shape of a run before any plane is
+    touched.
     """
     projections: list[StageProjection] = []
     predecessor_stage = ""
@@ -237,7 +259,7 @@ def stage_projections(
         projections.append(project_stage(
             config, stage, project_id=project_id, task_id=task_id,
             lease_generation=lease_generation,
-            predecessor_stage=predecessor_stage))
+            predecessor_stage=predecessor_stage, inputs=inputs))
         predecessor_stage = stage.stage
     return tuple(projections)
 
@@ -497,7 +519,7 @@ def run_methodology(
 
     for projection in stage_projections(
             config, project_id=project_id, task_id=task_id,
-            lease_generation=lease_generation):
+            lease_generation=lease_generation, inputs=inputs):
         if (config.termination.max_stages
                 and len(stages) >= config.termination.max_stages):
             termination = "STAGE_LIMIT"

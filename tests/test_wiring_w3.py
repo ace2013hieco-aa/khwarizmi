@@ -544,9 +544,12 @@ def test_the_driver_runs_the_shipped_profiles_too() -> None:
 
 # ═══════════════════════ 7. no write surface (mechanical) ═══════════════
 
-#: Exactly what the driver may import: its plane, its runtime binding, core types.
+#: Exactly what the driver may import: its plane, its runtime binding and the
+#: one context-assembly port (OPS-7 projects the operator's task input through
+#: it), plus core types.
 DRIVER_IMPORTS = frozenset({
     "__future__", "dataclasses", "typing",
+    "hermes.agents.runtime.assembly",
     "hermes.agents.runtime.types",
     "hermes.agents.runtime.wiring",
     "hermes.core.task_status",
