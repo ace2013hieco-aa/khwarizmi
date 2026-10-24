@@ -218,6 +218,11 @@ def _contract_lines(contract: Mapping[str, Any]) -> list[str]:
             if isinstance(allowed, list) and allowed:
                 tail = ", one of: " + ", ".join(
                     str(item) for item in allowed)  # pyright: ignore[reportUnknownVariableType]
+            notes = contract.get("field_notes")
+            if isinstance(notes, Mapping):
+                note = notes.get(name)
+                if isinstance(note, str) and note:
+                    tail += f"; {note}"
             lines.append(f"- {name} ({kind}, {need}{tail})")
     return lines
 
@@ -239,6 +244,7 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
     parts.extend(_contract_lines(contract))
     kind_field = str(contract.get("kind_field") or "")
     rationale_field = str(contract.get("rationale_field") or "")
+    declared = contract.get("proposable_kinds")
     if kind_field:
         kinds = contract.get("proposable_kinds")
         if isinstance(kinds, list) and kinds:
@@ -248,16 +254,62 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
                 f"exactly one of: {legal}. Any other value is refused.")
         else:
             parts.append(f'The "{kind_field}" field names the proposal kind.')
+    available = contract.get("available_kinds")
+    if isinstance(available, list) and isinstance(declared, list):
+        unavailable = [kind for kind in declared if kind not in available]
+        if unavailable:
+            parts.append(
+                "Declared but unavailable in this phase (the gateway has no "
+                "validator for them): " + ", ".join(
+                    str(item) for item in unavailable)
+                + ". Choosing one is refused.")
     if rationale_field:
         parts.append(f'The "{rationale_field}" field must be non-empty.')
     single = str(contract.get("single_form_field") or "")
     multi = str(contract.get("multi_form_field") or "")
+    if single:
+        text = (f'If you use the single-proposal form, the top-level "{single}" '
+                f"field is required.")
+        if multi:
+            text += (f' The multi-proposal form requires "{single}" on each '
+                     f"proposal item.")
+        parts.append(text)
     if single and multi:
         parts.append(
             f"Choose exactly one proposal form: the single-proposal form (a "
             f'top-level "{single}" field) or the multi-proposal form (a '
             f'"{multi}" array). A reply carrying both is refused; exactly one '
             f"is allowed.")
+    payload_keys = contract.get("payload_keys")
+    derived = contract.get("derived_keys")
+    derived_set = ({str(key) for key in derived}
+                   if isinstance(derived, list) else set())
+    if isinstance(payload_keys, Mapping) and isinstance(declared, list):
+        legal_payloads: list[str] = []
+        for kind in declared:
+            keys = payload_keys.get(kind)
+            if isinstance(keys, list) and keys:
+                allowed = [str(key) for key in keys
+                           if str(key) not in derived_set]
+                if allowed:
+                    legal_payloads.append(f"{kind}: " + ", ".join(allowed))
+        if legal_payloads:
+            parts.append(
+                "The payload object is closed. Legal top-level payload keys by "
+                "kind (identity keys are derived and listed below): "
+                + "; ".join(legal_payloads)
+                + ". Any other payload key is refused.")
+        elif declared:
+            parts.append(
+                "The payload object is closed. No legal payload keys are "
+                "available because the declared kinds are not applicable in "
+                "this phase.")
+    if isinstance(derived, list) and derived:
+        parts.append(
+            "Never supply identity keys in a payload: "
+            + ", ".join(str(key) for key in derived)
+            + ". They are derived at the write boundary; a payload carrying "
+            "one is refused.")
     delegation_keys = contract.get("delegation_keys")
     if isinstance(delegation_keys, list) and delegation_keys:
         keys = ", ".join(str(key) for key in delegation_keys)  # pyright: ignore[reportUnknownVariableType]

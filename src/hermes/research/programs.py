@@ -1179,7 +1179,7 @@ def _build_program(
 
 # ── payload boundary (Part 2 §10: fail closed; the P3 gateway wiring point) ──
 
-_KNOWN_PAYLOAD_KEYS = frozenset({
+RESEARCH_PROGRAM_PAYLOAD_KEYS = frozenset({
     "scope_ref", "epistemic_objective", "hypotheses", "predictions",
     "discrimination_requirements", "methodology_constraints",
     "task_graph_template_ref", "compiler_version", "policy_version",
@@ -1227,7 +1227,7 @@ def _validate_payload_keys(payload: dict[str, Any]) -> list[CompilationError]:
     """
     errors: list[CompilationError] = []
 
-    unknown = set(payload) - _KNOWN_PAYLOAD_KEYS
+    unknown = set(payload) - RESEARCH_PROGRAM_PAYLOAD_KEYS
     if unknown:
         errors.append(CompilationError(
             "UNKNOWN_PAYLOAD_KEY", "payload",

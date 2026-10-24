@@ -380,6 +380,23 @@ def build_cloud_provider(
         resolve=resolve)
 
 
+def live_contract_rules() -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
+    """The gateway's applicability and payload-key sets, read at call time.
+
+    The composition root is the one layer allowed to bridge the research
+    gateway and the runtime/model plane. Reading these constants here (rather
+    than in the prompt) is the OPS-12 single-source rule: a validator-set
+    change flows into the contract without a second hand-typed list.
+    """
+    from .research.gateway import INTENT_PAYLOAD_KEYS, WIRED_INTENT_KINDS
+
+    available = frozenset(kind.value for kind in WIRED_INTENT_KINDS)
+    payload_keys = {
+        kind.value: tuple(sorted(keys))
+        for kind, keys in INTENT_PAYLOAD_KEYS.items()}
+    return available, payload_keys
+
+
 def build_model_binding(
     cfg: HermesConfig,
     providers: Sequence[ModelProvider],
@@ -389,11 +406,16 @@ def build_model_binding(
     task_tiers: Mapping[str, str] | None = None,
     default_tier: str = "m",
     tool_allowlist: frozenset[str] = frozenset(),
+    available_kinds: frozenset[str] | None = None,
+    payload_keys: Mapping[str, Sequence[str]] | None = None,
 ) -> ModelBinding:
     """Bind the router to the configured tiers; the binding is the model port.
 
     ``task_tiers`` maps a profile name (planner, researcher, ...) to a tier;
     ``default_tier`` covers the rest. A task never chooses its own model.
+    ``available_kinds``/``payload_keys`` are the OPS-12 contract guidance from
+    the gateway's own constants; they are absent unless the caller supplies
+    them.
     """
     policy = ModelPlanePolicy.from_config_tiers(
         {"s": cfg.model_tiers.s, "m": cfg.model_tiers.m, "c": cfg.model_tiers.c})
@@ -407,7 +429,9 @@ def build_model_binding(
                                      default_tier=default_tier),
         credentials=credentials,
         proposable_kinds=proposable,
-        tool_allowlist=tool_allowlist)
+        tool_allowlist=tool_allowlist,
+        available_kinds=available_kinds,
+        payload_keys=payload_keys)
 
 
 def build_controller(
@@ -510,9 +534,11 @@ def build_live_composition(
                              transport=transport, resolve=resolve)
         for group in by_provider.values()]
     profiles = _model_only_profiles(load_profiles(directory=profiles_dir))
+    available_kinds, payload_keys = live_contract_rules()
     binding = build_model_binding(
         cfg, providers, credentials=credentials,
-        task_tiers=task_tiers, default_tier=default_tier)
+        task_tiers=task_tiers, default_tier=default_tier,
+        available_kinds=available_kinds, payload_keys=payload_keys)
     supervisor = Supervisor()
     recorder = RecordingModelPort(binding)
     vector = LiveVector(supervisor=supervisor, profiles=profiles,

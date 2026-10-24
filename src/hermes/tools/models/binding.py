@@ -58,7 +58,7 @@ router's own frozen subset (`LOCK`, `MALFORMED_PAYLOAD`, `PROPOSAL`, `RATIONALE`
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
@@ -331,6 +331,8 @@ def bind_model_port(
     credentials: CredentialResolver | None = None,
     proposable_kinds: frozenset[str] = frozenset(),
     tool_allowlist: frozenset[str] = frozenset(),
+    available_kinds: frozenset[str] | None = None,
+    payload_keys: Mapping[str, Sequence[str]] | None = None,
 ) -> ModelBinding:
     """Build the router *and* its binding, so credentials have one entry point.
 
@@ -345,6 +347,8 @@ def bind_model_port(
         clock=clock,
         proposable_kinds=proposable_kinds,
         tool_allowlist=tool_allowlist,
+        available_kinds=available_kinds,
+        payload_keys=payload_keys,
         credentials=credentials,
     )
     return ModelBinding(router=router, policy=task_policy, clock=clock,

@@ -108,7 +108,7 @@ import hashlib
 import json
 import random
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, TypeAlias, cast
@@ -356,7 +356,9 @@ class OutputContract:
     `single_form_field` / `multi_form_field` name the two mutually exclusive
     proposal forms, and `delegation_keys` names the keys a delegation item may
     carry. Both are rendered into the prompt from the validator's own constants
-    (OPS-9) and are guidance only.
+    (OPS-9) and are guidance only. `derived_keys` names the identity keys the
+    runtime derives and refuses to accept (OPS-12), and `field_notes` carries
+    the conditional wording for individual schema fields.
     """
 
     name: str
@@ -368,6 +370,8 @@ class OutputContract:
     single_form_field: str = ""
     multi_form_field: str = ""
     delegation_keys: tuple[str, ...] = ()
+    derived_keys: tuple[str, ...] = ()
+    field_notes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1327,6 +1331,8 @@ class ModelRouter:
         clock: Any,
         proposable_kinds: frozenset[str] = frozenset(),
         tool_allowlist: frozenset[str] = frozenset(),
+        available_kinds: frozenset[str] | None = None,
+        payload_keys: Mapping[str, Sequence[str]] | None = None,
         credentials: CredentialResolver | None = None,
         translator: ToolCallTranslator | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -1344,6 +1350,15 @@ class ModelRouter:
         self._clock = clock
         self._proposable_kinds = frozenset(proposable_kinds)
         self._tool_allowlist = frozenset(tool_allowlist)
+        # OPS-12: the contract's guidance about which declared kinds are
+        # currently applicable and which payload keys each kind accepts. Both
+        # are injected by the composition root from the gateway's constants;
+        # neither is enforcement (the checks below keep their own sets).
+        self._available_kinds = (frozenset(available_kinds)
+                                 if available_kinds is not None else None)
+        self._payload_keys = (
+            {str(kind): tuple(keys) for kind, keys in payload_keys.items()}
+            if payload_keys is not None else None)
         self._credentials = credentials
         self._translator: ToolCallTranslator = translator or NeutralToolCallTranslator()
         self._sleep = sleep if sleep is not None else _default_sleep(clock)
@@ -1701,14 +1716,31 @@ class ModelRouter:
             model_id=candidate.model_id,
             payload=payload,
             options=options,
-            output_contract=(_contract_mapping(request.output_contract)
-                             if request.output_contract is not None else None),
+            output_contract=self._contract_with_rules(request),
             max_output_tokens=self._max_output_tokens(profile, request),
             timeout_seconds=self._timeout_seconds(profile),
             stream=stream)
         self._assert_secret_free(normalized_model_call(call),
                                  where="a model call form")
         return call
+
+    def _contract_with_rules(self, request: ModelRequest) -> dict[str, Any] | None:
+        """The contract mapping plus the OPS-12 guidance the composition injected.
+
+        Both additions are prompt data: the validator's own sets remain the
+        enforcement. They are absent when no sets were injected, so a
+        hand-built contract keeps its previous shape.
+        """
+        mapping = _contract_mapping(request.output_contract)
+        if mapping is None:
+            return None
+        if self._available_kinds is not None:
+            mapping["available_kinds"] = sorted(self._available_kinds)
+        if self._payload_keys is not None:
+            mapping["payload_keys"] = {
+                kind: list(keys)
+                for kind, keys in sorted(self._payload_keys.items())}
+        return mapping
 
     # ── execution ──
 
@@ -2173,6 +2205,8 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "single_form_field": contract.single_form_field,
         "multi_form_field": contract.multi_form_field,
         "delegation_keys": list(contract.delegation_keys),
+        "derived_keys": list(contract.derived_keys),
+        "field_notes": dict(contract.field_notes),
     }
 
 

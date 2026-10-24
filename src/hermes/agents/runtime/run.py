@@ -236,7 +236,7 @@ MULTI_PROPOSAL_FIELD: str = "proposals"
 
 #: Keys the runtime *derives*. A draft that supplies one is refused: §2.3 forbids
 #: any plane from authoring — or trusting — an identity.
-_AUTHORED_KEYS: frozenset[str] = frozenset({"proposed_by", "project_id",
+AUTHORED_KEYS: frozenset[str] = frozenset({"proposed_by", "project_id",
                                             "task_id", "idempotency_key"})
 
 #: Contract sections and the JSON types they may carry.
@@ -301,6 +301,17 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
                 f"profile {spec.name!r} declares structured field {section!r}, "
                 f"which is not one of {sorted(_CONTRACT_SECTIONS)}")
         fields.append(FieldSpec(section, field_type, required=False))
+    field_names = {field.name for field in fields}
+    field_notes: list[tuple[str, str]] = []
+    if spec.model_policy.kind_field in field_names:
+        field_notes.append((
+            spec.model_policy.kind_field,
+            ("required in the single-proposal form; omit it in the "
+             "multi-proposal form")))
+    if MULTI_PROPOSAL_FIELD in field_names:
+        field_notes.append((
+            MULTI_PROPOSAL_FIELD,
+            "use this array alone; do not also supply the single-form field"))
     return OutputContract(
         name=spec.model_policy.contract,
         fields=tuple(fields),
@@ -317,6 +328,10 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
         single_form_field=SINGLE_PROPOSAL_FIELD,
         multi_form_field=MULTI_PROPOSAL_FIELD,
         delegation_keys=tuple(sorted(DELEGATION_KEYS)),
+        # OPS-12: the validator's derived-identity set and the conditional
+        # field wording are read here, not hand-typed into the prompt.
+        derived_keys=tuple(sorted(AUTHORED_KEYS)),
+        field_notes=tuple(field_notes),
     )
 
 
@@ -1003,7 +1018,7 @@ class AgentRuntime:
                        f"sees a partial command", kind=kind.value)
                 continue
             if built is None:
-                authored = sorted(set(payload) & _AUTHORED_KEYS)
+                authored = sorted(set(payload) & AUTHORED_KEYS)
                 if not authored:
                     refuse(RATIONALE,
                            f"{kind.value} payload is over the {MAX_PAYLOAD_BYTES}-"
@@ -1033,7 +1048,7 @@ class AgentRuntime:
         """
         if kind is not IntentKind.INSERT_TASK:
             return payload, ""
-        if set(payload) & _AUTHORED_KEYS:
+        if set(payload) & AUTHORED_KEYS:
             return None, ""
         payload.setdefault("task_type", "AGENT_TASK")
         payload.setdefault("profile", spec.agent_profile)

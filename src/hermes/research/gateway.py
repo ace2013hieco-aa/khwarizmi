@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from hermes.core.events import EventType
 from hermes.core.intents import (
@@ -86,6 +86,7 @@ from hermes.research.extraction import (
 )
 from hermes.research.l2_resolution import _l2_resolve_upstream
 from hermes.research.programs import (
+    RESEARCH_PROGRAM_PAYLOAD_KEYS,
     CompilationStatus,
     compile_from_payload,
 )
@@ -102,7 +103,13 @@ from hermes.research.source_templates import (
 )
 from hermes.tools.research_sources import SOURCE_PROVIDER_ALLOWLIST
 
-__all__ = ["GatewayRejection", "IntentResult", "apply_intent"]
+__all__ = [
+    "INTENT_PAYLOAD_KEYS",
+    "WIRED_INTENT_KINDS",
+    "GatewayRejection",
+    "IntentResult",
+    "apply_intent",
+]
 
 # ── rejection codes (structured, stable for tests/audit) ──
 ROLE = "ROLE"                       # proposed_by not permitted for this kind
@@ -126,6 +133,28 @@ CONTRADICTION_BACKLOG = "CONTRADICTION_BACKLOG"  # project OPEN-contradiction
 #                                     contradiction admission is refused
 #                                     fail-closed until the backlog is triaged
 #                                     (resolution — the only drain — stays open)
+
+#: The kinds ``apply_intent`` can actually apply — the set the contract's
+#: availability note is rendered from (OPS-12). Read-only: a kind outside this
+#: set is refused ``NOT_WIRED`` by the dispatch below, and the authority
+#: (``ProfileSpec.authority.proposable_kinds``) is never changed by this list.
+WIRED_INTENT_KINDS: frozenset[IntentKind] = frozenset({
+    IntentKind.PROPOSE_RESEARCH_PROGRAM,
+    IntentKind.PROPOSE_CLASSIFICATION_ACTION,
+    IntentKind.RESOLVE_CLASSIFICATION_PROPOSAL,
+    IntentKind.RECORD_SCOPE_REVIEW_DECISION,
+    IntentKind.RETRACT_SOURCE,
+    IntentKind.CURATE_KNOWLEDGE,
+    IntentKind.RECORD_CONTRADICTION,
+    IntentKind.CONTRADICTION_RESOLUTION,
+    IntentKind.RECORD_CLASSIFICATION,
+    IntentKind.EMIT_PARALLEL_REGIME_PROGRAM,
+    IntentKind.REVOKE_OPERATOR_CREDENTIAL,
+    IntentKind.ROTATE_OPERATOR_CREDENTIAL,
+    IntentKind.EVIDENCE_TRANSITION,
+    IntentKind.INSERT_TASK,
+    IntentKind.ADMIT_TASK,
+})
 
 # IDR-045 C5 — provenance field bounds, single source of truth. Enforced
 # pre-write by ``_require_provenance_bounds`` (called from ``apply_intent``
@@ -432,7 +461,7 @@ def _validate_propose_research_program(
     # ADMITTED FailureClassification that authorizes a parallel-regime-test
     # program. The classification_id is the bare artifact id (fc_<hash>),
     # NOT a prefixed ref. Mirrors ratification_ref: present in the payload
-    # (via _KNOWN_PAYLOAD_KEYS so it isn't rejected as extraneous), resolved
+    # (via RESEARCH_PROGRAM_PAYLOAD_KEYS so it isn't rejected as extraneous), resolved
     # and validated at the gateway, absent from the draft/compiler entirely.
     triggering_classification_id = payload.get("triggering_classification_id")
     if triggering_classification_id is not None:
@@ -1314,6 +1343,18 @@ _EVIDENCE_TRANSITION_PAYLOAD_KEYS = frozenset({
     "evidence_artifact_ref", "from_state", "to_state",
     "ratification_ref", "rationale",
 })
+
+#: The legal top-level payload keys, per kind, for the kinds an LLM profile can
+#: actually propose and the gateway can apply (OPS-12). Each value is the same
+#: frozenset its validator checks; the contract renders from this map, never
+#: from a second hand-typed list. Kinds absent here have no closed top-level
+#: schema exposed (or no validator); the availability note covers the latter.
+INTENT_PAYLOAD_KEYS: Mapping[IntentKind, frozenset[str]] = {
+    IntentKind.INSERT_TASK: _TASK_PAYLOAD_KEYS,
+    IntentKind.ADMIT_TASK: _TASK_PAYLOAD_KEYS,
+    IntentKind.EVIDENCE_TRANSITION: _EVIDENCE_TRANSITION_PAYLOAD_KEYS,
+    IntentKind.PROPOSE_RESEARCH_PROGRAM: RESEARCH_PROGRAM_PAYLOAD_KEYS,
+}
 
 
 def _validate_evidence_transition(
