@@ -35,14 +35,17 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
 from hermes.agents.runtime.config import load_profiles
-from hermes.config import HermesConfig
+from hermes.agents.runtime.supervisor import Supervisor
+from hermes.config import HermesConfig, ModelTierConfig
 from hermes.core.intents import IntentKind
+from hermes.eval.live_vector import LiveVector
+from hermes.eval.loop_observations import RecordingModelPort
 from hermes.research.controller import Controller
 from hermes.research.task_handlers import build_methodology_handler
 from hermes.tools.models.binding import (
@@ -72,12 +75,15 @@ __all__ = [
     "CloudModelSpec",
     "CompositionError",
     "EnvCredentialResolver",
+    "LiveComposition",
     "SystemClock",
     "build_cloud_provider",
     "build_controller",
+    "build_live_composition",
     "build_live_controller",
     "build_model_binding",
     "check_composition",
+    "specs_from_tiers",
     "tier_refs_from_config",
 ]
 
@@ -99,6 +105,17 @@ _DIALECTS = ("anthropic", "openai")
 _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
     "anthropic": frozenset({"api.anthropic.com"}),
     "openai": frozenset({"api.openai.com"}),
+}
+
+#: The code-owned hosted-model registry (OPS-1 Decision A2): the policy surface
+#: that decides which providers may receive a credential from the environment.
+#: A ``[model_tiers]`` ref resolves through this table, so an unknown provider
+#: refuses by name instead of being defaulted. Adding an entry — a provider or a
+#: compatible gateway host — is a reviewed code change, never a config value,
+#: the same posture as ``_DIALECT_HOSTS`` above.
+_MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
+    "anthropic": ("anthropic", "ANTHROPIC_API_KEY"),
+    "openai": ("openai", "OPENAI_API_KEY"),
 }
 
 
@@ -215,6 +232,63 @@ def tier_refs_from_config(cfg: HermesConfig) -> dict[str, str]:
     return {tier: ref.strip() for tier, ref in raw.items() if ref.strip()}
 
 
+def specs_from_tiers(
+    cfg: HermesConfig, *, environ: Mapping[str, str] | None = None,
+) -> tuple[CloudModelSpec, ...]:
+    """Resolve the configured tier refs through the code-owned registry.
+
+    Every problem is collected before anything raises: a malformed ref, an
+    unknown provider, an unusable registry entry, and then the key check that
+    ``check_composition`` owns. An empty ``[model_tiers]`` is *not* an error
+    here — the caller chooses the drain-only path by the same signal — so this
+    resolver is total and the builder's own ``check_composition`` remains the
+    place that refuses a live composition with no tier.
+    """
+    refs = tier_refs_from_config(cfg)
+    problems: list[str] = []
+    specs: dict[tuple[str, str], CloudModelSpec] = {}
+    resolved: set[str] = set()
+    for tier, ref in sorted(refs.items()):
+        try:
+            provider_id, model_id = parse_model_ref(ref)
+        except Exception as exc:  # noqa: BLE001 — re-reported as a problem
+            problems.append(f"tier {tier!r}: {exc}")
+            continue
+        entry = _MODEL_REGISTRY.get(provider_id)
+        if entry is None:
+            problems.append(
+                f"tier {tier!r}: provider {provider_id!r} is not in the model "
+                f"registry (known: {', '.join(sorted(_MODEL_REGISTRY))})")
+            continue
+        dialect, api_key_env = entry
+        key = (provider_id, model_id)
+        if key not in specs:
+            try:
+                specs[key] = CloudModelSpec(
+                    provider_id=provider_id, dialect=dialect,
+                    model_id=model_id, api_key_env=api_key_env)
+            except ValueError as exc:
+                problems.append(
+                    f"provider {provider_id!r} declares an unusable "
+                    f"spec: {exc}")
+                continue
+        resolved.add(tier)
+    if specs:
+        # Check keys against the refs that resolved: passing the original cfg
+        # would re-report a failed tier as "matches no CloudModelSpec", which
+        # is the same condition under a worse name.
+        kept = {tier: ref for tier, ref in refs.items() if tier in resolved}
+        filtered = replace(cfg, model_tiers=ModelTierConfig(
+            s=kept.get("s", ""), m=kept.get("m", ""), c=kept.get("c", "")))
+        try:
+            check_composition(filtered, list(specs.values()), environ=environ)
+        except CompositionError as exc:
+            problems.extend(exc.problems)
+    if problems:
+        raise CompositionError(problems)
+    return tuple(specs.values())
+
+
 # ── validation ──
 
 
@@ -319,20 +393,112 @@ def build_controller(
     project_id: str,
     binding: ModelBinding,
     profiles_dir: Path | str | None = None,
+    profiles: Mapping[str, Any] | None = None,
+    model: Any = None,
+    supervisor: Supervisor | None = None,
+    on_stage: Any = None,
     **controller_kwargs: Any,
 ) -> Controller:
     """A `Controller` with the methodology handler bound to ``binding``.
 
     The handler runs each workflow stage as an agent run under the controller's
     lease; every proposal it makes is applied through ``apply_intent``.
+
+    ``profiles`` lets a caller that already loaded the profile map (the live
+    composition does, for the vector sink) hand it over instead of loading it
+    twice. ``model`` overrides the port the handler sees — the live composition
+    passes a ``RecordingModelPort`` wrapping ``binding`` so M1 is measured at
+    the call edge. ``supervisor`` and ``on_stage`` are the two surfaces the
+    vector sink needs and are inert when omitted.
     """
-    profiles = load_profiles(directory=profiles_dir)
-    handler = build_methodology_handler(model=binding, profiles=profiles)
+    loaded = profiles if profiles is not None else load_profiles(
+        directory=profiles_dir)
+    handler = build_methodology_handler(
+        model=model if model is not None else binding,
+        profiles=loaded,
+        supervisor=supervisor,
+        on_stage=on_stage,
+    )
     return Controller(
         conn,
         project_id=project_id,
         task_handlers={handler.template: handler},  # type: ignore[dict-item]
         **controller_kwargs)
+
+
+@dataclass(frozen=True, slots=True)
+class LiveComposition:
+    """A composed live controller plus the surfaces its run reports.
+
+    ``binding`` is the model port the run actually used (its ``model_ledger``
+    is the per-attempt record the CLI prints); ``vector`` renders the in-process
+    LOOP vector collected at run end (R3).
+    """
+
+    controller: Controller
+    binding: ModelBinding
+    vector: LiveVector
+
+
+def _model_only_profiles(
+    profiles: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Narrow every profile to model-only drafting for this seam.
+
+    The cloud provider refuses a reply that carries a tool call, and this
+    composition wires no capability port, so asking the model for one could only
+    fail later. Narrowing the copy — never the profile file — means the request
+    declares no tools, the router serves it, and no tool can execute. A caller
+    that wires capabilities must compose its own profiles.
+    """
+    return {
+        name: spec if not spec.model_policy.allows_tool_calls else replace(
+            spec,
+            model_policy=replace(spec.model_policy, allows_tool_calls=False),
+        )
+        for name, spec in profiles.items()
+    }
+
+
+def build_live_composition(
+    cfg: HermesConfig,
+    conn: Any,
+    *,
+    project_id: str,
+    specs: Sequence[CloudModelSpec],
+    environ: Mapping[str, str] | None = None,
+    transport: Transport | None = None,
+    resolve: Resolver | None = None,
+    task_tiers: Mapping[str, str] | None = None,
+    default_tier: str = "m",
+    profiles_dir: Path | str | None = None,
+    **controller_kwargs: Any,
+) -> LiveComposition:
+    """Key in the environment -> a controller, its binding, and its vector sink."""
+    check_composition(cfg, specs, environ=environ)
+    credentials = EnvCredentialResolver(
+        {spec.provider_id: spec.api_key_env for spec in specs},
+        environ=environ)
+    by_provider: dict[str, list[CloudModelSpec]] = {}
+    for spec in specs:
+        by_provider.setdefault(spec.provider_id, []).append(spec)
+    providers: list[ModelProvider] = [
+        build_cloud_provider(group, credentials=credentials,
+                             transport=transport, resolve=resolve)
+        for group in by_provider.values()]
+    profiles = _model_only_profiles(load_profiles(directory=profiles_dir))
+    binding = build_model_binding(
+        cfg, providers, credentials=credentials,
+        task_tiers=task_tiers, default_tier=default_tier)
+    supervisor = Supervisor()
+    recorder = RecordingModelPort(binding)
+    vector = LiveVector(supervisor=supervisor, profiles=profiles,
+                        recorder=recorder)
+    controller = build_controller(
+        conn, project_id=project_id, binding=binding, profiles=profiles,
+        model=recorder, supervisor=supervisor, on_stage=vector.record,
+        **controller_kwargs)
+    return LiveComposition(controller=controller, binding=binding, vector=vector)
 
 
 def build_live_controller(
@@ -350,20 +516,8 @@ def build_live_controller(
     **controller_kwargs: Any,
 ) -> Controller:
     """Key in the environment -> a controller that can call a hosted model."""
-    check_composition(cfg, specs, environ=environ)
-    credentials = EnvCredentialResolver(
-        {spec.provider_id: spec.api_key_env for spec in specs},
-        environ=environ)
-    by_provider: dict[str, list[CloudModelSpec]] = {}
-    for spec in specs:
-        by_provider.setdefault(spec.provider_id, []).append(spec)
-    providers: list[ModelProvider] = [
-        build_cloud_provider(group, credentials=credentials,
-                             transport=transport, resolve=resolve)
-        for group in by_provider.values()]
-    binding = build_model_binding(
-        cfg, providers, credentials=credentials,
-        task_tiers=task_tiers, default_tier=default_tier)
-    return build_controller(
-        conn, project_id=project_id, binding=binding,
-        profiles_dir=profiles_dir, **controller_kwargs)
+    return build_live_composition(
+        cfg, conn, project_id=project_id, specs=specs, environ=environ,
+        transport=transport, resolve=resolve, task_tiers=task_tiers,
+        default_tier=default_tier, profiles_dir=profiles_dir,
+        **controller_kwargs).controller

@@ -33,10 +33,10 @@ tamper-evident. Each body records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `f8a80697615ea62faa54493fa3eb70cc2aff74b4d630cfc150ca7ee412ff0861.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `1b8aaec724dbc62b7ecbee653d9b00a8da8f46fb5e1ad916196b2e915ce861d7.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `cdeb67d656351be1bb3cdefe719054953821ec85ead5680c180fff52b909f1e0.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `6a0ad579c6e1adc4abbe1f88581a834915512cb20b3cf9af72140f0c835e30a2.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `ddc877b07b9718da809fe56a7e055e2e74c817db3f809ed2dcc34bc1057301ab.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `652e6a81422e87e8e3087d7282d74059f721a185a980120c616f4d104816ff19.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -139,6 +139,20 @@ tamper-evident. Each body records:
 > identical (5 / 19 / 10 / 5; 6 / 12 / 8 / 4; 21 / 28 / 15 / 18), so the
 > citation structure is invariant — only the pinned byte identities
 > moved, and this table is the regeneration's own output.
+
+> **Re-derivation (OPS-1 — `slice/ops-1-live-cli`).** Two governed corpus
+> members moved — `docs/STATE.md` (the platform-line paragraph becomes
+> conditional on a configured model plane) and `docs/API.md` (the `run`
+> `--drain-only` flag and the mode/refusal contract) — so `b4-c1` / `b4-c2` /
+> `b4-c4` were regenerated deliberately per §Regenerating:
+> `f8a80697… → cdeb67d6…`, `1b8aaec7… → 6a0ad579…`,
+> `ddc877b0… → 652e6a81…`. `b4-c3` is unchanged (IDR-only stratum). Edge sets,
+> `sources` counts, and `skipped` list lengths are identical
+> (5 / 19 / 10 / 5; 6 / 12 / 8 / 4; 21 / 28 / 15 / 18); each
+> affected `skipped` list gains `docs/idr/LIVE-CLI-COMPOSITION.md` and loses
+> `ROADMAP.md` (the dangling platform-line pointer is dropped), so the
+> citation structure is invariant — only the pinned byte identities moved,
+> and this table is the regeneration's own output.
 
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are

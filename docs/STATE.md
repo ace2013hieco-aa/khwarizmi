@@ -159,16 +159,20 @@ systems, telemetry/dashboards, signing, microservices/event bus,
 scientific-validity claims, auto-resolution/reversal, API
 versioning machinery.
 
-**Platform line (R1–R7 / W0–W4 / O1–O5) — landed but unreachable.** The
-platform planes (R1–R7), the wiring slices (W0–W4) and the O-series
-substrates (O1–O5) are committed on the line as inert substrate: the shipped
-CLI constructs the controller with no handlers, so none of it is reachable in
-production (AUDIT-PLATFORM-MERGE §B). O2 is load-bearing (ratified by
-IDR-046); O1/O3/O4/O5 are unwired and remain deferrable bulk — O1 pending its
-sidecar design gate, O5 pending a ranker design gate, O4 blocked on
-`ARCHITECTURE_DELTA` B-6. Only O2 is in scope for the certified tree; the
-rest is not a certified capability. Full per-slice status and commits:
-`ROADMAP.md` §Platform line.
+**Platform line (R1–R7 / W0–W4 / O1–O5) — landed; inert by default, reachable
+only through a configured model plane.** The platform planes (R1–R7), the
+wiring slices (W0–W4) and the O-series substrates (O1–O5) are committed on the
+line as substrate: with `[model_tiers]` empty — the shipped default — the CLI
+constructs the controller with no handlers, so none of it is reachable from the
+shipped CLI. With at least one tier naming a registry provider, `hermes run`
+composes the model plane and the methodology handler (OPS-1,
+`docs/idr/LIVE-CLI-COMPOSITION.md`); that path is reachable from the shipped
+CLI, and a run states its mode and names the provider it used. Reachability is
+not certification, and no run output is evidence of scientific validity or
+reproducibility. O2 is load-bearing (ratified by IDR-046); O1/O3/O4/O5 are
+unwired and remain deferrable bulk — O1 pending its sidecar design gate, O5
+pending a ranker design gate, O4 blocked on `ARCHITECTURE_DELTA` B-6. Only O2
+is in scope for the certified tree; the rest is not a certified capability.
 
 ## Program status
 

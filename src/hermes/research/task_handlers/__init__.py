@@ -256,6 +256,8 @@ def build_methodology_handler(
     artifacts: Any = None,
     actor: str = "methodology-driver",
     governance_context: Any = None,
+    supervisor: Any = None,
+    on_stage: Any = None,
 ) -> WiringTaskHandler:
     """The W3 registration export: one methodology template → the controller.
 
@@ -274,6 +276,12 @@ def build_methodology_handler(
     snapshot rows the methodology plane's own declared governance consumer
     evaluates. It is deliberately untyped here: this package does not import
     the governance plane (BIND-4's consumer set).
+
+    ``supervisor`` and ``on_stage`` exist for the live composition's vector
+    sink (OPS-1 R3): the supervisor is the object that holds each stage run's
+    trace, and ``on_stage(wiring, wired)`` hands that run's surfaces out at the
+    moment they exist. Both are inert when omitted, which is how every other
+    caller builds this handler.
     """
     def _run(ctx: _WiringContext, orchestration: IntentApplier,
              lease_generation: Callable[[], str]) -> Any:
@@ -310,10 +318,12 @@ def build_methodology_handler(
             profiles=profiles,
             grants=grants,
             capabilities=capabilities,
-            artifacts=artifacts)
+            artifacts=artifacts,
+            supervisor=supervisor)
         execution = run_methodology(
             parsed, inputs, wiring=wiring, project_id=ctx.project_id,
-            task_id=str(task.get("task_id", "")), actor=actor)
+            task_id=str(task.get("task_id", "")), actor=actor,
+            on_stage=on_stage)
         if isinstance(execution, MethodologyRefusal):
             return HandlerResult(status="failed_typed",
                                  reason=f"{execution.code}: {execution.detail}",

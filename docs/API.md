@@ -13,10 +13,27 @@ Entry `hermes.cli:main` (`src/hermes/cli.py:760`,
 (`_build_parser`, `cli.py:657`): `init`, `doctor [--json]`,
 `backup`, `restore`, `status [--json]`, `audit [--project] [--json]`,
 `project create|show`, `task show`, `events`, `pause|resume`,
-`run <project_id> [--ticks N]` (drives `Controller.run`,
-`cli.py:469`), `gate resolve <task_id> --verdict
+`run <project_id> [--ticks N] [--drain-only]` (drives
+`Controller.run`), `gate resolve <task_id> --verdict
 APPROVED|REJECTED --operator (--token | --token-stdin)`, `operator
 register (--token | --token-stdin)`.
+
+The `run` mode is config-driven. With no `[model_tiers]` ref — the shipped
+default — or with `--drain-only`, it composes no model plane and no handlers:
+EXTRACT tasks keep their diagnostic, GATE tasks stay unhandled, HUMAN_GATE
+tasks park, and the output is byte-identical to the pre-OPS-1 CLI. With at
+least one tier naming a registry provider (`anthropic`, `openai`; a
+code-owned table, not config) it composes the model plane and the methodology
+handler, refuses (exit `1`, before the database is opened) on an unknown
+provider, a malformed ref, a missing provider key or a broken profile tree,
+and on success prints one `Model plane: live (tiers: ...)` line before the
+first tick, one `model call` row per provider attempt (tier, provider, model,
+outcome, token counts — never a price; capped at 20 with a remainder line),
+and one `vector:` line after the run. Live is the only mode that prints those
+lines, so silence means the model plane was never composed. The provider key
+comes from the environment named by the registry and is never printed, logged
+or traced. Reachability is not certification: no run output is evidence of
+scientific validity or reproducibility.
 `--config PATH` selects `hermes.toml` (schema `config.py`;
 secrets never in config). `--json` emits one parseable document,
 errors to stderr. Exit codes: `0` success, `1` operational

@@ -239,7 +239,9 @@ _EMIT_CENSUS = {
     # CRED-1: +1 (the token-free re-hash-skip note);
     # TAMPER-2: +20 (journal verify/rechain: 11 + 8 handler sites + usage)
     # TAMPER-2: +1 (pre-chain schema refusal)
-    "src/hermes/cli.py": 116,
+    # OPS-1: +8 (live mode line; two composition refusals each with a hint;
+    # model-call row, ledger cap and vector line)
+    "src/hermes/cli.py": 124,
     "src/hermes/eval/platform_cli.py": 15,
     "src/hermes/eval/matrix.py": 1,
 }

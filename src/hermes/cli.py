@@ -17,7 +17,7 @@ import sys
 import uuid
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from . import __version__
 from .config import (
@@ -28,6 +28,9 @@ from .config import (
     load_config,
 )
 from .output import emit, emit_lines, run_boundary
+
+if TYPE_CHECKING:  # the live path imports composition lazily, at run time
+    from .composition import CloudModelSpec
 
 CHECK_STATUS = Literal["AVAILABLE", "OPTIONAL / NOT CONFIGURED", "REQUIRED / MISSING"]
 
@@ -472,15 +475,29 @@ def _resume(args, cfg: HermesConfig) -> int:
 
 def _run(args, cfg: HermesConfig) -> int:
     """Drive the REAL controller tick loop through the CLI (red-team A1):
-    `hermes run <project_id> [--ticks N]` connects to the configured DB,
-    migrates to the latest schema, and drains eligible work via
+    `hermes run <project_id> [--ticks N] [--drain-only]` connects to the
+    configured DB, migrates to the latest schema, and drains eligible work via
     Controller.run — the exact machinery the reconciliation tests exercise,
-    now reachable from the operator surface. No model/handler injections
-    exist at the CLI boundary, so execution is fail-closed by design:
-    EXTRACT tasks are left with a diagnostic (extract_fn is None), GATE
-    tasks are left unhandled, and HUMAN_GATE tasks park at WAITING_HUMAN —
-    surfaced in the summary — until an operator verdict lands through the
-    controller's resolve_human_gate surface.
+    now reachable from the operator surface.
+
+    Two modes, and the config decides which (OPS-1):
+
+    - **Drain-only** — no ``[model_tiers]`` ref set, or ``--drain-only`` —
+      composes the controller with no handlers, exactly as before. EXTRACT
+      tasks keep their diagnostic, GATE tasks stay unhandled, and HUMAN_GATE
+      tasks park at WAITING_HUMAN until an operator verdict lands through the
+      controller's resolve_human_gate surface. This path is byte-identical to
+      the pre-OPS-1 CLI and is pinned by a snapshot test.
+    - **Live** — at least one tier ref — composes the model plane and the
+      methodology handler through ``composition``. The run announces
+      ``Model plane: live (...)`` before the first tick, prints one
+      ``model call`` row per provider attempt and one ``vector:`` line after
+      it. The drain-only path prints none of those lines: silence means the
+      model plane was never composed.
+
+    Composition refuses before the database is opened: an unknown provider, a
+    malformed ref, a missing provider key or a broken profile tree exits 1
+    with the problem named, so no task is left half-processed.
 
     R-3: the operator knobs are read HERE — the ``[autonomy_caps]`` section
     of the loaded config is handed to the controller, which builds the
@@ -499,14 +516,52 @@ def _run(args, cfg: HermesConfig) -> int:
         emit("No database found. Run `hermes init` first.")
         return 1
 
+    # OPS-1: non-empty tier refs are the project's own "configured" signal
+    # (config/hermes.toml documents it), and --drain-only is the one
+    # per-invocation override. The pre-flight is pure and precedes `connect`.
+    from .composition import CompositionError, tier_refs_from_config
+
+    refs = tier_refs_from_config(cfg)
+    live = bool(refs) and not getattr(args, "drain_only", False)
+    specs: tuple[CloudModelSpec, ...] = ()
+    if live:
+        from .agents.runtime.config import ProfileConfigError, load_profiles
+        from .composition import specs_from_tiers
+        try:
+            specs = specs_from_tiers(cfg)
+            load_profiles()
+        except (CompositionError, ProfileConfigError) as exc:
+            emit(f"Error: {exc}")
+            if isinstance(exc, CompositionError):
+                emit("Hint: re-run with --drain-only to skip the model plane.")
+            return 1
+
     conn = connect(str(db_path))
+    binding = None
+    vector = None
     try:
         migrate_to_latest(conn)
-        ctrl = Controller(
-            conn, project_id=args.project_id,
-            autonomy_operator=cfg.autonomy_caps)
+        if live:
+            from .composition import build_live_composition
+            composed = build_live_composition(
+                cfg, conn, project_id=args.project_id, specs=specs,
+                autonomy_operator=cfg.autonomy_caps)
+            ctrl = composed.controller
+            binding = composed.binding
+            vector = composed.vector
+            emit("Model plane: live (tiers: "
+                 + ", ".join(f"{tier}={ref}" for tier, ref in sorted(refs.items()))
+                 + ")")
+        else:
+            ctrl = Controller(
+                conn, project_id=args.project_id,
+                autonomy_operator=cfg.autonomy_caps)
         outcomes = ctrl.run(max_ticks=args.ticks)
         notes = list(ctrl.notes)
+    except CompositionError as exc:  # the environment moved between pre-flight
+        emit(f"Error: {exc}")  # and composition; same refusal, same hint
+        emit("Hint: re-run with --drain-only to skip the model plane.")
+        return 1
     except Exception as e:  # noqa: BLE001 — CLI boundary reports, never crashes
         emit(f"Error: {e}")
         return 1
@@ -524,6 +579,24 @@ def _run(args, cfg: HermesConfig) -> int:
     )
     for n in notes:
         emit(f"  note: {n}")
+    if live and binding is not None:
+        rows = binding.model_ledger()
+        shown = rows[:20]
+        for index, row in enumerate(shown, start=1):
+            line = (f"  model call {index}: tier={row.tier} "
+                    f"provider={row.provider_id} model={row.model_id} "
+                    f"{row.outcome}")
+            if row.refusal_code:
+                line += f" code={row.refusal_code}"
+            if row.attempt >= 1:
+                line += (f" (in {row.usage.input_tokens}, "
+                         f"out {row.usage.output_tokens})")
+            emit(line)
+        if len(rows) > len(shown):
+            emit(f"  ... {len(rows) - len(shown)} more model call(s) not shown "
+                 f"(the ledger is in-process only)")
+        if vector is not None:
+            emit(vector.render())
     return 0
 
 
@@ -963,6 +1036,11 @@ def _build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("project_id", help="Project UUID to drive.")
     run_p.add_argument("--ticks", type=int, default=1000,
                        help="Max ticks per invocation (default 1000).")
+    run_p.add_argument(
+        "--drain-only", dest="drain_only", action="store_true",
+        help="Drive the tick loop without composing the model plane (today's "
+             "fail-closed behavior); work still transitions and gates still "
+             "park.")
 
     gate_p = sub.add_parser("gate", help="Human-gate operations (A2/A4).")
     gate_sub = gate_p.add_subparsers(dest="gate_command")

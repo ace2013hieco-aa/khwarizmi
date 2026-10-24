@@ -72,7 +72,7 @@ anywhere in this slice.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from hermes.agents.runtime.types import TaskContext
 from hermes.agents.runtime.wiring import RuntimeWiring, WiredRun
@@ -470,6 +470,7 @@ def run_methodology(
     project_id: str,
     task_id: str,
     actor: str = "methodology-driver",
+    on_stage: Callable[[RuntimeWiring, Any], None] | None = None,
 ) -> MethodologyExecution | MethodologyRefusal:
     """Drive one parsed workflow document through the W2 runtime wiring.
 
@@ -529,6 +530,12 @@ def run_methodology(
                     content_cache.get(predecessor_id, {})),
             })
         wired: WiredRun = wiring.run(projection.profile, context)
+        if on_stage is not None:
+            # The surface is handed out, never interpreted here: the live
+            # composition retains it and collects the vector after ctrl.run
+            # (OPS-1 R3). A callback that raises must not turn a stage into a
+            # failure, so the recorder is responsible for its own safety.
+            on_stage(wiring, wired.result)
         applied = max(0, wired.spine_writes - applied_so_far)
         applied_so_far = max(applied_so_far, wired.spine_writes)
 
