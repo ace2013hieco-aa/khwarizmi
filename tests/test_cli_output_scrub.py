@@ -241,7 +241,8 @@ _EMIT_CENSUS = {
     # TAMPER-2: +1 (pre-chain schema refusal)
     # OPS-1: +8 (live mode line; two composition refusals each with a hint;
     # model-call row, ledger cap and vector line)
-    "src/hermes/cli.py": 124,
+    # OPS-10: +2 (report path, report-unavailable line)
+    "src/hermes/cli.py": 126,
     "src/hermes/eval/platform_cli.py": 15,
     "src/hermes/eval/matrix.py": 1,
 }

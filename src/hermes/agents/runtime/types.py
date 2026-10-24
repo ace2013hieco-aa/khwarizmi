@@ -377,6 +377,10 @@ class RuntimeRefusal:
     tick: int = 0
     lease_generation: str = ""
     kind: str = ""
+    #: Bounded raw model reply excerpt for a refusal caused by the reply
+    #: (OPS-10). Diagnostic context only; `as_dict()` keeps the refusal-as-data
+    #: shape unchanged and nothing reads this field as authority.
+    excerpt: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         """The shape §2.4 gives gateway refusals, so a plane refusal and a spine
@@ -397,7 +401,8 @@ class RuntimeRefusal:
             profile=str(data.get("profile", "")),
             tick=int(data.get("tick", 0)),
             lease_generation=str(data.get("lease_generation", "")),
-            kind=str(data.get("kind", "")))
+            kind=str(data.get("kind", "")),
+            excerpt=str(data.get("excerpt", "")))
 
 
 # ═══════════════════════ proposals ═══════════════════════

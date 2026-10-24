@@ -387,7 +387,7 @@ class TestFrozenSurfaces:
             "sequence", "tier", "profile", "provider_id", "model_id", "attempt",
             "outcome", "lease_generation", "request_digest", "normalized_request",
             "retrieved_at", "usage", "context_tokens", "refusal_code",
-            "failure_class", "price_usd"}
+            "failure_class", "price_usd", "duration_ms"}
 
     def test_decision_shaped_keys_are_the_verdict_vocabulary(self) -> None:
         assert "verdict" in DECISION_SHAPED_KEYS

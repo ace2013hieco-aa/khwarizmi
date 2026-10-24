@@ -250,6 +250,20 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
             parts.append(f'The "{kind_field}" field names the proposal kind.')
     if rationale_field:
         parts.append(f'The "{rationale_field}" field must be non-empty.')
+    single = str(contract.get("single_form_field") or "")
+    multi = str(contract.get("multi_form_field") or "")
+    if single and multi:
+        parts.append(
+            f"Choose exactly one proposal form: the single-proposal form (a "
+            f'top-level "{single}" field) or the multi-proposal form (a '
+            f'"{multi}" array). A reply carrying both is refused; exactly one '
+            f"is allowed.")
+    delegation_keys = contract.get("delegation_keys")
+    if isinstance(delegation_keys, list) and delegation_keys:
+        keys = ", ".join(str(key) for key in delegation_keys)  # pyright: ignore[reportUnknownVariableType]
+        parts.append(
+            f'If you output a "delegations" array, each item may carry only '
+            f"these keys: {keys}. An unknown key is refused.")
     return "\n".join(parts)
 
 

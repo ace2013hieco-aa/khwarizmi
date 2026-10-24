@@ -213,6 +213,11 @@ DEFAULT_TIMEOUT_SECONDS = 120.0
 #: is refused loudly rather than silently truncated).
 DEFAULT_MAX_RESPONSE_BYTES = 1 << 20
 
+#: The diagnostic excerpt cap for a refused model reply (OPS-10). A refusal's
+#: `excerpt` is the raw model text, bounded to this many UTF-8 bytes; the run
+#: report caps it again. This is diagnostic context, never a record.
+MAX_REFUSAL_EXCERPT_BYTES = 2000
+
 #: Redaction for the plane's *own* call form. `redact.DEFAULT_POLICY` is
 #: fail-closed by default-deny because its inputs are open wire param dicts. A
 #: model call is not a wire form: it is built here from a closed key set, so
@@ -348,6 +353,10 @@ class OutputContract:
     absent). `proposable_kinds` is the profile's declared allowlist, carried
     into the prompt's schema as *guidance*: the model is told which values are
     legal, but the injected allowlist remains the authority and the enforcement.
+    `single_form_field` / `multi_form_field` name the two mutually exclusive
+    proposal forms, and `delegation_keys` names the keys a delegation item may
+    carry. Both are rendered into the prompt from the validator's own constants
+    (OPS-9) and are guidance only.
     """
 
     name: str
@@ -356,6 +365,9 @@ class OutputContract:
     rationale_field: str = ""
     allows_decision: bool = False
     proposable_kinds: tuple[str, ...] = ()
+    single_form_field: str = ""
+    multi_form_field: str = ""
+    delegation_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -583,6 +595,10 @@ class ModelRefusal:
     provider_id: str = ""
     model_id: str = ""
     account: "ModelCallAccount | None" = None
+    #: Bounded raw reply text for a refusal caused by the model's output
+    #: (OPS-10). Diagnostic context only — `as_dict()` keeps the refusal-as-data
+    #: shape unchanged, and nothing reads this field as authority.
+    excerpt: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         """The shape §2.4 gives gateway refusals, so a plane refusal and a spine
@@ -615,6 +631,9 @@ class ModelCallAccount:
     refusal_code: str | None = None
     failure_class: str | None = None
     price_usd: float | None = None
+    #: Wall-clock duration of this provider attempt in milliseconds (OPS-10).
+    #: Diagnostic only; a refusal before any provider call is 0.0.
+    duration_ms: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1274,6 +1293,7 @@ class _Refusal(Exception):
         provider_id: str = "",
         model_id: str = "",
         account: ModelCallAccount | None = None,
+        excerpt: str = "",
     ) -> None:
         super().__init__(detail)
         self.code = code
@@ -1282,6 +1302,7 @@ class _Refusal(Exception):
         self.provider_id = provider_id
         self.model_id = model_id
         self.account = account
+        self.excerpt = excerpt
 
 
 # ── the router ──
@@ -1771,10 +1792,15 @@ class ModelRouter:
         # Counted *before* the call so that a call which reaches a provider and
         # then loses its ledger row is detectable (verify_accounting).
         self._provider_attempts += 1
+        started = self._monotonic()
         outcome = "OK"
         failure_class: str | None = None
         usage = TokenUsage()
         chunks: tuple[ProviderChunk, ...] = ()
+
+        def elapsed_ms() -> float:
+            return round(max(0.0, self._monotonic() - started) * 1000.0, 3)
+
         try:
             if stream:
                 chunks = candidate.provider.stream(call)
@@ -1786,28 +1812,45 @@ class ModelRouter:
             return response, chunks, self._record(
                 candidate=candidate, request=request, attempt=attempt,
                 outcome=outcome, normalized=normalized, digest=digest,
-                usage=usage, failure_class=None)
+                usage=usage, failure_class=None,
+                duration_ms=elapsed_ms())
         except TransientProviderError as exc:
             failure_class = type(exc).__name__
             self._record(candidate=candidate, request=request, attempt=attempt,
                          outcome="TRANSIENT", normalized=normalized,
                          digest=digest, usage=usage,
-                         failure_class=failure_class)
+                         failure_class=failure_class,
+                         duration_ms=elapsed_ms())
             raise
         except PermanentProviderError as exc:
             failure_class = type(exc).__name__
             self._record(candidate=candidate, request=request, attempt=attempt,
                          outcome="PERMANENT", normalized=normalized,
                          digest=digest, usage=usage,
-                         failure_class=failure_class)
+                         failure_class=failure_class,
+                         duration_ms=elapsed_ms())
             raise
+
+    def _monotonic(self) -> float:
+        """The injected clock's monotonic reading, or the process clock."""
+        reader = getattr(self._clock, "monotonic", None)
+        if callable(reader):
+            return float(cast(Callable[[], float], reader)())
+        return time.monotonic()
 
     def _shape_result(
         self, candidate: _Candidate, request: ModelRequest,
         response: ModelResponse, chunks: tuple[ProviderChunk, ...],
         account: ModelCallAccount, *, require_stream: bool,
     ) -> "ModelProposal | ModelStreamResult":
-        proposal = self._proposal(candidate, request, response, account)
+        try:
+            proposal = self._proposal(candidate, request, response, account)
+        except _Refusal as refusal:
+            # The reply existed and failed validation; carry a bounded excerpt
+            # so the run report can say *how*, not merely "malformed".
+            if not refusal.excerpt:
+                refusal.excerpt = bounded_excerpt(response.text)
+            raise
         if not require_stream:
             return proposal
         return ModelStreamResult(
@@ -2008,6 +2051,7 @@ class ModelRouter:
         outcome: str, normalized: Mapping[str, Any], digest: str,
         usage: TokenUsage, failure_class: str | None,
         refusal_code: str | None = None,
+        duration_ms: float = 0.0,
     ) -> ModelCallAccount:
         row = ModelCallAccount(
             sequence=len(self._ledger),
@@ -2025,7 +2069,8 @@ class ModelRouter:
             context_tokens=usage.input_tokens or self._estimate_context_tokens(request),
             refusal_code=refusal_code,
             failure_class=failure_class,
-            price_usd=_price_of(candidate.profile, usage))
+            price_usd=_price_of(candidate.profile, usage),
+            duration_ms=duration_ms)
         self._ledger.append(row)
         return row
 
@@ -2062,7 +2107,8 @@ class ModelRouter:
             tier=request.tier,
             provider_id=refusal.provider_id or account.provider_id,
             model_id=refusal.model_id or account.model_id,
-            account=account)
+            account=account,
+            excerpt=refusal.excerpt)
 
     def _backoff(self, attempt: int) -> None:
         """Jittered exponential backoff, mirroring `providers/paginate.py`.
@@ -2124,6 +2170,9 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "rationale_field": contract.rationale_field,
         "allows_decision": contract.allows_decision,
         "proposable_kinds": list(contract.proposable_kinds),
+        "single_form_field": contract.single_form_field,
+        "multi_form_field": contract.multi_form_field,
+        "delegation_keys": list(contract.delegation_keys),
     }
 
 
@@ -2134,6 +2183,23 @@ def _envelope(text: str, *, origin: str, ref: str) -> UntrustedContent:
     cannot be forgotten at one call site and remembered at another.
     """
     return UntrustedContent(text=text, origin=origin, ref=ref)
+
+
+def bounded_excerpt(
+    text: str, limit: int = MAX_REFUSAL_EXCERPT_BYTES,
+) -> str:
+    """Bound a diagnostic excerpt to ``limit`` UTF-8 bytes (OPS-10).
+
+    The text is not a record and is never parsed as one; it exists so the
+    operator can see *how* a refused reply failed its contract. A truncated
+    excerpt says so rather than looking complete.
+    """
+    raw = text.encode("utf-8")
+    if len(raw) <= limit:
+        return text
+    marker = "\n[excerpt truncated]"
+    keep = max(0, limit - len(marker.encode("utf-8")))
+    return raw[:keep].decode("utf-8", errors="ignore") + marker
 
 
 def _price_of(profile: ModelProfile, usage: TokenUsage) -> float | None:

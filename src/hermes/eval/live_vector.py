@@ -24,6 +24,7 @@ The three honesty rules this module inherits from `loop_observations`:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from hermes.agents.runtime.config import ProfileSpec
 from hermes.agents.runtime.supervisor import Supervisor
@@ -36,11 +37,24 @@ from hermes.eval.loop_metrics import (
 )
 from hermes.eval.loop_observations import RecordingModelPort, collect_run
 
-__all__ = ["LiveVector"]
+__all__ = ["LiveVector", "StageRunSnapshot"]
 
 #: How many collected runs a vector line may summarize. The CLI bounds the
 #: ledger rows separately; this bound keeps the line one line.
 _MAX_RUNS = 64
+
+
+@dataclass(frozen=True, slots=True)
+class StageRunSnapshot:
+    """One stage run retained for the diagnostic report (OPS-10).
+
+    ``stage`` is the methodology stage kind read from the run's checkpoint
+    context; ``result`` is the runtime's own ``ProposalSet``. The report reads
+    these; nothing here is an authority.
+    """
+
+    stage: str
+    result: ProposalSet
 
 
 class LiveVector:
@@ -61,6 +75,27 @@ class LiveVector:
     def record(self, wiring: RuntimeWiring, result: ProposalSet) -> None:
         """Retain one stage run's surfaces. Never raises, never reads state."""
         self._pending.append((wiring, result))
+
+    def stage_runs(self) -> tuple[StageRunSnapshot, ...]:
+        """The retained stage runs, with the stage kind from each checkpoint.
+
+        Read-only and pure with respect to the run: the OPS-10 report asks for
+        the stage label, the run's own ``ProposalSet`` already carries profile,
+        task, state, termination and refusals. A checkpoint that is absent or
+        carries no stage falls back to the task-id suffix the projection used.
+        """
+        snapshots: list[StageRunSnapshot] = []
+        for wiring, result in self._pending:
+            stage = ""
+            checkpoint = wiring.checkpoint(result.run_id)
+            if checkpoint is not None:
+                payload = checkpoint.context.get("payload")
+                if isinstance(payload, Mapping):
+                    stage = str(payload.get("stage", ""))
+            if not stage and ":" in result.task_id:
+                stage = result.task_id.rsplit(":", 1)[-1]
+            snapshots.append(StageRunSnapshot(stage=stage, result=result))
+        return tuple(snapshots)
 
     def render(self) -> str:
         """The one-line vector, or `vector: unavailable (<reason>)`."""

@@ -213,6 +213,7 @@ from hermes.tools.models.router import (
     ModelRefusal,
     ModelRequest,
     OutputContract,
+    bounded_excerpt,
 )
 
 #: A model refusal this plane retries. Only an *output-side* refusal is worth a
@@ -226,6 +227,12 @@ DRAFT_KEYS: frozenset[str] = frozenset({"kind", "rationale", "payload"})
 TOOL_CALL_KEYS: frozenset[str] = frozenset({"capability_id", "arguments",
                                             "rationale"})
 DELEGATION_KEYS: frozenset[str] = frozenset({"profile", "spec", "task_type"})
+
+#: The two mutually exclusive proposal forms. The validator refuses a reply
+#: that carries both; the contract renders this rule from these names, so the
+#: prompt and the check cannot drift apart (OPS-9).
+SINGLE_PROPOSAL_FIELD: str = "kind"
+MULTI_PROPOSAL_FIELD: str = "proposals"
 
 #: Keys the runtime *derives*. A draft that supplies one is refused: §2.3 forbids
 #: any plane from authoring — or trusting — an identity.
@@ -304,6 +311,12 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
         # it in the contract is prompt guidance; the runtime's check remains
         # the authority.
         proposable_kinds=spec.authority.proposable_kinds,
+        # OPS-9: both statements are rendered from the validator's own names,
+        # so a change to the form fields or the delegation-key set is reflected
+        # in the prompt (the drift guard is in test_ops9_contract_rules).
+        single_form_field=SINGLE_PROPOSAL_FIELD,
+        multi_form_field=MULTI_PROPOSAL_FIELD,
+        delegation_keys=tuple(sorted(DELEGATION_KEYS)),
     )
 
 
@@ -365,11 +378,11 @@ class _RunState:
     #: to the run rather than to whichever entry happened to be executing.
     deadline: float | None = None
 
-    def refuse(self, code: str, detail: str, *, tick: int, kind: str = ""
-               ) -> RuntimeRefusal:
+    def refuse(self, code: str, detail: str, *, tick: int, kind: str = "",
+               excerpt: str = "") -> RuntimeRefusal:
         item = RuntimeRefusal(code=code, detail=detail, profile=self.profile,
                               tick=tick, lease_generation=self.lease_generation,
-                              kind=kind)
+                              kind=kind, excerpt=excerpt)
         self.refusals.append(item)
         return item
 
@@ -792,7 +805,8 @@ class AgentRuntime:
             budget=budget, deadline=deadline)
 
         if isinstance(result, ModelRefusal):
-            state.refuse(result.code, f"model refusal: {result.detail}", tick=tick)
+            state.refuse(result.code, f"model refusal: {result.detail}",
+                         tick=tick, excerpt=result.excerpt)
             self._emit(kind="MODEL_REFUSED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"code": result.code, "attempts": list(attempts)})
@@ -828,15 +842,18 @@ class AgentRuntime:
 
         structured = dict(result.structured)
         model_ref = f"{result.provider_id}:{result.model_id}"
+        raw_excerpt = (bounded_excerpt(result.content.text)
+                       if result.content is not None else "")
         drafted = self._emit_drafts(structured, spec, context, state, run_id,
-                                    tick, model_ref)
+                                    tick, model_ref, raw_excerpt=raw_excerpt)
         return structured, drafted
 
     def _emit_drafts(self, structured: Mapping[str, Any], spec: ProfileSpec,
                      context: TaskContext, state: _RunState, run_id: str, tick: int,
-                     model_ref: str) -> tuple[str, ...]:
+                     model_ref: str, *, raw_excerpt: str = "") -> tuple[str, ...]:
         """Validate every draft, then emit the survivors as intents."""
-        drafts, refusals = self._validate_drafts(structured, spec, context, tick)
+        drafts, refusals = self._validate_drafts(
+            structured, spec, context, tick, raw_excerpt=raw_excerpt)
         evidence_refs = self._evidence_refs(state)
         for refusal in refusals:
             state.refusals.append(refusal)
@@ -865,7 +882,7 @@ class AgentRuntime:
                     + (f" (preserved as {reference})" if reference else "")
                     + " — the plane will not hand the spine a payload it would have "
                       "to truncate",
-                    tick=tick, kind=kind.value)
+                    tick=tick, kind=kind.value, excerpt=raw_excerpt)
                 self._emit(kind="PROPOSAL_REFUSED", run_id=run_id, tick=tick,
                            lease_generation=context.lease_generation,
                            detail={"code": refusal.code, "kind": kind.value})
@@ -891,7 +908,8 @@ class AgentRuntime:
                              if record.invocation_ref}))
 
     def _validate_drafts(self, structured: Mapping[str, Any], spec: ProfileSpec,
-                         context: TaskContext, tick: int
+                         context: TaskContext, tick: int, *,
+                         raw_excerpt: str = ""
                          ) -> tuple[list[tuple[IntentKind, str, dict[str, Any], str]],
                                     list[RuntimeRefusal]]:
         """The draft schema plus the profile authority rule, in one place."""
@@ -900,7 +918,8 @@ class AgentRuntime:
         def refuse(code: str, detail: str, *, kind: str = "") -> None:
             refusals.append(RuntimeRefusal(
                 code=code, detail=detail, profile=spec.name, tick=tick,
-                lease_generation=context.lease_generation, kind=kind))
+                lease_generation=context.lease_generation, kind=kind,
+                excerpt=raw_excerpt))
 
         allowed = {"kind", "rationale", "payload"} | set(
             spec.model_policy.structured_fields)
@@ -910,18 +929,19 @@ class AgentRuntime:
                    f"the model output declares keys this profile does not accept: "
                    f"{unknown} (allowed: {sorted(allowed)})")
             return [], refusals
-        if structured.get("proposals") is not None and structured.get("kind"):
+        if (structured.get(MULTI_PROPOSAL_FIELD) is not None
+                and structured.get(SINGLE_PROPOSAL_FIELD)):
             refuse(MALFORMED_PAYLOAD,
                    "the model output carries both the single-proposal and the "
                    "multi-proposal form — exactly one is allowed")
             return [], refusals
-        if structured.get("proposals") is not None:
-            items = structured["proposals"]
+        if structured.get(MULTI_PROPOSAL_FIELD) is not None:
+            items = structured[MULTI_PROPOSAL_FIELD]
             if not isinstance(items, list):
                 refuse(MALFORMED_PAYLOAD,
                        f"proposals must be a list, got {type(items).__name__}")
                 return [], refusals
-        elif structured.get("kind"):
+        elif structured.get(SINGLE_PROPOSAL_FIELD):
             items = [{key: structured[key] for key in DRAFT_KEYS
                       if key in structured}]
         else:

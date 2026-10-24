@@ -88,6 +88,22 @@ class ModelTierConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ReportingConfig:
+    """OPS-10 diagnostic run-report settings.
+
+    ``run_dir`` is an operator-supplied **absolute** directory; empty means
+    "beside the live DB" (resolved by the CLI). A report is a diagnostic
+    artifact, never a record: it is written once at the run boundary and never
+    read back as authority. ``max_bytes`` bounds the file; ``excerpt_bytes``
+    bounds each refused-reply excerpt (the validator's own cap is 2 000).
+    """
+
+    run_dir: str = ""
+    max_bytes: int = 1_048_576
+    excerpt_bytes: int = 2_000
+
+
+@dataclass(frozen=True, slots=True)
 class AutonomyCapsConfig:
     """P-AUTO-4 operator knobs (narrow-only; code defaults are the ceiling).
 
@@ -129,6 +145,7 @@ class HermesConfig:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     budgets: BudgetClasses = field(default_factory=BudgetClasses)
     model_tiers: ModelTierConfig = field(default_factory=ModelTierConfig)
+    reporting: ReportingConfig = field(default_factory=ReportingConfig)
     sandbox: SandboxPolicy = field(default_factory=SandboxPolicy)
     autonomy_caps: AutonomyCapsConfig = field(default_factory=AutonomyCapsConfig)
     provider_config_dir: str = "providers"
@@ -166,6 +183,7 @@ def load_config(path: Path) -> HermesConfig:
         "retry": RetryPolicy,
         "budgets": BudgetClasses,
         "model_tiers": ModelTierConfig,
+        "reporting": ReportingConfig,
         "sandbox": SandboxPolicy,
         "autonomy_caps": AutonomyCapsConfig,
     }
@@ -198,6 +216,18 @@ def _validate_ranges(cfg: HermesConfig) -> None:
         raise ConfigError(
             f"heartbeat.lease_multiplier must be > 0, "
             f"got {cfg.heartbeat.lease_multiplier}")
+    reporting = cfg.reporting
+    if reporting.run_dir and not Path(reporting.run_dir).is_absolute():
+        raise ConfigError(
+            f"reporting.run_dir must be an absolute path (beside the live DB is "
+            f"the default), got {reporting.run_dir!r}")
+    if reporting.max_bytes <= 0:
+        raise ConfigError(
+            f"reporting.max_bytes must be > 0, got {reporting.max_bytes}")
+    if not 1 <= reporting.excerpt_bytes <= 2_000:
+        raise ConfigError(
+            f"reporting.excerpt_bytes must be in 1..2000 (the validator's "
+            f"refusal-excerpt cap), got {reporting.excerpt_bytes}")
     caps = cfg.autonomy_caps
     for name in (
             "overall_deadline_seconds", "per_tick_wall_seconds",

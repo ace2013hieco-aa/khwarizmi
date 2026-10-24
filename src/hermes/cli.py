@@ -16,8 +16,9 @@ import sqlite3
 import sys
 import uuid
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from . import __version__
 from .config import (
@@ -473,6 +474,59 @@ def _resume(args, cfg: HermesConfig) -> int:
     return 0
 
 
+def _write_live_report(
+    cfg: HermesConfig,
+    db_path: Path,
+    specs: Any,
+    *,
+    started_at: str,
+    project_id: str,
+    ticks: int,
+    stage_runs: Any,
+    ledger: Any,
+    notes: Any,
+    vector_line: str,
+) -> str:
+    """Build and write the OPS-10 diagnostic report; return the path.
+
+    The report is written beside the live DB unless ``[reporting] run_dir``
+    names an absolute directory. It is a diagnostic artifact, never a record,
+    and its failure is reported by the caller without changing the exit code.
+    """
+    from .composition import EnvCredentialResolver
+    from .run_report import (
+        build_run_report,
+        new_run_id,
+        redact_report,
+        report_path,
+        write_run_report,
+    )
+
+    run_dir = (Path(cfg.reporting.run_dir) if cfg.reporting.run_dir
+               else db_path.resolve().parent / "run-reports")
+    run_id = new_run_id(started_at, project_id)
+    report = build_run_report(
+        run_id=run_id,
+        project_id=project_id,
+        started_at=started_at,
+        ticks=ticks,
+        stage_runs=stage_runs,
+        ledger=ledger,
+        notes=notes,
+        vector=vector_line,
+        excerpt_bytes=cfg.reporting.excerpt_bytes)
+    resolver = EnvCredentialResolver(
+        {spec.provider_id: spec.api_key_env for spec in specs})
+    secrets = tuple(
+        credential.reveal()
+        for credential in (resolver.resolve(spec.provider_id)
+                           for spec in specs)
+        if credential is not None)
+    report = redact_report(report, secrets)
+    return str(write_run_report(report_path(run_dir, run_id), report,
+                                max_bytes=cfg.reporting.max_bytes))
+
+
 def _run(args, cfg: HermesConfig) -> int:
     """Drive the REAL controller tick loop through the CLI (red-team A1):
     `hermes run <project_id> [--ticks N] [--drain-only]` connects to the
@@ -556,6 +610,7 @@ def _run(args, cfg: HermesConfig) -> int:
             ctrl = Controller(
                 conn, project_id=args.project_id,
                 autonomy_operator=cfg.autonomy_caps)
+        started_at = datetime.now(UTC).isoformat()
         outcomes = ctrl.run(max_ticks=args.ticks)
         notes = list(ctrl.notes)
     except CompositionError as exc:  # the environment moved between pre-flight
@@ -595,8 +650,20 @@ def _run(args, cfg: HermesConfig) -> int:
         if len(rows) > len(shown):
             emit(f"  ... {len(rows) - len(shown)} more model call(s) not shown "
                  f"(the ledger is in-process only)")
-        if vector is not None:
-            emit(vector.render())
+        vector_line = vector.render() if vector is not None else ""
+        if vector_line:
+            emit(vector_line)
+        stage_runs = vector.stage_runs() if vector is not None else ()
+        try:
+            path = _write_live_report(
+                cfg, db_path, specs, started_at=started_at,
+                project_id=args.project_id, ticks=len(outcomes),
+                stage_runs=stage_runs, ledger=rows, notes=notes,
+                vector_line=vector_line)
+        except Exception as exc:  # noqa: BLE001 — a report never fails the run
+            emit(f"report: unavailable ({type(exc).__name__}: {exc})")
+        else:
+            emit(f"report: {path}")
     return 0
 
 
