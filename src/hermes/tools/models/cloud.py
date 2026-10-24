@@ -240,7 +240,14 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
     kind_field = str(contract.get("kind_field") or "")
     rationale_field = str(contract.get("rationale_field") or "")
     if kind_field:
-        parts.append(f'The "{kind_field}" field names the proposal kind.')
+        kinds = contract.get("proposable_kinds")
+        if isinstance(kinds, list) and kinds:
+            legal = ", ".join(str(item) for item in kinds)  # pyright: ignore[reportUnknownVariableType]
+            parts.append(
+                f'The "{kind_field}" field names the proposal kind. Use '
+                f"exactly one of: {legal}. Any other value is refused.")
+        else:
+            parts.append(f'The "{kind_field}" field names the proposal kind.')
     if rationale_field:
         parts.append(f'The "{rationale_field}" field must be non-empty.')
     return "\n".join(parts)

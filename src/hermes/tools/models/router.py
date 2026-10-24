@@ -345,7 +345,9 @@ class OutputContract:
     `kind_field`, when set, is checked against the injected proposable
     allowlist — a value outside it is `ROLE` (a partition breach), not a schema
     slip. `rationale_field`, when set, is required non-empty (`RATIONALE` when
-    absent).
+    absent). `proposable_kinds` is the profile's declared allowlist, carried
+    into the prompt's schema as *guidance*: the model is told which values are
+    legal, but the injected allowlist remains the authority and the enforcement.
     """
 
     name: str
@@ -353,6 +355,7 @@ class OutputContract:
     kind_field: str = ""
     rationale_field: str = ""
     allows_decision: bool = False
+    proposable_kinds: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -2120,6 +2123,7 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "kind_field": contract.kind_field,
         "rationale_field": contract.rationale_field,
         "allows_decision": contract.allows_decision,
+        "proposable_kinds": list(contract.proposable_kinds),
     }
 
 

@@ -300,6 +300,10 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
         kind_field=spec.model_policy.kind_field,
         rationale_field=spec.model_policy.rationale_field,
         allows_decision=False,
+        # The same tuple `ProfileSpec.refuses_by_authority` enforces. Listing
+        # it in the contract is prompt guidance; the runtime's check remains
+        # the authority.
+        proposable_kinds=spec.authority.proposable_kinds,
     )
 
 
