@@ -708,6 +708,16 @@ class TestHostOverride:
         assert spec.host == "oxionai.com"
         assert spec.make_dialect().host == "oxionai.com"
 
+    def test_the_nvidia_gateway_host_is_accepted_for_the_openai_dialect(
+            self) -> None:
+        """A second reviewed gateway: NVIDIA's integrate host, apex only."""
+        spec = _spec(provider_id="nvidia", dialect="openai",
+                     model_id="nvidia/nemotron-3-ultra-550b-a55b",
+                     api_key_env="NVIDIA_API_KEY",
+                     host="integrate.api.nvidia.com")
+        assert spec.host == "integrate.api.nvidia.com"
+        assert spec.make_dialect().host == "integrate.api.nvidia.com"
+
     def test_the_gateway_www_host_is_refused(self) -> None:
         """The probed www host answers HTTP 403; only the apex is admitted."""
         with pytest.raises(ValueError, match="host allowlist"):

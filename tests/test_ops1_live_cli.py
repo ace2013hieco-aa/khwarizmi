@@ -252,7 +252,10 @@ def test_unknown_provider_refuses_and_names_the_ref(tmp_path, capsys,
 
     assert rc == 1
     assert "tier 'm': provider 'gemini' is not in the model registry" in captured.out
-    assert "known: anthropic, openai" in captured.out
+    # Derived from the registry, not typed: a new provider must not break this,
+    # and a missing one must. (A literal "anthropic, openai" used to pass on a
+    # substring until a third provider was inserted between them.)
+    assert "known: " + ", ".join(sorted(composition._MODEL_REGISTRY)) in captured.out
 
 
 def test_malformed_ref_refuses(tmp_path, capsys, monkeypatch) -> None:
