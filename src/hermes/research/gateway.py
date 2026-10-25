@@ -1361,14 +1361,36 @@ INTENT_PAYLOAD_KEYS: Mapping[IntentKind, frozenset[str]] = {
 _TASK_TYPE_VALUES: frozenset[str] = frozenset(
     node_type.value for node_type in NodeType)
 
+#: The legal ``profile`` values, read from the enum ``_payload_to_node`` parses
+#: (OPS-14). Same rule: adding an ``AgentProfile`` adds a legal value.
+_PROFILE_VALUES: frozenset[str] = frozenset(
+    member.value for member in AgentProfile)
+
 #: The enumerated payload values the validators check, per kind and key
-#: (OPS-13), beside the closed-key map above. A supplied value outside the set
-#: refuses ``MALFORMED_PAYLOAD``; a draft may omit the key, because
-#: ``AgentRuntime._derive_payload`` supplies the default before the intent is
+#: (OPS-13, OPS-14), beside the closed-key map above. A supplied value outside
+#: the set refuses ``MALFORMED_PAYLOAD``; a draft may omit either key, because
+#: ``AgentRuntime._derive_payload`` supplies its default before the intent is
 #: built. Only ``INSERT_TASK`` is mapped: it is the task kind a model can
 #: propose. ``ADMIT_TASK`` shares ``_TASK_PAYLOAD_KEYS`` but is internal-only.
 INTENT_PAYLOAD_VALUE_SETS: Mapping[IntentKind, Mapping[str, frozenset[str]]] = {
-    IntentKind.INSERT_TASK: {"task_type": _TASK_TYPE_VALUES},
+    IntentKind.INSERT_TASK: {
+        "task_type": _TASK_TYPE_VALUES,
+        "profile": _PROFILE_VALUES,
+    },
+}
+
+#: The shape ``_require_str_list`` checks, stated once so the validator's
+#: refusal and the rendered contract cannot disagree (OPS-14). A free-form
+#: list has no value set to enumerate, only a shape.
+_PAYLOAD_LIST_SHAPE = "a list of strings"
+
+#: The list-valued payload keys whose shape the contract states, per kind
+#: (OPS-14), beside the closed-key map above. The value is the shape phrase
+#: ``_require_str_list`` uses in its refusal. Only ``inputs`` is mapped: it is
+#: the one free-form list every task draft needs. Omission is accepted — the
+#: validator reads an absent key as an empty list.
+INTENT_PAYLOAD_SHAPES: Mapping[IntentKind, Mapping[str, str]] = {
+    IntentKind.INSERT_TASK: {"inputs": _PAYLOAD_LIST_SHAPE},
 }
 
 
@@ -4110,7 +4132,7 @@ def _payload_to_node(intent: Intent) -> NodeContract:
         if not isinstance(value, list) or not all(
                 isinstance(item, str) for item in value):
             raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                          f"payload.{key} must be a list of strings")
+                          f"payload.{key} must be {_PAYLOAD_LIST_SHAPE}")
         return list(value)
 
     task_id = _require_str("task_id")

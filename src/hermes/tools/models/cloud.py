@@ -328,6 +328,28 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
                 "(omitting it takes the runtime's default); when supplied it "
                 "must be one of: " + ", ".join(values)
                 + ". Any other value is refused.")
+    shapes = contract.get("payload_shapes")
+    if isinstance(shapes, Mapping) and isinstance(declared, list):
+        # OPS-14: one clause per free-form list key, beside the value-set lines.
+        # The shape comes from the gateway's constant (the same phrase the
+        # validator's refusal uses); omission is the validator's default of an
+        # empty list, not a runtime default, so the sentence names that.
+        grouped_shapes: dict[tuple[str, str], list[str]] = {}
+        for kind in declared:  # pyright: ignore[reportUnknownVariableType]
+            per_key = shapes.get(str(kind))
+            if not isinstance(per_key, Mapping):
+                continue
+            for raw_key in sorted(per_key, key=str):
+                raw_shape = per_key[raw_key]
+                if not isinstance(raw_shape, str) or not raw_shape:
+                    continue
+                grouped_shapes.setdefault(
+                    (str(raw_key), raw_shape), []).append(str(kind))
+        for (key, shape), kinds in grouped_shapes.items():
+            parts.append(
+                f'For {", ".join(kinds)}, the payload key "{key}" is optional '
+                "(omitting it admits an empty list); when supplied it must be "
+                f"{shape}. Any other value is refused.")
     if isinstance(derived, list) and derived:
         parts.append(
             "Never supply identity keys in a payload: "

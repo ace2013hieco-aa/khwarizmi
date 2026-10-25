@@ -60,7 +60,7 @@ def _mapping_with_rules(spec: Any) -> tuple[dict[str, Any], str]:
     """The contract mapping plus the three gateway-derived guidance sets."""
     mapping = _contract_mapping(output_contract_for(spec))
     assert mapping is not None
-    available, payload_keys, payload_values = live_contract_rules()
+    available, payload_keys, payload_values, _ = live_contract_rules()
     mapping["available_kinds"] = sorted(available)
     mapping["payload_keys"] = {
         kind: list(keys) for kind, keys in sorted(payload_keys.items())}
@@ -108,8 +108,10 @@ def test_task_profiles_render_the_node_type_values() -> None:
 
 
 def test_the_value_set_is_the_node_type_enum() -> None:
-    expected = {IntentKind.INSERT_TASK: {"task_type": frozenset(TASK_TYPE_VALUES)}}
-    assert expected == INTENT_PAYLOAD_VALUE_SETS
+    # OPS-14 added `profile` to the map and owns its full equality. This pin is
+    # OPS-13's claim: the `task_type` entry is the NodeType enum, nothing else.
+    assert INTENT_PAYLOAD_VALUE_SETS[IntentKind.INSERT_TASK][
+        "task_type"] == frozenset(TASK_TYPE_VALUES)
     assert len(TASK_TYPE_VALUES) == 5
     assert set(TASK_TYPE_VALUES) == {member.value for member in NodeType}
 

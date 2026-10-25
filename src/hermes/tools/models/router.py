@@ -1334,6 +1334,7 @@ class ModelRouter:
         available_kinds: frozenset[str] | None = None,
         payload_keys: Mapping[str, Sequence[str]] | None = None,
         payload_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
+        payload_shapes: Mapping[str, Mapping[str, str]] | None = None,
         credentials: CredentialResolver | None = None,
         translator: ToolCallTranslator | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -1368,6 +1369,14 @@ class ModelRouter:
                          for key, values in sets.items()}
              for kind, sets in payload_values.items()}
             if payload_values is not None else None)
+        # OPS-14: the shape a free-form list key must have, per kind. Injected
+        # by the composition root from the gateway's constant; guidance only,
+        # the validator keeps the check.
+        self._payload_shapes = (
+            {str(kind): {str(key): str(shape)
+                         for key, shape in shapes.items()}
+             for kind, shapes in payload_shapes.items()}
+            if payload_shapes is not None else None)
         self._credentials = credentials
         self._translator: ToolCallTranslator = translator or NeutralToolCallTranslator()
         self._sleep = sleep if sleep is not None else _default_sleep(clock)
@@ -1734,7 +1743,7 @@ class ModelRouter:
         return call
 
     def _contract_with_rules(self, request: ModelRequest) -> dict[str, Any] | None:
-        """The contract mapping plus the OPS-12/OPS-13 guidance injected.
+        """The contract mapping plus the OPS-12/OPS-13/OPS-14 guidance injected.
 
         All additions are prompt data: the validator's own sets remain the
         enforcement. They are absent when no sets were injected, so a
@@ -1753,6 +1762,10 @@ class ModelRouter:
             mapping["payload_values"] = {
                 kind: {key: list(values) for key, values in sets.items()}
                 for kind, sets in sorted(self._payload_values.items())}
+        if self._payload_shapes is not None:
+            mapping["payload_shapes"] = {
+                kind: dict(shapes)
+                for kind, shapes in sorted(self._payload_shapes.items())}
         return mapping
 
     # ── execution ──
