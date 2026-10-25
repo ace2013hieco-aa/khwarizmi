@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ast
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -141,6 +142,69 @@ class RecordingApplier:
         self.intents.append(intent)
         raise AssertionError(
             "the methodology probe raises no intent; a draft here is unexpected")
+
+
+#: The agent's evidence ref for the plane/wiring fakes. It is admitted by the
+#: model's proposal, never seeded (OPS-5D).
+AGENT_EVIDENCE = "evidence:agent-e1"
+
+
+class GroundedModel:
+    """A ModelPort proposing the agent's evidence transition where allowed.
+
+    The researcher (HYPOTHESIS/OBSERVATION) and verifier (EVIDENCE) profiles
+    may propose EVIDENCE_TRANSITION. The selector ignores the HYPOTHESIS run
+    and uses the OBSERVATION/EVIDENCE run, so the chain has an agent-derived
+    evidence ref without any seed.
+    """
+
+    def __init__(self, evidence_ref: str = AGENT_EVIDENCE) -> None:
+        self.calls: list[Any] = []
+        self.evidence_ref = evidence_ref
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
+
+    def invoke(self, request: Any) -> ModelProposal:
+        self.calls.append(request)
+        structured: dict[str, Any] = {}
+        if (request.profile in ("researcher", "verifier")
+                and not any(part.origin == "runtime.review"
+                            for part in request.prompt)):
+            structured = {
+                "kind": "EVIDENCE_TRANSITION",
+                "rationale": "grounded evidence from the agent's observation",
+                "payload": {
+                    "evidence_artifact_ref": self.evidence_ref,
+                    "from_state": "SUPPORTED",
+                    "to_state": "ROBUST",
+                    "rationale": "the observed source supports the rung",
+                },
+            }
+        return ModelProposal(
+            provider_id="scripted", model_id="scripted", tier="research",
+            profile=request.profile, lease_generation="gen-1",
+            structured=structured)
+
+
+@dataclass(frozen=True, slots=True)
+class _Applied:
+    """The shape `run._apply` reads off an injected Orchestration API result."""
+
+    entity_id: str
+    duplicate: bool = False
+
+
+class AdmittingApplier:
+    """An Orchestration API fake that admits every intent and records it."""
+
+    def __init__(self) -> None:
+        self.intents: list[Any] = []
+
+    def __call__(self, intent: Any) -> _Applied:
+        self.intents.append(intent)
+        return _Applied(entity_id=f"ent_{len(self.intents):04d}")
 
 
 # ═══════════════════════ helpers ═══════════════════════
@@ -1080,8 +1144,8 @@ class TestMethodologyConfig:
 
 class TestMethodologySwap:
     def test_a_second_methodology_loads_and_runs_on_the_same_runtime(self) -> None:
-        model = ScriptedModel()
-        orchestration = RecordingApplier()
+        model = GroundedModel()
+        orchestration = AdmittingApplier()
         profiles = load_profiles()
         evidence = run_swap_probe(model=model, orchestration=orchestration,
                                   profiles=profiles)
@@ -1108,8 +1172,8 @@ class TestMethodologySwap:
         assert first.digest() != second.digest()
 
     def test_the_swap_probe_uses_the_same_model_object(self) -> None:
-        model = ScriptedModel()
-        evidence = run_swap_probe(model=model, orchestration=RecordingApplier(),
+        model = GroundedModel()
+        evidence = run_swap_probe(model=model, orchestration=AdmittingApplier(),
                                   profiles=load_profiles())
         assert not isinstance(evidence, MethodologyRefusal)
         assert model.call_count >= len(CHAIN_KINDS) * 2
@@ -1124,13 +1188,16 @@ class TestMethodologySwap:
 
 class TestMethodologyRun:
     def _run(self, config: MethodologyConfig, project_id: str = "p-run",
-             inputs: MethodologyInputs | None = None
+             inputs: MethodologyInputs | None = None, *,
+             model: Any = None, orchestration: Any = None
              ) -> MethodologyRun | MethodologyRefusal:
         return run_methodology(
             config, project_id, "task-run", "gen-1",
             inputs if inputs is not None
             else chain_inputs(project_id, "does it hold?"),
-            model=ScriptedModel(), orchestration=RecordingApplier(),
+            model=GroundedModel() if model is None else model,
+            orchestration=(AdmittingApplier() if orchestration is None
+                           else orchestration),
             profiles=load_profiles())
 
     def test_the_driver_runs_every_stage_through_the_runtime(self) -> None:
@@ -1173,51 +1240,65 @@ class TestMethodologyRun:
         assert outcome.stage == "QUESTION"
         assert outcome.code == "ROLE"
 
-    def test_a_substrate_refusal_stops_the_run(self) -> None:
-        # The evidence ref is retracted. The EVIDENCE node cites it as its own
-        # external_ref and the CLAIM admits it as support; both positions are
-        # resolved under admission semantics, so N9 bites at the first position
-        # that carries the ref (EVIDENCE) — the run stops there rather than
-        # reporting a lineage it cannot record.
+    def test_a_retracted_agent_evidence_ref_stops_at_evidence(self) -> None:
+        # The evidence ref is agent-derived (the model proposes it) and the
+        # caller's N9 projection retracts it. The OBSERVATION node may cite it
+        # (a mention); the EVIDENCE node's own external_ref refuses it, so the
+        # run stops there rather than recording a lineage it cannot support.
         base = chain_inputs("p-n9", "does it hold?")
         inputs = MethodologyInputs(
             question=base.question,
             external_refs=base.external_refs,
             admission_refs=base.admission_refs,
-            retracted_refs=(base.external_refs["EVIDENCE"],))
-        run = self._run(literature_review(), project_id="p-n9", inputs=inputs)
+            retracted_refs=(AGENT_EVIDENCE,))
+        run = self._run(literature_review(), project_id="p-n9", inputs=inputs,
+                        model=GroundedModel(AGENT_EVIDENCE))
         assert isinstance(run, MethodologyRefusal)
         assert run.source == "substrate"
         assert run.code == RETRACTED_CITATION
         assert run.stage == "EVIDENCE"
 
-    def test_an_unobserved_ref_fails_closed(self) -> None:
+    def test_an_unobserved_prior_art_ref_fails_closed(self) -> None:
         inputs = MethodologyInputs(
             question="does it hold?",
             external_refs={"HYPOTHESIS": "hypothesis:h",
                            "PREDICTION": "prediction:p",
-                           "EVIDENCE": "evidence:e", "CLAIM": "claim:c"})
+                           "CLAIM": "claim:c"})
         run = self._run(literature_review(), project_id="p-ghost",
                         inputs=inputs)
         assert isinstance(run, MethodologyRefusal)
         assert run.source == "substrate"
         assert run.code == EVIDENCE_DOES_NOT_RESOLVE
 
-    def test_only_the_evidence_ref_registered_still_refuses(self) -> None:
-        # The red-team's 4h shape: only the evidence ref is registered, so three
-        # of the four citation refs resolve nowhere. Resolving a citation's own
-        # ref means the run refuses at the first such stage — never COMPLETE
-        # over unobserved refs.
-        base = chain_inputs("p-mixed", "does it hold?")
-        inputs = MethodologyInputs(
-            question=base.question,
-            external_refs=base.external_refs,
-            admission_refs=(base.external_refs["EVIDENCE"],))
-        run = self._run(literature_review(), project_id="p-mixed", inputs=inputs)
-        assert isinstance(run, MethodologyRefusal)
-        assert run.source == "substrate"
-        assert run.code == EVIDENCE_DOES_NOT_RESOLVE
-        assert run.stage == "HYPOTHESIS"
+    def test_a_seed_evidence_ref_is_refused(self) -> None:
+        # The fake the run-13 seed carried cannot enter the run: the evidence
+        # position is agent-derived. The refusal happens before any model call.
+        base = chain_inputs("p-seed", "does it hold?")
+        cases = (
+            MethodologyInputs(
+                question=base.question,
+                external_refs={**base.external_refs,
+                               "EVIDENCE": "evidence:fake"},
+                admission_refs=base.admission_refs),
+            MethodologyInputs(
+                question=base.question,
+                external_refs=base.external_refs,
+                admission_refs=base.admission_refs + ("evidence:fake",)),
+            MethodologyInputs(
+                question=base.question,
+                external_refs=base.external_refs,
+                admission_refs=base.admission_refs,
+                stage_content={"EVIDENCE": {
+                    "external_ref": "evidence:fake"}}),
+        )
+        for number, inputs in enumerate(cases):
+            model = GroundedModel()
+            run = self._run(literature_review(), project_id=f"p-seed-{number}",
+                            inputs=inputs, model=model)
+            assert isinstance(run, MethodologyRefusal)
+            assert run.source == "inputs"
+            assert run.code == MALFORMED_PAYLOAD
+            assert model.calls == []
 
     def test_a_stage_whose_run_failed_never_reports_complete(self) -> None:
         # Every stage names a profile the runtime does not declare, so every

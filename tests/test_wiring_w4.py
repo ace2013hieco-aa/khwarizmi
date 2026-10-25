@@ -58,7 +58,11 @@ from hermes.governance.policy import GOVERNANCE_POLICY, POLICY_SUBSTITUTION_DETA
 from hermes.methodology.workflows import LITERATURE_REVIEW_DOCUMENT
 from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
-from hermes.persistence.repositories import ProjectRepository, TaskRepository
+from hermes.persistence.repositories import (
+    ArtifactRepository,
+    ProjectRepository,
+    TaskRepository,
+)
 from hermes.research.controller import Controller
 from hermes.research.gateway import GatewayRejection, apply_intent
 from hermes.research.task_handlers import (
@@ -108,12 +112,17 @@ CHILD_TEMPLATE = "observation_review"
 # (the permission-first denial case).
 _UNSET: Any = object()
 
+#: Prior-art refs only (OPS-5D); the evidence position is agent-derived.
 REFS: dict[str, str] = {
     "HYPOTHESIS": "hypothesis:program-w4/h1",
     "PREDICTION": "prediction:program-w4/h1/p1",
-    "EVIDENCE": "evidence:evidence-w4/e1",
     "CLAIM": "claim:claim-w4/c1",
 }
+
+#: A real artifact row the agent's evidence transition can cite. The W4 spine
+#: creates it; the gateway's EVIDENCE_REF check is the only validator.
+AGENT_EVIDENCE_ID = "d" * 64
+AGENT_EVIDENCE = f"evidence:{AGENT_EVIDENCE_ID}"
 STAGE_PROFILES = ("planner", "researcher", "experimenter", "verifier",
                   "synthesizer", "critic")
 
@@ -197,12 +206,28 @@ class ProposingModel:
 
     def invoke(self, request: ModelRequest) -> ModelProposal:
         self.calls.append(request)
+        if (request.profile in ("researcher", "verifier")
+                and not any(part.origin == "runtime.review"
+                            for part in request.prompt)):
+            structured = {
+                "kind": "EVIDENCE_TRANSITION",
+                "rationale": "grounded evidence",
+                "payload": {
+                    "evidence_artifact_ref": AGENT_EVIDENCE,
+                    "from_state": "SUPPORTED",
+                    "to_state": "ROBUST",
+                    "rationale": "grounded evidence",
+                },
+            }
+        else:
+            structured = {
+                "kind": "INSERT_TASK", "rationale": "because",
+                "payload": {"spec": {"goal": f"stage {request.profile}"}}}
         return ModelProposal(
             provider_id="scripted", model_id="scripted", tier="research",
             profile=request.profile,
             lease_generation=request.lease_generation,
-            structured={"kind": "INSERT_TASK", "rationale": "because",
-                        "payload": {"spec": {"goal": f"stage {request.profile}"}}})
+            structured=structured)
 
 
 class SilentModel:
@@ -273,7 +298,8 @@ def _profile(name: str, *, tools: tuple[str, ...] = ()) -> Any:
         "agent_profile": "RESEARCHER",
         "model_policy": {"tier": "research", "structured_fields": ["proposals"]},
         "tools": list(tools),
-        "authority": {"proposable_kinds": ["INSERT_TASK"]},
+        "authority": {"proposable_kinds": ["INSERT_TASK",
+                                            "EVIDENCE_TRANSITION"]},
         "termination": {"max_ticks": 1, "max_proposals": 5,
                         "stop_when": "proposals_raised"},
     }, source=name)
@@ -290,6 +316,11 @@ def _spine() -> Any:
     conn = connect(":memory:")
     migrate_to_latest(conn)
     ProjectRepository(conn).create(PROJECT, "W4 test")
+    ArtifactRepository(conn, _clock).record(
+        artifact_id=AGENT_EVIDENCE_ID, artifact_type="source_payload",
+        content_hash=AGENT_EVIDENCE_ID, size_bytes=1,
+        storage_path=f"seed/{AGENT_EVIDENCE_ID}", producer="test",
+        project_id=PROJECT)
     return conn
 
 
@@ -475,9 +506,13 @@ def test_a_methodology_template_drives_every_stage_through_the_bound_applier() -
         # one write path — the child task ids are derived, never authored
         admitted = [e for e in _events(conn)
                     if e["event_id"] > baseline
-                    and e["event_type"] == "IntentApplied"
-                    and '"intent_kind": "INSERT_TASK"' in e["payload_json"]]
-        assert len(admitted) == len(model.calls)
+                    and e["event_type"] == "IntentApplied"]
+        # At least one admission per stage; a duplicate evidence transition
+        # adds an idempotent audit admission, never a second transition.
+        assert len(admitted) >= len(model.calls)
+        kinds = [e["payload_json"] for e in admitted]
+        assert sum('"intent_kind": "EVIDENCE_TRANSITION"' in body
+                   for body in kinds) >= 3
         assert conn.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] > 1
     finally:
         conn.close()
@@ -486,11 +521,14 @@ def test_a_methodology_template_drives_every_stage_through_the_bound_applier() -
 def test_a_zero_admission_methodology_run_is_not_a_recorded_outcome() -> None:
     """S6-B2 at the wiring entry: a silent run recorded nothing, so it FAILED.
 
-    A valid document with a model that proposes nothing runs every stage but
-    reaches the one write path zero times; the entry must answer
-    ``failed_typed`` / ``outcome_recorded=False`` (never a completion), the
-    run's dispatch must add zero journal rows, and the tick must never
-    SUCCEED the task.
+    A valid one-stage document with a model that proposes nothing reaches
+    the one write path zero times; the entry must answer ``failed_typed`` /
+    ``outcome_recorded=False`` (never a completion), the run's dispatch must
+    add zero journal rows, and the tick must never SUCCEED the task.
+
+    OPS-5D: the full document would stop at EVIDENCE (no admitted transition)
+    before the zero-admission check, so this S6-B2 pin uses a QUESTION-only
+    document — the zero-admission path it is meant to prove.
     """
     conn = _spine()
     try:
@@ -500,8 +538,12 @@ def test_a_zero_admission_methodology_run_is_not_a_recorded_outcome() -> None:
         inputs = {"question": "does it hold?",
                   "external_refs": REFS,
                   "admission_refs": list(REFS.values())}
+        document = dict(LITERATURE_REVIEW_DOCUMENT)
+        document["stages"] = [dict(document["stages"][0])]
+        document["termination"] = {**dict(document["termination"]),
+                                   "max_stages": 1}
         task_id = _admit(conn, "t-meth-zero", METH_TEMPLATE, {
-            "methodology": dict(LITERATURE_REVIEW_DOCUMENT),
+            "methodology": document,
             "inputs": inputs,
         })
 
@@ -514,7 +556,7 @@ def test_a_zero_admission_methodology_run_is_not_a_recorded_outcome() -> None:
         direct = entry(entry.build_context(
             {"task_id": task_id, "idempotency_key": f"idem-{task_id}",
              "spec": {"template": METH_TEMPLATE,
-                      "methodology": dict(LITERATURE_REVIEW_DOCUMENT),
+                      "methodology": document,
                       "inputs": inputs}},
             PROJECT, None))
         assert direct.status == "failed_typed"

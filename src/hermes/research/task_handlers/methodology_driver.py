@@ -515,7 +515,16 @@ def run_methodology(
     index is read from this run's in-memory ``store``, never from a table; a
     fresh process therefore starts with no chain nodes (B-5). A provider that
     raises fails the stage: the index is never silently omitted.
+
+    OPS-5D: the evidence position is agent-derived. A seed evidence ref is
+    refused before any stage; an admitted ``EVIDENCE_TRANSITION`` in the
+    OBSERVATION/EVIDENCE runs supplies the ``EVIDENCE`` node's ref. A run with
+    no admitted transition stops at ``EVIDENCE`` rather than recording a
+    synthetic ref.
     """
+    seed_refusal = methodology_plane._seeded_evidence_refusal(inputs)
+    if seed_refusal is not None:
+        return seed_refusal
     lease_generation = wiring.lease_generation
     store = SubstrateStore()
     for ref in inputs.admission_refs:
@@ -529,6 +538,8 @@ def run_methodology(
     termination = "COMPLETE"
     applied_so_far = 0
     content_cache: dict[str, Mapping[str, Any]] = {}
+    evidence_ref = ""
+    evidence_proposal: Any = None
 
     for projection in stage_projections(
             config, project_id=project_id, task_id=task_id,
@@ -590,8 +601,20 @@ def run_methodology(
             termination = wired.result.termination or wired.result.state
             break
 
+        if projection.stage in methodology_plane._EVIDENCE_STAGES:
+            selected = methodology_plane._admitted_evidence_proposal(
+                wired.result.proposals)
+            if selected is not None:
+                evidence_proposal = selected
+                evidence_ref = methodology_plane._evidence_ref_of(selected)
+                # Projection of the gateway's admission into the in-memory
+                # registry the substrate's write boundary reads. Not a second
+                # validation: the gateway already checked the artifact row.
+                store.admit_ref(evidence_ref, project_id)
+
         content = dict(methodology_plane._default_content(
-            projection.stage, inputs, predecessor_id, question_id))
+            projection.stage, inputs, predecessor_id, question_id,
+            evidence_ref=evidence_ref))
         if predecessor_id:
             content["predecessors"] = (predecessor_id,)
         node = SubstrateNode(
@@ -599,8 +622,9 @@ def run_methodology(
             project_id=project_id,
             producing_task_id=context.task_id,
             content=content,
-            rationale=f"stage {projection.stage} via profile "
-                      f"{projection.profile}")
+            rationale=methodology_plane._node_rationale(
+                projection.stage, projection.stage, projection.profile,
+                wired.result.proposals, evidence_proposal))
         recorded = write_node(store, node)
         if isinstance(recorded, SubstrateRefusal):
             return MethodologyRefusal(code=recorded.code, detail=recorded.detail,

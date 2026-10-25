@@ -51,6 +51,7 @@ from typing import Any, Mapping
 
 from hermes.agents.runtime.run import run as runtime_run
 from hermes.agents.runtime.types import (
+    Proposal,
     ProposalSet,
     RunLimits,
     TaskContext,
@@ -63,6 +64,7 @@ from hermes.governance.authority import (
 )
 from hermes.methodology.substrate import (
     CHAIN_KINDS,
+    MALFORMED_PAYLOAD,
     REF_NAMESPACES,
     ChainReconstruction,
     SubstrateNode,
@@ -364,12 +366,16 @@ def literature_review() -> MethodologyConfig:
 class MethodologyInputs:
     """What a caller must supply for one methodology run — nothing is invented.
 
-    ``external_refs`` maps a referenced-kind stage to the artifact ref the
-    caller observed (``hypothesis:…`` etc.). ``admission_refs`` names the refs
+    ``external_refs`` maps a **prior-art** referenced-kind stage to the artifact
+    ref the caller observed (``hypothesis:…`` / ``prediction:…`` /
+    ``claim:…``). It deliberately has no evidence position: OPS-5D makes the
+    ``EVIDENCE`` ref agent-derived (the admitted ``EVIDENCE_TRANSITION``), and
+    a seed evidence ref is refused. ``admission_refs`` names the prior-art refs
     that resolve in the project — the citation registry; a node citing a ref
     that is not registered fails closed, which is exactly the intended
     behaviour for a ref nobody observed. ``retracted_refs`` is the N9
-    projection the caller supplies.
+    projection the caller supplies; an evidence ref there is allowed because a
+    retraction can only remove support, never make a ref resolve.
     """
 
     question: str
@@ -459,29 +465,158 @@ class MethodologyRun:
         }
 
 
+#: OPS-5D — the positions whose content is agent-derived. The evidence ref is
+#: selected from an admitted EVIDENCE_TRANSITION in one of these stage runs.
+_EVIDENCE_STAGES: tuple[str, ...] = ("OBSERVATION", "EVIDENCE")
+
+#: The labels the design requires on the prior-art remainder. They are node
+#: `rationale` text (not content), so they never re-enter a prompt through
+#: `predecessor_content`.
+_PRIOR_ART_LABEL = "prior-art citation (no producer in this build)"
+_CLAIM_IDENTITY_LABEL = (
+    "claim identity is prior art; support is the recorded evidence ref")
+
+_EVIDENCE_POSITION_KEYS: Mapping[str, tuple[str, ...]] = {
+    "OBSERVATION": ("cited_refs",),
+    "EVIDENCE": ("external_ref",),
+    "CLAIM": ("admitted_refs",),
+}
+
+
+def _seeded_evidence_refusal(
+        inputs: MethodologyInputs) -> MethodologyRefusal | None:
+    """Refuse an operator-supplied evidence ref before any stage runs.
+
+    The evidence position is the agent's: its ref is the admitted
+    ``EVIDENCE_TRANSITION`` payload, not a seed string. A seed evidence ref
+    would pre-empt the agent exactly as run 13 measured, so it is refused with
+    the plane's own shape code. ``retracted_refs`` is deliberately **not**
+    refused: it is the N9 projection, not a citation or a resolver entry, and
+    an evidence ref there can only remove support.
+    """
+    def refuse(detail: str) -> MethodologyRefusal:
+        return MethodologyRefusal(code=MALFORMED_PAYLOAD, detail=detail,
+                                  source="inputs")
+
+    for name, ref in inputs.external_refs.items():
+        text = str(ref)
+        if name == "EVIDENCE" and text:
+            return refuse(
+                "the evidence position is agent-derived: external_refs may not "
+                "supply EVIDENCE; the admitted EVIDENCE_TRANSITION supplies "
+                "the ref (OPS-5D)")
+        if text.startswith("evidence:"):
+            return refuse(
+                f"external_refs[{name!r}] carries an evidence: ref; the "
+                f"evidence position is agent-derived (OPS-5D)")
+    for ref in inputs.admission_refs:
+        if str(ref).startswith("evidence:"):
+            return refuse(
+                "admission_refs may not make an evidence: ref resolve; the "
+                "admitted EVIDENCE_TRANSITION is the only source (OPS-5D)")
+    for stage, fields in _EVIDENCE_POSITION_KEYS.items():
+        override = inputs.stage_content.get(stage)
+        if not isinstance(override, Mapping):
+            continue
+        for key in fields:
+            if key not in override:
+                continue
+            value = override[key]
+            if isinstance(value, (list, tuple)):
+                if any(str(item) for item in value):
+                    return refuse(
+                        f"stage_content[{stage!r}][{key!r}] may not supply "
+                        f"the evidence position's ref; it is agent-derived "
+                        f"(OPS-5D)")
+            elif str(value or ""):
+                return refuse(
+                    f"stage_content[{stage!r}][{key!r}] may not supply the "
+                    f"evidence position's ref; it is agent-derived (OPS-5D)")
+    return None
+
+
+def _admitted_evidence_proposal(
+        proposals: tuple[Proposal, ...]) -> Proposal | None:
+    """The latest admitted EVIDENCE_TRANSITION naming an ``evidence:`` ref.
+
+    The gateway already validated the ref (``EVIDENCE_REF`` / in-project); this
+    selector only checks the admitted verdict and the ref shape. It never reads
+    the artifact table.
+    """
+    selected: Proposal | None = None
+    for proposal in proposals:
+        if not proposal.was_admitted():
+            continue
+        if proposal.intent.kind.value != "EVIDENCE_TRANSITION":
+            continue
+        ref = proposal.intent.payload.get("evidence_artifact_ref")
+        if isinstance(ref, str) and ref.startswith("evidence:"):
+            selected = proposal
+    return selected
+
+
+def _evidence_ref_of(proposal: Proposal | None) -> str:
+    if proposal is None:
+        return ""
+    ref = proposal.intent.payload.get("evidence_artifact_ref")
+    return ref if isinstance(ref, str) else ""
+
+
+def _node_rationale(kind: str, stage: str, profile: str,
+                    proposals: tuple[Proposal, ...],
+                    evidence_proposal: Proposal | None) -> str:
+    """The node's rationale: model text as a node field, never as content.
+
+    OPS-5D approval: the rationale is a node field, not content, and it does not
+    re-enter the next prompt. The prior-art positions are labelled here because
+    their external_ref is still an operator citation.
+    """
+    admitted = [proposal for proposal in proposals if proposal.was_admitted()]
+    rationale = admitted[0].rationale if admitted else ""
+    if not rationale and kind == "EVIDENCE" and evidence_proposal is not None:
+        rationale = evidence_proposal.rationale
+    if not rationale:
+        rationale = f"stage {stage} via profile {profile}"
+    if kind in ("HYPOTHESIS", "PREDICTION"):
+        rationale = f"{rationale}; {_PRIOR_ART_LABEL}"
+    elif kind == "CLAIM":
+        rationale = f"{rationale}; {_CLAIM_IDENTITY_LABEL}"
+    return rationale
+
+
 def _default_content(kind: str, inputs: MethodologyInputs,
                      predecessor_id: str, question_id: str,
+                     *, evidence_ref: str = "",
                      ) -> Mapping[str, Any]:
-    """The plainest well-formed content for a stage — never a fabricated ref."""
+    """The plainest well-formed content for a stage — never a fabricated ref.
+
+    OPS-5D: the evidence position is not read from the seed. ``EVIDENCE`` gets
+    the admitted ``evidence_ref``; ``OBSERVATION`` cites it; ``CLAIM`` admits
+    it. The prior-art positions (``HYPOTHESIS``, ``PREDICTION``, ``CLAIM``'s own
+    identity) still read ``inputs.external_refs``; they have no producer in
+    this build and are labelled in the node rationale.
+    """
     override = inputs.stage_content.get(kind)
-    if override is not None:
-        return dict(override)
+    content: dict[str, Any] = dict(override) if override is not None else {}
     if kind == "QUESTION":
-        return {"question": inputs.question}
-    if kind == "CLAIM":
-        # A claim's support is an admitted evidence artifact, not its chain
-        # position: the stage declares the evidence ref the caller observed.
-        evidence = inputs.external_refs.get("EVIDENCE", "")
-        return {"external_ref": inputs.external_refs.get("CLAIM", ""),
-                "admitted_refs": ((evidence,) if evidence else ())}
-    if kind in REF_NAMESPACES:
-        ref = inputs.external_refs.get(kind, "")
-        return {"external_ref": ref}
-    if kind == "CRITIQUE":
-        return {"subject_ref": predecessor_id}
-    if kind == "CONCLUSION":
-        return {"question_ref": question_id}
-    return {}
+        content.setdefault("question", inputs.question)
+    elif kind == "CLAIM":
+        content.setdefault("external_ref", inputs.external_refs.get("CLAIM", ""))
+        content["admitted_refs"] = ((evidence_ref,) if evidence_ref else ())
+    elif kind == "EVIDENCE":
+        # The admitted ref is the only source; an empty value reaches the
+        # substrate's own shape refusal and the stage is not recorded.
+        content["external_ref"] = evidence_ref
+    elif kind in REF_NAMESPACES:
+        content.setdefault("external_ref", inputs.external_refs.get(kind, ""))
+    elif kind == "OBSERVATION":
+        if evidence_ref:
+            content["cited_refs"] = (evidence_ref,)
+    elif kind == "CRITIQUE":
+        content.setdefault("subject_ref", predecessor_id)
+    elif kind == "CONCLUSION":
+        content.setdefault("question_ref", question_id)
+    return content
 
 
 def _governance_outcome(stage: StageSpec, inputs: MethodologyInputs,
@@ -527,7 +662,16 @@ def run_methodology(
     hidden); a substrate write that fails closed returns the substrate code.
     A stage that cannot be *recorded* is a stage that did not happen — the run
     stops there rather than reporting a chain it cannot show.
+
+    OPS-5D: the evidence position is agent-derived. A seed evidence ref is
+    refused before any stage; an admitted ``EVIDENCE_TRANSITION`` in the
+    OBSERVATION/EVIDENCE runs supplies the ``EVIDENCE`` node's ref. A run with
+    no admitted transition stops at ``EVIDENCE`` rather than recording a
+    synthetic ref.
     """
+    seed_refusal = _seeded_evidence_refusal(inputs)
+    if seed_refusal is not None:
+        return seed_refusal
     store = SubstrateStore()
     for ref in inputs.admission_refs:
         store.admit_ref(ref, project_id)
@@ -539,6 +683,8 @@ def run_methodology(
     predecessor_id = ""
     termination = "COMPLETE"
     content_cache: dict[str, Mapping[str, Any]] = {}
+    evidence_ref = ""
+    evidence_proposal: Proposal | None = None
 
     for stage in config.stages:
         if config.termination.max_stages and len(stages) >= (
@@ -586,8 +732,19 @@ def run_methodology(
             termination = result.termination or result.state
             break
 
+        if stage.stage in _EVIDENCE_STAGES:
+            selected = _admitted_evidence_proposal(result.proposals)
+            if selected is not None:
+                evidence_proposal = selected
+                evidence_ref = _evidence_ref_of(selected)
+                # Projection of the gateway's admission into the in-memory
+                # registry the substrate's write boundary reads. Not a second
+                # validation: the gateway already checked the artifact row.
+                store.admit_ref(evidence_ref, project_id)
+
         content = dict(_default_content(stage.stage, inputs, predecessor_id,
-                                        question_id))
+                                        question_id,
+                                        evidence_ref=evidence_ref))
         if predecessor_id:
             content["predecessors"] = (predecessor_id,)
         node = SubstrateNode(
@@ -595,7 +752,9 @@ def run_methodology(
             project_id=project_id,
             producing_task_id=context.task_id,
             content=content,
-            rationale=f"stage {stage.stage} via profile {stage.profile}")
+            rationale=_node_rationale(
+                stage.stage, stage.stage, stage.profile, result.proposals,
+                evidence_proposal))
         recorded = write_node(store, node)
         if isinstance(recorded, SubstrateRefusal):
             return MethodologyRefusal(code=recorded.code, detail=recorded.detail,

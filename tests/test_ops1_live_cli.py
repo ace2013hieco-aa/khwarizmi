@@ -46,10 +46,10 @@ DRAIN_ONLY_OUTPUT = (
     "  note: contradiction detection: 0 recorded, 0 duplicates, 0 refused\n"
 )
 
+#: Prior-art refs only; OPS-5D makes the evidence position agent-derived.
 REFS: dict[str, str] = {
     "HYPOTHESIS": "hypothesis:program-ops1/h1",
     "PREDICTION": "prediction:program-ops1/h1/p1",
-    "EVIDENCE": "evidence:evidence-ops1/e1",
     "CLAIM": "claim:claim-ops1/c1",
 }
 
@@ -96,9 +96,16 @@ def _gate_task() -> tuple[str, str, str, dict]:
 
 
 def _methodology_task() -> tuple[str, str, str, dict]:
+    # One stage: this fixture exercises the live CLI path, not the chain. OPS-5D
+    # makes a full chain require an admitted evidence transition, which this
+    # scripted INSERT_TASK reply is not.
+    document = dict(LITERATURE_REVIEW_DOCUMENT)
+    document["stages"] = [dict(document["stages"][0])]
+    document["termination"] = {**dict(document["termination"]),
+                               "max_stages": 1}
     return ("meth-1", "AGENT_TASK", "RESEARCHER", {
         "template": "methodology_run",
-        "methodology": dict(LITERATURE_REVIEW_DOCUMENT),
+        "methodology": document,
         "inputs": {"question": "does it hold?",
                    "external_refs": REFS,
                    "admission_refs": list(REFS.values())},

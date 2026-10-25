@@ -64,12 +64,15 @@ QUESTION = "does the payload reach the model?"
 
 #: The citation refs a grounded run cites, all registered in-project (same shape
 #: the W3 suite uses; the driver has no opinion about their values).
+#: Prior-art refs only (OPS-5D); the evidence position is agent-derived.
 REFS: dict[str, str] = {
     "HYPOTHESIS": "hypothesis:program-loop0/h1",
     "PREDICTION": "prediction:program-loop0/h1/p1",
-    "EVIDENCE": "evidence:evidence-loop0/e1",
     "CLAIM": "claim:claim-loop0/c1",
 }
+
+#: The agent's evidence ref, proposed by the model, never seeded.
+AGENT_EVIDENCE = "evidence:evidence-loop0/e1"
 
 _TICK = re.compile(r"\Atick \d+ of \d+\Z")
 _HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
@@ -93,12 +96,26 @@ class RecordingModel:
     def invoke(self, request: ModelRequest) -> ModelProposal:
         self.calls.append(request)
         structured: dict[str, Any] = {}
-        if request.profile in _PROPOSING_PROFILES:
-            structured = {
-                "kind": "INSERT_TASK",
-                "rationale": "loop-0 probe draft",
-                "payload": {"goal": "loop-0 probe"},
-            }
+        if (request.profile in _PROPOSING_PROFILES
+                and not any(part.origin == "runtime.review"
+                            for part in request.prompt)):
+            if request.profile == "researcher":
+                structured = {
+                    "kind": "EVIDENCE_TRANSITION",
+                    "rationale": "loop-0 probe draft",
+                    "payload": {
+                        "evidence_artifact_ref": AGENT_EVIDENCE,
+                        "from_state": "SUPPORTED",
+                        "to_state": "ROBUST",
+                        "rationale": "loop-0 probe draft",
+                    },
+                }
+            else:
+                structured = {
+                    "kind": "INSERT_TASK",
+                    "rationale": "loop-0 probe draft",
+                    "payload": {"goal": "loop-0 probe"},
+                }
         return ModelProposal(
             provider_id="scripted", model_id="scripted", tier="research",
             profile=request.profile, lease_generation=request.lease_generation,

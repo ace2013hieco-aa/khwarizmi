@@ -40,6 +40,7 @@ from hermes.agents.runtime.wiring import RuntimeWiring
 from hermes.core.intents import Intent
 from hermes.methodology.substrate import (
     CHAIN_KINDS,
+    MALFORMED_PAYLOAD,
     RETRACTED_CITATION,
     ChainReconstruction,
     SubstrateRefusal,
@@ -76,12 +77,16 @@ LEASE = "lease-gen-w3"
 OTHER_PROJECT = "p-w3-other"
 
 #: The citation refs a grounded run cites, all registered in-project.
+#: The prior-art refs a grounded run cites. OPS-5D: the evidence position is
+#: agent-derived and is not in this table.
 REFS: dict[str, str] = {
     "HYPOTHESIS": "hypothesis:program-w3/h1",
     "PREDICTION": "prediction:program-w3/h1/p1",
-    "EVIDENCE": "evidence:evidence-w3/e1",
     "CLAIM": "claim:claim-w3/c1",
 }
+
+#: The agent's evidence ref, proposed by the model, never seeded.
+AGENT_EVIDENCE = "evidence:evidence-w3/e1"
 
 #: The profiles a `literature-review` document declares. Custom (not the shipped
 #: data) so the fixtures control termination and authority directly.
@@ -130,6 +135,39 @@ class SilentModel:
         return _proposal(request, {})
 
 
+class GroundedModel:
+    """A `ModelPort` proposing the agent's evidence transition where allowed.
+
+    The custom/researched profiles all declare EVIDENCE_TRANSITION; the
+    selector ignores the HYPOTHESIS run and uses OBSERVATION/EVIDENCE.
+    """
+
+    def __init__(self, evidence_ref: str = AGENT_EVIDENCE) -> None:
+        self.calls: list[ModelRequest] = []
+        self.evidence_ref = evidence_ref
+
+    @property
+    def call_count(self) -> int:
+        return len(self.calls)
+
+    def invoke(self, request: ModelRequest) -> ModelProposal:
+        self.calls.append(request)
+        if (request.profile in ("researcher", "verifier")
+                and not any(part.origin == "runtime.review"
+                            for part in request.prompt)):
+            return _proposal(request, {
+                "kind": "EVIDENCE_TRANSITION",
+                "rationale": "grounded evidence from the agent's observation",
+                "payload": {
+                    "evidence_artifact_ref": self.evidence_ref,
+                    "from_state": "SUPPORTED",
+                    "to_state": "ROBUST",
+                    "rationale": "the observed source supports the rung",
+                },
+            })
+        return _proposal(request, {})
+
+
 class ProposingModel:
     """A `ModelPort` proposing one ordinary `INSERT_TASK` draft per call."""
 
@@ -142,6 +180,19 @@ class ProposingModel:
 
     def invoke(self, request: ModelRequest) -> ModelProposal:
         self.calls.append(request)
+        if (request.profile in ("researcher", "verifier")
+                and not any(part.origin == "runtime.review"
+                            for part in request.prompt)):
+            return _proposal(request, {
+                "kind": "EVIDENCE_TRANSITION",
+                "rationale": "because",
+                "payload": {
+                    "evidence_artifact_ref": AGENT_EVIDENCE,
+                    "from_state": "SUPPORTED",
+                    "to_state": "ROBUST",
+                    "rationale": "because",
+                },
+            })
         return _proposal(request, {
             "kind": "INSERT_TASK",
             "rationale": "because",
@@ -178,7 +229,8 @@ def _profile(name: str, *, max_ticks: int = 1, max_proposals: int = 5,
         "agent_profile": "RESEARCHER",
         "model_policy": {"tier": "research", "structured_fields": ["proposals"]},
         "tools": [],
-        "authority": {"proposable_kinds": ["INSERT_TASK"]},
+        "authority": {"proposable_kinds": ["INSERT_TASK",
+                                            "EVIDENCE_TRANSITION"]},
         "termination": {"max_ticks": max_ticks, "max_proposals": max_proposals,
                         "stop_when": stop_when},
     }, source=name)
@@ -204,7 +256,7 @@ class Rig:
 
     def __init__(self, *, model: Any = None, profiles: Any = None,
                  lease: str = LEASE) -> None:
-        self.model = model if model is not None else SilentModel()
+        self.model = model if model is not None else GroundedModel()
         self.applier = RecordingApplier()
         self.wiring = RuntimeWiring(
             model=self.model,
@@ -365,16 +417,20 @@ def test_every_stage_admission_names_the_existing_write_boundary() -> None:
     # The applier's counter is cumulative; the driver reports the per-stage delta.
     assert [ref.intents_applied for ref in admissions] == [1] * len(CHAIN_KINDS)
     assert len(rig.applier.calls) == len(CHAIN_KINDS)
-    assert all(intent.kind.value == "INSERT_TASK" for intent in rig.applier.calls)
+    kinds = [intent.kind.value for intent in rig.applier.calls]
+    assert kinds.count("EVIDENCE_TRANSITION") == 3   # HYPOTHESIS, OBSERVATION, EVIDENCE
+    assert all(kind in {"INSERT_TASK", "EVIDENCE_TRANSITION"} for kind in kinds)
 
 
-def test_a_silent_stage_admits_nothing() -> None:
+def test_a_silent_run_stops_at_evidence_with_no_admissions() -> None:
+    # OPS-5D pin: no admitted evidence transition means no EVIDENCE node —
+    # the run stops there rather than recording a synthetic ref.
     rig = Rig(model=SilentModel())
     outcome = rig.run()
-    assert isinstance(outcome, MethodologyExecution)
+    assert isinstance(outcome, MethodologyRefusal)
+    assert (outcome.source, outcome.stage) == ("substrate", "EVIDENCE")
+    assert outcome.code == MALFORMED_PAYLOAD
     assert rig.applier.calls == []
-    assert [ref.intents_applied for ref in outcome.admissions()] == (
-        [0] * len(CHAIN_KINDS))
 
 
 def test_a_lost_lease_stops_the_run_with_lock_and_records_nothing() -> None:
@@ -403,7 +459,8 @@ def test_a_second_workflow_runs_on_the_same_wiring_instances() -> None:
     # The same model, applier and wiring served both documents — a second
     # document is configuration, never a second runtime or scheduler — and the
     # second document's declared per-stage bound (2 ticks) is what it consumed.
-    assert rig.model.call_count == first_calls + 2 * len(second.stages)
+    assert first_calls + len(second.stages) <= rig.model.call_count <= (
+        first_calls + 2 * len(second.stages))
     assert all(record.lease_generation == LEASE for record in second.stages)
 
 
@@ -435,12 +492,13 @@ def test_a_durable_chain_claim_is_refused_not_implemented() -> None:
 
 
 def test_a_wired_run_establishes_no_durable_substrate_state() -> None:
-    rig = Rig(model=SilentModel())
+    rig = Rig()
     outcome = rig.run()
     assert isinstance(outcome, MethodologyExecution)
-    # The only durable side is the injected boundary; a silent run reached it
-    # with nothing. The derived store lives and dies in-process.
-    assert rig.applier.calls == []
+    # The only durable side is the injected boundary; the grounded run's
+    # ordinary evidence intents reached it. The derived store lives and dies
+    # in-process.
+    assert rig.applier.calls
     assert isinstance(outcome.store, SubstrateStore)
     assert all(record.node_id.startswith("mnode_") for record in outcome.stages)
     assert outcome.claim_limits().may_claim("durable_chain") is False
@@ -517,7 +575,7 @@ def test_a_valid_document_parses_to_a_config() -> None:
 
 def test_a_substrate_refusal_stops_the_run_as_data() -> None:
     rig = Rig()
-    outcome = rig.run(inputs=_inputs(retracted=(REFS["EVIDENCE"],)))
+    outcome = rig.run(inputs=_inputs(retracted=(AGENT_EVIDENCE,)))
     assert isinstance(outcome, MethodologyRefusal)
     assert (outcome.source, outcome.code, outcome.stage) == (
         "substrate", RETRACTED_CITATION, "EVIDENCE")

@@ -43,9 +43,11 @@ QUESTION = "Does the effect hold across the sample?"
 REFS = {
     "HYPOTHESIS": "hypothesis:program-ops7/h1",
     "PREDICTION": "prediction:program-ops7/h1/p1",
-    "EVIDENCE": "evidence:evidence-ops7/e1",
     "CLAIM": "claim:claim-ops7/c1",
 }
+
+#: OPS-5D: the agent's evidence ref, proposed by the model, never seeded.
+AGENT_EVIDENCE = "evidence:evidence-ops7/e1"
 
 
 def _config() -> Any:
@@ -79,11 +81,25 @@ class _RecordingModel:
 
     def invoke(self, request: ModelRequest) -> ModelProposal:
         self.calls.append(request)
+        structured: dict[str, Any] = {}
+        if (request.profile in ("researcher", "verifier")
+                and not any(part.origin == "runtime.review"
+                            for part in request.prompt)):
+            structured = {
+                "kind": "EVIDENCE_TRANSITION",
+                "rationale": "grounded evidence",
+                "payload": {
+                    "evidence_artifact_ref": AGENT_EVIDENCE,
+                    "from_state": "SUPPORTED",
+                    "to_state": "ROBUST",
+                    "rationale": "grounded evidence",
+                },
+            }
         return ModelProposal(
             provider_id="scripted", model_id="scripted", tier="research",
             profile=request.profile,
             lease_generation=request.lease_generation,
-            structured={})
+            structured=structured)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,15 +153,18 @@ def test_the_question_reaches_every_model_call_and_moves_m1() -> None:
 
     assert isinstance(execution, MethodologyExecution)
     assert execution.termination == "COMPLETE"
-    assert len(model.calls) == len(_config().stages)
-    for request in model.calls:
+    stage_calls = [request for request in model.calls
+                   if any(part.origin == TASK_ORIGIN
+                          for part in request.prompt)]
+    assert len(stage_calls) == len(_config().stages)
+    for request in stage_calls:
         document = _task_document(request.prompt)
         assert document["question"] == QUESTION
-    assert all(QUESTION in part.text for request in model.calls
+    assert all(QUESTION in part.text for request in stage_calls
                for part in request.prompt if part.origin == TASK_ORIGIN)
     # The first live run measured 82 payload bytes. The question and refs are
     # now part of the payload the model is asked to read.
-    assert measure_prompt(model.calls[0].prompt).payload_bytes > 82
+    assert measure_prompt(stage_calls[0].prompt).payload_bytes > 82
 
 
 # ── 2. the injection surface ──

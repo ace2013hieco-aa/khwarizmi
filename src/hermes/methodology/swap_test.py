@@ -87,17 +87,17 @@ def chain_inputs(project_id: str, question: str, *, suffix: str = "",
                  retracted: tuple[str, ...] = ()) -> MethodologyInputs:
     """Grounded inputs for a full chain in ``project_id``.
 
-    The external refs a referenced-kind stage cites and the refs that resolve
-    in the project are built once, here, so a caller never has to invent one:
-    a ref that is not registered resolves nowhere and the substrate refuses it.
-    ``retracted`` names refs the caller has observed retracted (the N9
-    projection) — they resolve, but they are never admissible as support.
+    OPS-5D: the **prior-art** refs are supplied here (hypothesis, prediction,
+    claim); the evidence position is deliberately absent. The model's admitted
+    ``EVIDENCE_TRANSITION`` supplies that ref; a caller that needs a retraction
+    projection may still pass ``retracted``. The refs that resolve in the
+    project are built once, here, so a caller never has to invent one: a ref
+    that is not registered resolves nowhere and the substrate refuses it.
     """
     tag = suffix or project_id
     refs = {
         "HYPOTHESIS": f"hypothesis:program-{tag}/h1",
         "PREDICTION": f"prediction:program-{tag}/h1/p1",
-        "EVIDENCE": f"evidence:evidence-{tag}/e1",
         "CLAIM": f"claim:claim-{tag}/c1",
     }
     return MethodologyInputs(
