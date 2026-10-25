@@ -68,7 +68,7 @@ def _mapping_with_rules(spec: Any) -> tuple[dict[str, Any], str]:
     """The contract mapping plus the two gateway-derived guidance sets."""
     mapping = _contract_mapping(output_contract_for(spec))
     assert mapping is not None
-    available, payload_keys = live_contract_rules()
+    available, payload_keys, _ = live_contract_rules()
     mapping["available_kinds"] = sorted(available)
     mapping["payload_keys"] = {
         kind: list(keys) for kind, keys in sorted(payload_keys.items())}
@@ -283,7 +283,7 @@ def test_payload_key_drift_flows_into_the_contract(
         INTENT_PAYLOAD_KEYS[IntentKind.INSERT_TASK] | {"probe_key"})
     monkeypatch.setattr(gateway_module, "INTENT_PAYLOAD_KEYS", mutated)
 
-    available, payload_keys = live_contract_rules()
+    available, payload_keys, _ = live_contract_rules()
     mapping = _contract_mapping(output_contract_for(spec))
     assert mapping is not None
     mapping["available_kinds"] = sorted(available)
@@ -313,7 +313,7 @@ def test_availability_drift_flows_into_the_contract(
     monkeypatch.setattr(
         gateway_module, "WIRED_INTENT_KINDS",
         frozenset(set(WIRED_INTENT_KINDS) - {IntentKind.INSERT_TASK}))
-    available, payload_keys = live_contract_rules()
+    available, payload_keys, _ = live_contract_rules()
     mapping = _contract_mapping(output_contract_for(spec))
     assert mapping is not None
     mapping["available_kinds"] = sorted(available)

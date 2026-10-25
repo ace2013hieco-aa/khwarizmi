@@ -1333,6 +1333,7 @@ class ModelRouter:
         tool_allowlist: frozenset[str] = frozenset(),
         available_kinds: frozenset[str] | None = None,
         payload_keys: Mapping[str, Sequence[str]] | None = None,
+        payload_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
         credentials: CredentialResolver | None = None,
         translator: ToolCallTranslator | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -1359,6 +1360,14 @@ class ModelRouter:
         self._payload_keys = (
             {str(kind): tuple(keys) for kind, keys in payload_keys.items()}
             if payload_keys is not None else None)
+        # OPS-13: the enumerated values a payload key accepts, per kind. Injected
+        # by the composition root from the gateway's constant; guidance only, the
+        # validator keeps the set.
+        self._payload_values = (
+            {str(kind): {str(key): tuple(values)
+                         for key, values in sets.items()}
+             for kind, sets in payload_values.items()}
+            if payload_values is not None else None)
         self._credentials = credentials
         self._translator: ToolCallTranslator = translator or NeutralToolCallTranslator()
         self._sleep = sleep if sleep is not None else _default_sleep(clock)
@@ -1725,9 +1734,9 @@ class ModelRouter:
         return call
 
     def _contract_with_rules(self, request: ModelRequest) -> dict[str, Any] | None:
-        """The contract mapping plus the OPS-12 guidance the composition injected.
+        """The contract mapping plus the OPS-12/OPS-13 guidance injected.
 
-        Both additions are prompt data: the validator's own sets remain the
+        All additions are prompt data: the validator's own sets remain the
         enforcement. They are absent when no sets were injected, so a
         hand-built contract keeps its previous shape.
         """
@@ -1740,6 +1749,10 @@ class ModelRouter:
             mapping["payload_keys"] = {
                 kind: list(keys)
                 for kind, keys in sorted(self._payload_keys.items())}
+        if self._payload_values is not None:
+            mapping["payload_values"] = {
+                kind: {key: list(values) for key, values in sets.items()}
+                for kind, sets in sorted(self._payload_values.items())}
         return mapping
 
     # ── execution ──

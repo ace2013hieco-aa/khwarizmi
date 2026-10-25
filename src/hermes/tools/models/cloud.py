@@ -304,6 +304,30 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
                 "The payload object is closed. No legal payload keys are "
                 "available because the declared kinds are not applicable in "
                 "this phase.")
+    value_sets = contract.get("payload_values")
+    if isinstance(value_sets, Mapping) and isinstance(declared, list):
+        # OPS-13: one line per (key, value set), naming the kinds that accept it.
+        # The values come from the gateway's enum-derived constant, and the
+        # optionality is the runtime's: `_derive_payload` supplies the default
+        # when a draft omits the key, so the sentence may not call it required.
+        grouped: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+        for kind in declared:  # pyright: ignore[reportUnknownVariableType]
+            per_key = value_sets.get(str(kind))
+            if not isinstance(per_key, Mapping):
+                continue
+            for raw_key in sorted(per_key, key=str):
+                raw_values = per_key[raw_key]
+                if not isinstance(raw_values, list) or not raw_values:
+                    continue
+                values = tuple(str(item) for item in raw_values)
+                grouped.setdefault(
+                    (str(raw_key), values), []).append(str(kind))
+        for (key, values), kinds in grouped.items():
+            parts.append(
+                f'For {", ".join(kinds)}, the payload key "{key}" is optional '
+                "(omitting it takes the runtime's default); when supplied it "
+                "must be one of: " + ", ".join(values)
+                + ". Any other value is refused.")
     if isinstance(derived, list) and derived:
         parts.append(
             "Never supply identity keys in a payload: "

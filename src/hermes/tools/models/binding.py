@@ -333,6 +333,7 @@ def bind_model_port(
     tool_allowlist: frozenset[str] = frozenset(),
     available_kinds: frozenset[str] | None = None,
     payload_keys: Mapping[str, Sequence[str]] | None = None,
+    payload_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
 ) -> ModelBinding:
     """Build the router *and* its binding, so credentials have one entry point.
 
@@ -349,6 +350,7 @@ def bind_model_port(
         tool_allowlist=tool_allowlist,
         available_kinds=available_kinds,
         payload_keys=payload_keys,
+        payload_values=payload_values,
         credentials=credentials,
     )
     return ModelBinding(router=router, policy=task_policy, clock=clock,

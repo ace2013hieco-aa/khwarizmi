@@ -1356,6 +1356,21 @@ INTENT_PAYLOAD_KEYS: Mapping[IntentKind, frozenset[str]] = {
     IntentKind.PROPOSE_RESEARCH_PROGRAM: RESEARCH_PROGRAM_PAYLOAD_KEYS,
 }
 
+#: The legal ``task_type`` values, read from the enum ``_payload_to_node``
+#: parses. Not a second typed list: adding a ``NodeType`` adds a legal value.
+_TASK_TYPE_VALUES: frozenset[str] = frozenset(
+    node_type.value for node_type in NodeType)
+
+#: The enumerated payload values the validators check, per kind and key
+#: (OPS-13), beside the closed-key map above. A supplied value outside the set
+#: refuses ``MALFORMED_PAYLOAD``; a draft may omit the key, because
+#: ``AgentRuntime._derive_payload`` supplies the default before the intent is
+#: built. Only ``INSERT_TASK`` is mapped: it is the task kind a model can
+#: propose. ``ADMIT_TASK`` shares ``_TASK_PAYLOAD_KEYS`` but is internal-only.
+INTENT_PAYLOAD_VALUE_SETS: Mapping[IntentKind, Mapping[str, frozenset[str]]] = {
+    IntentKind.INSERT_TASK: {"task_type": _TASK_TYPE_VALUES},
+}
+
 
 def _validate_evidence_transition(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
