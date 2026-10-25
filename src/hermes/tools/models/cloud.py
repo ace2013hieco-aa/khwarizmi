@@ -242,6 +242,16 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
     if contract is None:
         parts.append("Reply with plain text.")
         return "\n".join(parts)
+    cap = contract.get("max_proposal_bytes")
+    if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0:
+        # OPS-17: the runtime's refusal interpolates this same constant, and the
+        # live composition wires no artifact overflow port, so an over-cap body
+        # is neither preserved nor parsed. The statement is guidance; the check
+        # stays where it was.
+        parts.append(
+            f"The whole reply must be at most {cap} bytes. A proposal over the "
+            "cap is refused, and no artifact overflow port is wired today, so "
+            "an over-cap body is neither preserved nor parsed.")
     parts.append(
         "Reply with exactly one JSON object and nothing else: no prose and no "
         "code fences. Its fields:")

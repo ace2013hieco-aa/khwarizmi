@@ -1385,12 +1385,19 @@ INTENT_PAYLOAD_VALUE_SETS: Mapping[IntentKind, Mapping[str, frozenset[str]]] = {
 _PAYLOAD_LIST_SHAPE = "a list of strings"
 
 #: The list-valued payload keys whose shape the contract states, per kind
-#: (OPS-14), beside the closed-key map above. The value is the shape phrase
-#: ``_require_str_list`` uses in its refusal. Only ``inputs`` is mapped: it is
-#: the one free-form list every task draft needs. Omission is accepted — the
-#: validator reads an absent key as an empty list.
+#: (OPS-14, completed in OPS-17), beside the closed-key map above. The value is
+#: the shape phrase ``_require_str_list`` uses in its refusal. These are
+#: exactly the keys ``_payload_to_node`` passes through ``_require_str_list``:
+#: ``inputs``, ``outputs``, ``dependencies`` and ``provenance``. Omission is
+#: accepted — the validator reads an absent key as an empty list. Keys with
+#: bespoke scalar checks are not mapped here; their shape is not this family.
 INTENT_PAYLOAD_SHAPES: Mapping[IntentKind, Mapping[str, str]] = {
-    IntentKind.INSERT_TASK: {"inputs": _PAYLOAD_LIST_SHAPE},
+    IntentKind.INSERT_TASK: {
+        "inputs": _PAYLOAD_LIST_SHAPE,
+        "outputs": _PAYLOAD_LIST_SHAPE,
+        "dependencies": _PAYLOAD_LIST_SHAPE,
+        "provenance": _PAYLOAD_LIST_SHAPE,
+    },
 }
 
 

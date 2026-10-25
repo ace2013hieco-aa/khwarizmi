@@ -356,6 +356,9 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
         # field wording are read here, not hand-typed into the prompt.
         derived_keys=tuple(sorted(AUTHORED_KEYS)),
         field_notes=tuple(field_notes),
+        # OPS-17: the same constant the overflow refusal interpolates
+        # (`_run_phase`), so the stated cap and the refusal cannot disagree.
+        max_proposal_bytes=MAX_PAYLOAD_BYTES,
     )
 
 

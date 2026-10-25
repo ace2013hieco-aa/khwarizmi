@@ -358,7 +358,9 @@ class OutputContract:
     carry. Both are rendered into the prompt from the validator's own constants
     (OPS-9) and are guidance only. `derived_keys` names the identity keys the
     runtime derives and refuses to accept (OPS-12), and `field_notes` carries
-    the conditional wording for individual schema fields.
+    the conditional wording for individual schema fields. `max_proposal_bytes`
+    is the whole-reply cap the runtime's refusal interpolates (OPS-17); zero
+    means the contract carries no cap statement.
     """
 
     name: str
@@ -372,6 +374,7 @@ class OutputContract:
     delegation_keys: tuple[str, ...] = ()
     derived_keys: tuple[str, ...] = ()
     field_notes: tuple[tuple[str, str], ...] = ()
+    max_proposal_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -2254,6 +2257,7 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "delegation_keys": list(contract.delegation_keys),
         "derived_keys": list(contract.derived_keys),
         "field_notes": dict(contract.field_notes),
+        "max_proposal_bytes": contract.max_proposal_bytes,
     }
 
 

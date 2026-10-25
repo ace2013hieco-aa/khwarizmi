@@ -155,8 +155,16 @@ def test_the_value_set_is_the_agent_profile_enum() -> None:
 
 
 def test_the_inputs_shape_is_the_validator_constant() -> None:
+    # OPS-17 completed the family: every key `_payload_to_node` passes through
+    # `_require_str_list` now carries its shape. This pin stays the exact map
+    # equality, so an unmapped or invented key fails here.
     assert INTENT_PAYLOAD_SHAPES == {
-        IntentKind.INSERT_TASK: {"inputs": INPUTS_SHAPE}}
+        IntentKind.INSERT_TASK: {
+            "inputs": INPUTS_SHAPE,
+            "outputs": INPUTS_SHAPE,
+            "dependencies": INPUTS_SHAPE,
+            "provenance": INPUTS_SHAPE,
+        }}
     # The check and the sentence share one source: a refused shape names it.
     conn = _gateway_db()
     try:
