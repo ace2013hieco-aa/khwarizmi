@@ -258,6 +258,7 @@ def build_methodology_handler(
     governance_context: Any = None,
     supervisor: Any = None,
     on_stage: Any = None,
+    project_index: Any = None,
 ) -> WiringTaskHandler:
     """The W3 registration export: one methodology template → the controller.
 
@@ -271,6 +272,11 @@ def build_methodology_handler(
     write path). Substrate nodes stay derived in-process working state: the
     §8 item 9 durability gate is untouched, and `run_methodology` refuses any
     durability claim as data.
+
+    ``project_index`` (OPS-18) is the composition-injected read port. It is
+    called once per stage and its envelope is appended to the stage context;
+    the provider is opaque here so this package keeps its "never persistence"
+    import discipline. Omitted, the stage prompt keeps its previous shape.
 
     ``governance_context`` is passed straight to `MethodologyInputs` — the
     snapshot rows the methodology plane's own declared governance consumer
@@ -323,7 +329,7 @@ def build_methodology_handler(
         execution = run_methodology(
             parsed, inputs, wiring=wiring, project_id=ctx.project_id,
             task_id=str(task.get("task_id", "")), actor=actor,
-            on_stage=on_stage)
+            on_stage=on_stage, project_index=project_index)
         if isinstance(execution, MethodologyRefusal):
             return HandlerResult(status="failed_typed",
                                  reason=f"{execution.code}: {execution.detail}",

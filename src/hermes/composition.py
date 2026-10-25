@@ -466,6 +466,7 @@ def build_controller(
     model: Any = None,
     supervisor: Supervisor | None = None,
     on_stage: Any = None,
+    project_index: Any = None,
     **controller_kwargs: Any,
 ) -> Controller:
     """A `Controller` with the methodology handler bound to ``binding``.
@@ -478,7 +479,9 @@ def build_controller(
     twice. ``model`` overrides the port the handler sees — the live composition
     passes a ``RecordingModelPort`` wrapping ``binding`` so M1 is measured at
     the call edge. ``supervisor`` and ``on_stage`` are the two surfaces the
-    vector sink needs and are inert when omitted.
+    vector sink needs and are inert when omitted. ``project_index`` (OPS-18) is
+    the read-only project-index provider; omitted, the stage prompt keeps its
+    previous shape.
     """
     loaded = profiles if profiles is not None else load_profiles(
         directory=profiles_dir)
@@ -487,6 +490,7 @@ def build_controller(
         profiles=loaded,
         supervisor=supervisor,
         on_stage=on_stage,
+        project_index=project_index,
     )
     return Controller(
         conn,
@@ -567,9 +571,12 @@ def build_live_composition(
     recorder = RecordingModelPort(binding)
     vector = LiveVector(supervisor=supervisor, profiles=profiles,
                         recorder=recorder)
+    from .research.project_index import ProjectIndexReader
+
     controller = build_controller(
         conn, project_id=project_id, binding=binding, profiles=profiles,
         model=recorder, supervisor=supervisor, on_stage=vector.record,
+        project_index=ProjectIndexReader(conn),
         **controller_kwargs)
     return LiveComposition(controller=controller, binding=binding, vector=vector)
 

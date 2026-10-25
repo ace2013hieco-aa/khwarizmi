@@ -76,7 +76,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from hermes.agents.runtime.assembly import task_input_envelope
+from hermes.agents.runtime.assembly import (
+    ProjectIndexChainNode,
+    ProjectIndexPort,
+    project_index_envelope,
+    task_input_envelope,
+)
 from hermes.agents.runtime.types import TaskContext
 from hermes.agents.runtime.wiring import RuntimeWiring, WiredRun
 from hermes.core.task_status import TaskStatus
@@ -493,6 +498,7 @@ def run_methodology(
     task_id: str,
     actor: str = "methodology-driver",
     on_stage: Callable[[RuntimeWiring, Any], None] | None = None,
+    project_index: ProjectIndexPort | None = None,
 ) -> MethodologyExecution | MethodologyRefusal:
     """Drive one parsed workflow document through the W2 runtime wiring.
 
@@ -502,6 +508,13 @@ def run_methodology(
     ``"substrate"``). A stage whose run does not reach ``SUCCEEDED`` is **not
     recorded** and does not extend the chain, so a run never reports ``COMPLETE``
     over a stage that did not run.
+
+    OPS-18: when ``project_index`` is supplied, it is called once per stage —
+    after the previous stage's committed admissions and before ``wiring.run`` —
+    and its envelope is appended to the stage's context. The chain half of the
+    index is read from this run's in-memory ``store``, never from a table; a
+    fresh process therefore starts with no chain nodes (B-5). A provider that
+    raises fails the stage: the index is never silently omitted.
     """
     lease_generation = wiring.lease_generation
     store = SubstrateStore()
@@ -551,6 +564,15 @@ def run_methodology(
                 "predecessor_content": dict(
                     content_cache.get(predecessor_id, {})),
             })
+        if project_index is not None:
+            chain_nodes = tuple(
+                ProjectIndexChainNode(
+                    project_id=node.project_id, node_id=node_id, kind=node.kind)
+                for node_id, node in sorted(store.nodes.items()))
+            view = project_index(project_id, chain_nodes)
+            context = context.with_changes(
+                context=context.context
+                + (project_index_envelope(project_id, view),))
         wired: WiredRun = wiring.run(projection.profile, context)
         if on_stage is not None:
             # The surface is handed out, never interpreted here: the live

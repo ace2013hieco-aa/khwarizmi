@@ -29,7 +29,7 @@ never a model or capability port — the module holds no dependency it could cal
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from hermes.agents.runtime.types import (
     MAX_PAYLOAD_BYTES,
@@ -45,16 +45,23 @@ __all__ = [
     "CONTRACT_FEEDBACK_ORIGIN",
     "OBSERVATION_ORIGIN",
     "PAYLOAD_ORIGIN",
+    "PROJECT_INDEX_MAX_ENTRIES",
+    "PROJECT_INDEX_ORIGIN",
     "PROPOSAL_ORIGIN",
     "REFUSAL_ORIGIN",
     "RETRY_ORIGIN",
     "REVIEW_ORIGIN",
     "TASK_ORIGIN",
     "ContextAssembler",
+    "ProjectIndexChainNode",
+    "ProjectIndexEntry",
+    "ProjectIndexPort",
+    "ProjectIndexView",
     "assemble_payload_envelopes",
     "contract_feedback_envelope",
     "default_context_assembler",
     "feedback_envelopes",
+    "project_index_envelope",
     "proposal_envelopes",
     "retry_envelope",
     "review_envelopes",
@@ -101,6 +108,74 @@ RETRY_ORIGIN = "runtime.retry"
 #: an instruction it obeys.
 CONTRACT_FEEDBACK_ORIGIN = "runtime.contract_feedback"
 
+#: The origin the OPS-18 project index carries: a bounded, content-free list of
+#: ids that exist in this project. It is data the model reads for orientation,
+#: never an instruction and never an admissibility claim — the gateway remains
+#: the only validator.
+PROJECT_INDEX_ORIGIN = "runtime.project_index"
+
+#: The hard entry cap of one project index. Entries are ordered before the cap
+#: is applied; the tail is the truncation priority. The renderer additionally
+#: holds the canonical envelope to `MAX_PAYLOAD_BYTES`.
+PROJECT_INDEX_MAX_ENTRIES = 40
+
+
+class ProjectIndexEntry(NamedTuple):
+    """One index entry: the id, what kind of id it is, and a one-line label.
+
+    No content field exists on purpose. An entry cannot carry an artifact body,
+    node content, rationale, scope text or another project's row because there
+    is nowhere to put it.
+
+    A ``NamedTuple`` rather than a dataclass: this module is purity-tested on an
+    exact import set (LOOP-1), and ``typing`` is already one of its imports. The
+    semantics are the ones the design needs — immutable, ordered, attribute
+    access — with no new dependency for a module that must hold none.
+    """
+
+    id: str
+    kind: str
+    label: str
+
+
+class ProjectIndexChainNode(NamedTuple):
+    """One chain node offered by the run's in-memory store.
+
+    ``project_id`` travels with the node so the reader can enforce the project
+    bound again, even though the driver already filters the store. The reader
+    never queries a table for these: the store is derived working state (B-5),
+    absent in a fresh process.
+    """
+
+    project_id: str
+    node_id: str
+    kind: str
+
+
+class ProjectIndexView(NamedTuple):
+    """The adapter's final list plus the true pre-truncation total.
+
+    ``entries`` are already ordered and entry-capped by the adapter; ``total``
+    counts every entry the project held, so the renderer can report a truthful
+    ``omitted`` marker after its byte cap as well.
+    """
+
+    entries: tuple[ProjectIndexEntry, ...]
+    total: int
+
+
+class ProjectIndexPort(Protocol):
+    """Read one project's index — the composition-injected read seam.
+
+    The runtime and the handler call this port; they do not import persistence.
+    A provider that raises fails the stage: a silently missing index would be
+    indistinguishable from an empty project.
+    """
+
+    def __call__(self, project_id: str,
+                 chain_nodes: Sequence[ProjectIndexChainNode],
+                 ) -> ProjectIndexView: ...
+
 
 class ContextAssembler(Protocol):
     """The prompt-envelope port: one run's context in, envelopes out.
@@ -119,6 +194,43 @@ def _document_envelope(origin: str, ref: str,
     """One envelope: the canonical encoding of a document, origin-labelled."""
     return UntrustedContent(text=canonical_json(dict(document)),
                             origin=origin, ref=ref)
+
+
+def project_index_envelope(project_id: str, view: ProjectIndexView,
+                           ) -> UntrustedContent:
+    """Render one bounded project index as a ``runtime.project_index`` envelope.
+
+    The document is exactly ``{"entries": [{"id", "kind", "label"}, ...],
+    "omitted": N}``. There is no content field. ``omitted`` is the true count
+    of entries not shown: the adapter has already applied the 40-entry cap, and
+    this renderer applies the same 4 KiB bound every other prompt envelope
+    uses, dropping entries from the tail until the canonical document fits. A
+    truncated index therefore never looks complete.
+
+    Pure and deterministic: no clock, no I/O, no ambient state. The values are
+    stored ids/types and closed-vocabulary labels, but they still enter as
+    untrusted content — data the model reads, never instructions it obeys and
+    never an admissibility claim.
+    """
+    entries = list(view.entries)
+    while True:
+        document = {
+            "entries": [
+                {"id": entry.id, "kind": entry.kind, "label": entry.label}
+                for entry in entries
+            ],
+            "omitted": max(0, int(view.total) - len(entries)),
+        }
+        text = canonical_json(document)
+        if len(text.encode("utf-8")) <= MAX_PAYLOAD_BYTES:
+            break
+        if not entries:
+            break
+        entries.pop()
+    return UntrustedContent(
+        text=text,
+        origin=PROJECT_INDEX_ORIGIN,
+        ref=f"{project_id}:project_index")
 
 
 def assemble_payload_envelopes(context: TaskContext
