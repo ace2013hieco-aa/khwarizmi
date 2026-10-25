@@ -58,6 +58,9 @@ from hermes.eval.loop_observations import (
 from hermes.persistence.repositories import ArtifactRepository, EventRepository
 from hermes.research.capability_supply import (
     EVIDENCE_HANDLE_PREFIX,
+    FETCH_ROW_INDEX_FIELD,
+    FETCH_SEARCH_HANDLE_FIELD,
+    FETCH_URL_FIELD,
     HANDLE_SEPARATOR,
     RESEARCH_EGRESS_TOOL_SET_ID,
     SOURCE_PAYLOAD_HANDLE_PREFIX,
@@ -327,8 +330,25 @@ def plan_capability_plane(
             supplied_tuple, granted, withheld_tuple))
 
 
-def _capability_tool_note(schemas: tuple[str, ...],
-                          item_keys: frozenset[str]) -> str:
+def _fetch_target_rule() -> str:
+    """The one generated ``source_fetch`` target-form sentence (OPS-5C R9).
+
+    The field spellings come from the supply's own constants, so a rename in
+    the declaration cannot leave this prose pointing at a field the schema no
+    longer has. The rule is emitted only when the reachable ``source_fetch``
+    declaration actually carries all three fields.
+    """
+    return (
+        f"source_fetch takes exactly one target form: {FETCH_URL_FIELD}, or "
+        f"{FETCH_SEARCH_HANDLE_FIELD} with a 0-based {FETCH_ROW_INDEX_FIELD}; "
+        f"a search's rows are in the provider's relevance order, so "
+        f"{FETCH_ROW_INDEX_FIELD} 0 is the provider's top-ranked result, and "
+        f"{FETCH_SEARCH_HANDLE_FIELD} is a transient locator for this composed "
+        f"run, never a citation.")
+
+
+def _capability_tool_note(schemas: tuple[str, ...], item_keys: frozenset[str],
+                          *, fetch_target_forms: bool) -> str:
     """One generated ``tool_calls`` field note.
 
     The legal ids and schemas come from the registry declarations; the item
@@ -355,8 +375,9 @@ def _capability_tool_note(schemas: tuple[str, ...],
         f"EVIDENCE_TRANSITION. Proposals are admitted before tool calls in the "
         f"same tick, so an artifact observed this tick can be cited only in a "
         f"later tick.")
+    target_forms = f" {_fetch_target_rule()}" if fetch_target_forms else ""
     return ("legal capabilities: " + "; ".join(schemas)
-            + f". Item keys: {keys}. " + handles)
+            + f". Item keys: {keys}. " + handles + target_forms)
 
 
 def build_capability_tool_notes(
@@ -373,10 +394,13 @@ def build_capability_tool_notes(
     empty-reach statement. This is prompt data, never a validator.
     """
     notes: dict[str, str] = {}
+    fetch_fields = {FETCH_URL_FIELD, FETCH_SEARCH_HANDLE_FIELD,
+                    FETCH_ROW_INDEX_FIELD}
     for name in sorted(plan.profiles):
         spec = plan.profiles[name]
         grant = plan.grants.get(spec.agent_profile)
         schemas: list[str] = []
+        fetch_target_forms = False
         if grant is not None:
             for capability in supply.registry.enumerate(grant=grant).capabilities:
                 if capability.capability_id not in spec.tools:
@@ -384,6 +408,9 @@ def build_capability_tool_notes(
                 tool = supply.registry.tool_for(capability.capability_id)
                 if tool is None:
                     continue
+                if capability.capability_id == "source_fetch":
+                    fetch_target_forms = fetch_fields <= {
+                        field.name for field in tool.inputs}
                 fields: list[str] = []
                 for field in tool.inputs:
                     allowed = (
@@ -394,7 +421,8 @@ def build_capability_tool_notes(
                 schemas.append(
                     f"{capability.capability_id}({', '.join(fields)})"
                     f" — {tool.summary}")
-        notes[name] = _capability_tool_note(tuple(schemas), item_keys)
+        notes[name] = _capability_tool_note(
+            tuple(schemas), item_keys, fetch_target_forms=fetch_target_forms)
     return notes
 
 

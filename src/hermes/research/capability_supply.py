@@ -4,9 +4,19 @@ This module supplies exactly the two capability ids a live run can honestly
 execute at this base:
 
 - ``source_search`` — one bounded walk over one allowlisted provider
-  (OpenAlex or PubMed) through the shipped adapter and driver;
-- ``source_fetch`` — one bounded fetch of a model-named URL, pre-vetted
-  against the code-owned D5 surface before any dial.
+  (OpenAlex or PubMed) through the shipped adapter and driver. Its delivered
+  rows are registered in a per-composed-run, in-memory snapshot map and the
+  success detail carries a content-derived ``search_handle``, the row count
+  and the omitted count — never a title, URL, identifier or row hash;
+- ``source_fetch`` — one bounded fetch of either a model-named URL or one row
+  of a prior search (``search_handle`` + 0-based ``row_index``), pre-vetted
+  against the code-owned D5 surface before any dial. Both forms run the same
+  fetch chain and write the same ``source_payload`` artifact; the handle form
+  adds the choice (handle, index, row hash) to that row's metadata.
+
+The search snapshot is transient: no table, no artifact, no checkpoint and no
+journal row. The handle is a locator, not a citation; only the fetched
+``source_payload`` artifact can satisfy ``EVIDENCE_REF``.
 
 Both are ``TOOL``-kind capabilities over in-process tools
 (``network=True``, ``sandboxed=False``). Under OPS-5 R5 that is legal: the
@@ -45,7 +55,8 @@ import hashlib
 import json
 import re
 import urllib.parse
-from collections.abc import Callable, Mapping
+from collections import OrderedDict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -93,16 +104,30 @@ from hermes.tools.research_sources import (
     content_hash_of_search_result,
     make_search_result_id,
     search_result_from_mapping,
+    sha256_hex,
 )
 
 __all__ = [
     "DEFAULT_SEARCH_MAX_RESULTS",
     "EVIDENCE_HANDLE_PREFIX",
+    "FETCH_ROW_INDEX_FIELD",
+    "FETCH_SEARCH_HANDLE_FIELD",
+    "FETCH_TARGET_AMBIGUOUS",
+    "FETCH_TARGET_MISSING",
+    "FETCH_URL_FIELD",
     "HANDLE_SEPARATOR",
     "MAX_SEARCH_RESULTS",
     "PROVIDER_HOSTS",
     "REFUSAL_OUTCOME_KIND",
     "RESEARCH_EGRESS_TOOL_SET_ID",
+    "SEARCH_HANDLE_COLLISION",
+    "SEARCH_HANDLE_EXPIRED",
+    "SEARCH_HANDLE_FIELD_MAX_BYTES",
+    "SEARCH_HANDLE_INVALID",
+    "SEARCH_HANDLE_PREFIX",
+    "SEARCH_PROVIDER_MISMATCH",
+    "SEARCH_REGISTRY_CAPACITY",
+    "SEARCH_ROW_INDEX_OUT_OF_RANGE",
     "SOURCE_FETCH_SIZE_CAP_BYTES",
     "SOURCE_PAYLOAD_ARTIFACT_TYPE",
     "SOURCE_PAYLOAD_HANDLE_PREFIX",
@@ -110,9 +135,13 @@ __all__ = [
     "SOURCE_SEARCH_SIZE_CAP_BYTES",
     "SUPPLIED_CAPABILITY_IDS",
     "ResearchEgressSupply",
+    "SearchHandleCollision",
+    "SearchResultRegistry",
+    "SearchSelectionRefusal",
     "artifact_handles",
     "build_research_egress_supply",
     "research_egress_declarations",
+    "search_handle_of",
     "source_payload_ref",
 ]
 
@@ -151,6 +180,35 @@ SOURCE_REF_SEPARATOR = ":"
 
 #: The one artifact type a capability-written payload row may carry.
 SOURCE_PAYLOAD_ARTIFACT_TYPE = "source_payload"
+
+#: OPS-5C — the transient search-snapshot handle. The handle names the
+#: delivered rows and their provider order; it is not an artifact, not a
+#: citation and never durable. The full 64-hex digest is used (no alias).
+SEARCH_HANDLE_PREFIX = "search_"
+SEARCH_HANDLE_HEX_LENGTH = 64
+#: The `source_fetch.search_handle` field bound (the 71-byte handle fits).
+SEARCH_HANDLE_FIELD_MAX_BYTES = 96
+#: At most 32 snapshots per composed run; the oldest is evicted on insert.
+SEARCH_REGISTRY_CAPACITY = 32
+
+#: One spelling for the two target forms, shared by the declaration and the
+#: generated prompt sentence so a rename cannot leave the note stale.
+FETCH_URL_FIELD = "url"
+FETCH_SEARCH_HANDLE_FIELD = "search_handle"
+FETCH_ROW_INDEX_FIELD = "row_index"
+
+#: The pre-dial selection refusals. They are tool-result codes, not plane or
+#: gateway codes: the call was allowed, the model's target was wrong.
+SEARCH_HANDLE_INVALID = "SEARCH_HANDLE_INVALID"
+SEARCH_HANDLE_EXPIRED = "SEARCH_HANDLE_EXPIRED"
+SEARCH_PROVIDER_MISMATCH = "SEARCH_PROVIDER_MISMATCH"
+SEARCH_ROW_INDEX_OUT_OF_RANGE = "SEARCH_ROW_INDEX_OUT_OF_RANGE"
+SEARCH_HANDLE_COLLISION = "SEARCH_HANDLE_COLLISION"
+FETCH_TARGET_AMBIGUOUS = "FETCH_TARGET_AMBIGUOUS"
+FETCH_TARGET_MISSING = "FETCH_TARGET_MISSING"
+
+_SEARCH_HANDLE_RE = re.compile(
+    rf"{re.escape(SEARCH_HANDLE_PREFIX)}[0-9a-f]{{{SEARCH_HANDLE_HEX_LENGTH}}}\Z")
 
 #: One bounded retry for a transient fetch; deterministic, no jitter.
 FETCH_RETRY_POLICY = RetryPolicy(
@@ -195,11 +253,18 @@ def research_egress_declarations(
     )
     fetch = Tool(
         tool_id="source_fetch",
-        summary=("Fetch one source URL through its allowlisted provider "
-                 "surface. Runs in-process (no sandbox)."),
+        summary=("Fetch one source by allowlisted URL, or one row of a prior "
+                 "search by its transient handle and 0-based index. Runs "
+                 "in-process (no sandbox)."),
         inputs=(
             provider_field,
-            InputField(name="url", type="string", max_bytes=2048),
+            InputField(name=FETCH_URL_FIELD, type="string", required=False,
+                       max_bytes=2048),
+            InputField(name=FETCH_SEARCH_HANDLE_FIELD, type="string",
+                       required=False,
+                       max_bytes=SEARCH_HANDLE_FIELD_MAX_BYTES),
+            InputField(name=FETCH_ROW_INDEX_FIELD, type="integer",
+                       required=False, max_bytes=3),
         ),
         risk=RiskLevel.MEDIUM,
         network=True,
@@ -280,6 +345,164 @@ class _EgressJournal:
         self._sink(interaction, None)
 
 
+# ── the transient search snapshot (OPS-5C) ──
+
+
+def _row_identity(row: SearchResult) -> tuple[str, str, str]:
+    """The handle preimage for one delivered row: identity, hash and URL.
+
+    Deliberately excludes the retrieval metadata (`access_timestamp_utc`,
+    request log, counts), so the same provider rows re-derive the same
+    handle; the delivered order is the caller's and is never re-sorted.
+    """
+    return (row.result_id, row.content_hash, row.source_url)
+
+
+def search_handle_of(provider: str, rows: Sequence[SearchResult]) -> str:
+    """The content-derived ``search_<64 hex>`` handle for one delivered set.
+
+    The preimage is ``{provider, rows:[{result_id, content_hash, source_url}]}``
+    in the **delivered (relevance) order**. Order is part of the meaning: the
+    provider ranks its hits, so reordering the rows is a different search
+    result and derives a different handle. A repeated identical search derives
+    the same handle.
+
+    The encoding is key-sorted but **list-preserving**. The repository's
+    ``canonical_json`` sorts a list of dicts by canonical JSON by design (it
+    exists for order-independent derived sets), which would silently erase the
+    rank; it is deliberately not used here.
+    """
+    preimage = {
+        "provider": provider,
+        "rows": [
+            {
+                "result_id": row.result_id,
+                "content_hash": row.content_hash,
+                "source_url": row.source_url,
+            }
+            for row in rows
+        ],
+    }
+    encoded = json.dumps(
+        preimage, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return SEARCH_HANDLE_PREFIX + sha256_hex(encoded)
+
+
+@dataclass(frozen=True, slots=True)
+class _SearchSnapshot:
+    provider: str
+    rows: tuple[SearchResult, ...]
+
+    def identities(self) -> tuple[tuple[str, str, str], ...]:
+        return tuple(_row_identity(row) for row in self.rows)
+
+
+class SearchSelectionRefusal(Exception):
+    """A pre-dial target-selection refusal (data for the model, not a crash).
+
+    The call was authorized and invoked; the *target* the model named cannot
+    be resolved. The executor turns this into an OK observation whose payload
+    is ``status="REFUSED"``: no dial, no artifact, no journal row, and the run
+    continues so the model can correct.
+    """
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+
+class SearchHandleCollision(ProviderValidationError):
+    """Two different row sets derived the same handle — never overwritten.
+
+    A SHA-256 collision is not the concern; a registry bug or a handle
+    derivation change is. Failing closed keeps a handle from silently naming
+    a row set it was not derived from.
+    """
+
+    code = SEARCH_HANDLE_COLLISION
+
+
+class SearchResultRegistry:
+    """The per-composed-run, bounded, in-memory search snapshot map.
+
+    The registry holds the delivered ``SearchResult`` objects (titles
+    included) only in memory: no table, no artifact, no checkpoint, no
+    journal row. A handle names an immutable delivered tuple; a repeated
+    identical search refreshes its recency but never replaces the tuple. The
+    oldest snapshot is evicted when the bound is exceeded; there is no TTL.
+    """
+
+    def __init__(self, capacity: int = SEARCH_REGISTRY_CAPACITY) -> None:
+        if capacity < 1:
+            raise ValueError("a search registry needs a positive capacity")
+        self._capacity = capacity
+        self._snapshots: OrderedDict[str, _SearchSnapshot] = OrderedDict()
+
+    def __len__(self) -> int:
+        return len(self._snapshots)
+
+    def register(self, provider: str, rows: Sequence[SearchResult]) -> str:
+        """Register one delivered set and return its derived handle.
+
+        A handle already present with the same row identities keeps its
+        original tuple (the rows are retrieval-equivalent; the timestamp and
+        request log are not identity) and moves to the newest end. A handle
+        present with different identities raises: a collision is never a
+        remap.
+        """
+        delivered = tuple(rows)
+        handle = search_handle_of(provider, delivered)
+        existing = self._snapshots.get(handle)
+        if existing is not None:
+            identities = tuple(_row_identity(row) for row in delivered)
+            if (existing.provider != provider
+                    or existing.identities() != identities):
+                raise SearchHandleCollision(
+                    "search handle collision: a different row set derived an "
+                    "existing handle — refusing to remap it")
+            self._snapshots.move_to_end(handle)
+            return handle
+        self._snapshots[handle] = _SearchSnapshot(provider, delivered)
+        while len(self._snapshots) > self._capacity:
+            self._snapshots.popitem(last=False)
+        return handle
+
+    def resolve(self, handle: str, provider: str, row_index: int
+                ) -> SearchResult:
+        """Resolve ``(handle, provider, 0-based row_index)`` or refuse.
+
+        Checks are ordered so each refusal is the most specific true one:
+        the handle must be well formed, then present, then owned by the
+        named provider, then in range. Nothing here dials.
+        """
+        if not isinstance(handle, str) or _SEARCH_HANDLE_RE.fullmatch(
+                handle) is None:
+            raise SearchSelectionRefusal(
+                SEARCH_HANDLE_INVALID,
+                f"{handle!r} is not a {SEARCH_HANDLE_PREFIX}<64 hex> handle")
+        snapshot = self._snapshots.get(handle)
+        if snapshot is None:
+            raise SearchSelectionRefusal(
+                SEARCH_HANDLE_EXPIRED,
+                "no search snapshot is registered for this handle in this "
+                "composed run (expired, evicted or a new process) — search "
+                "again")
+        if snapshot.provider != provider:
+            raise SearchSelectionRefusal(
+                SEARCH_PROVIDER_MISMATCH,
+                f"the handle belongs to provider {snapshot.provider!r}, not "
+                f"{provider!r}")
+        if (isinstance(row_index, bool) or not isinstance(row_index, int)
+                or not 0 <= row_index < len(snapshot.rows)):
+            raise SearchSelectionRefusal(
+                SEARCH_ROW_INDEX_OUT_OF_RANGE,
+                f"row_index {row_index!r} is outside 0.."
+                f"{max(0, len(snapshot.rows) - 1)} for this search ("
+                f"{len(snapshot.rows)} row(s))")
+        return snapshot.rows[row_index]
+
+
 # ── executors ──
 
 
@@ -293,6 +516,7 @@ class _SupplyBase:
         journal: _EgressJournal,
         resolve: Callable[[str], tuple[str, ...]] | None,
         store: Any,
+        search_registry: SearchResultRegistry,
     ) -> None:
         self._machinery = machinery
         self._project_id = project_id
@@ -300,6 +524,7 @@ class _SupplyBase:
         self._journal = journal
         self._resolve = resolve
         self._store = store
+        self._search_registry = search_registry
 
     def _adapter(self, arguments: Mapping[str, Any]) -> Any:
         provider = str(arguments.get("provider") or "")
@@ -353,23 +578,37 @@ class SourceSearchExecutor(_SupplyBase):
                 aggregate="EMPTY",
                 notes=outcome.notes + tuple(exc.notes),
                 request_log=outcome.request_log)
-            return _search_result(provider, empty)
+            return _search_result(provider, empty, self._search_registry)
         except ProviderUnavailableError:
             # Could not search is NOT "no literature" (PS-13): fail the call.
             raise
-        return _search_result(provider, combined)
+        return _search_result(provider, combined, self._search_registry)
 
 
 class SourceFetchExecutor(_SupplyBase):
-    """One URL → the vetted provider fetch, journaled on both paths."""
+    """One fetch target → the vetted provider fetch, journaled on both paths.
+
+    Two target forms are accepted, never both and never neither: the OPS-5B
+    ``url`` form, and the OPS-5C ``(search_handle, row_index)`` form which
+    selects one row of a prior search snapshot. The selection is a pre-dial,
+    data-shaped refusal; the fetch chain below it is the same chain.
+    """
 
     def __call__(self, arguments: Mapping[str, Any],
                  context: ToolCallContext) -> ToolResult:
         provider = str(arguments.get("provider") or "")
         adapter = self._adapter(arguments)
-        url = str(arguments.get("url") or "")
-        now = _now_utc(self._machinery.clock)
-        source = _synthetic_source(provider, url, now)
+        try:
+            target = _select_fetch_target(
+                arguments, provider=provider,
+                now=_now_utc(self._machinery.clock),
+                registry=self._search_registry)
+        except SearchSelectionRefusal as exc:
+            # A caller's bad target is data: no dial, no artifact, no journal
+            # row, and the run continues (R3). A real fetch failure below keeps
+            # the OPS-5A fatal path.
+            return _refused_result("source_fetch", exc.code, exc.detail)
+        source = target.source
         try:
             spec = adapter.build_fetch_request(source)
         except ProviderValidationError:
@@ -406,22 +645,33 @@ class SourceFetchExecutor(_SupplyBase):
         if outcome.per_source and outcome.payloads:
             payload = outcome.payloads[0]
             row = self._record_payload(
-                payload, provider=provider, url=spec.url, context=context)
+                payload, provider=provider, url=spec.url, context=context,
+                search_handle=target.search_handle,
+                row_index=target.row_index,
+                search_result_hash=target.search_result_hash)
             handles = artifact_handles(row)
+            document: dict[str, Any] = {
+                "capability": "source_fetch",
+                "provider": provider,
+                "url": source.source_url,
+                "status": "FETCHED",
+                "artifact_id": row["artifact_id"],
+                "content_hash": row["content_hash"],
+                "source_ref": source_payload_ref(row),
+                "media_type": row.get("metadata", {}).get(
+                    "media_type", payload.artifact.media_type),
+                "size_bytes": row["size_bytes"],
+                "retrieved_at": row["created_at"],
+            }
+            if target.search_handle:
+                # The observation names the choice as well as the bytes; the
+                # artifact metadata below carries the same three fields.
+                document["search_handle"] = target.search_handle
+                document["row_index"] = target.row_index
+                document["search_result_hash"] = target.search_result_hash
             return ToolResult(
-                payload=json.dumps({
-                    "capability": "source_fetch",
-                    "provider": provider,
-                    "url": source.source_url,
-                    "status": "FETCHED",
-                    "artifact_id": row["artifact_id"],
-                    "content_hash": row["content_hash"],
-                    "source_ref": source_payload_ref(row),
-                    "media_type": row.get("metadata", {}).get(
-                        "media_type", payload.artifact.media_type),
-                    "size_bytes": row["size_bytes"],
-                    "retrieved_at": row["created_at"],
-                }, sort_keys=True, ensure_ascii=False),
+                payload=json.dumps(document, sort_keys=True,
+                                   ensure_ascii=False),
                 artifacts=handles,
                 notes=(
                     (f"fetched {provider}: {row['size_bytes']} bytes; cite "
@@ -453,6 +703,9 @@ class SourceFetchExecutor(_SupplyBase):
         provider: str,
         url: str,
         context: ToolCallContext,
+        search_handle: str = "",
+        row_index: int | None = None,
+        search_result_hash: str = "",
     ) -> dict[str, Any]:
         """Record the fetched bytes as one content-addressed source artifact.
 
@@ -462,6 +715,10 @@ class SourceFetchExecutor(_SupplyBase):
         content-addressed root. The model cannot name any of them; it only
         chose to fetch. The row carries enough attribution (provider, host,
         digest, redacted URL, call key) that it is traceable to the fetch.
+
+        OPS-5C adds the *choice* to the same metadata when the fetch addressed
+        a search row: the handle, the 0-based delivered index and that row's
+        semantic hash. No second writer, type, table or transaction.
         """
         if self._store is None:
             raise SourceArtifactUnavailable(
@@ -482,6 +739,10 @@ class SourceFetchExecutor(_SupplyBase):
             "lease_generation": context.lease_generation,
             "profile": context.profile,
         }
+        if search_handle:
+            metadata["search_handle"] = search_handle
+            metadata["row_index"] = row_index
+            metadata["search_result_hash"] = search_result_hash
         row = self._store.write(
             payload.raw_bytes,
             artifact_type=SOURCE_PAYLOAD_ARTIFACT_TYPE,
@@ -570,6 +831,9 @@ class ResearchEgressSupply:
     implementations: Mapping[str, Any]
     machinery: ProviderMachinery
     allowlist: tuple[str, ...]
+    #: OPS-5C — the one transient snapshot map both executors share for this
+    #: composed run. In memory only; not an artifact, not a citation.
+    search_registry: SearchResultRegistry
 
 
 def build_research_egress_supply(
@@ -617,6 +881,7 @@ def build_research_egress_supply(
         registry.register_capability(capability)
     registry.register_tool_set(tool_set)
     journal = _EgressJournal(conn, store, clock)
+    search_registry = SearchResultRegistry()
     shared: dict[str, Any] = {
         "machinery": active_machinery,
         "project_id": project_id,
@@ -624,6 +889,7 @@ def build_research_egress_supply(
         "journal": journal,
         "resolve": dns_resolve,
         "store": store,
+        "search_registry": search_registry,
     }
     implementations: dict[str, Any] = {
         "source_search": SourceSearchExecutor(**shared),
@@ -632,7 +898,8 @@ def build_research_egress_supply(
     return ResearchEgressSupply(
         tools=tools, capabilities=capabilities, tool_set=tool_set,
         registry=registry, implementations=implementations,
-        machinery=active_machinery, allowlist=resolved_allowlist)
+        machinery=active_machinery, allowlist=resolved_allowlist,
+        search_registry=search_registry)
 
 
 # ── helpers ──
@@ -698,7 +965,16 @@ def _search_max_results(arguments: Mapping[str, Any]) -> int:
     return raw
 
 
-def _search_result(provider: str, outcome: SearchOutcome) -> ToolResult:
+def _search_result(provider: str, outcome: SearchOutcome,
+                   registry: SearchResultRegistry) -> ToolResult:
+    """The bounded search observation plus its transient handle.
+
+    The detail discloses the delivered count, the omitted count and a derived
+    handle — never a title, URL, identifier, result id or row hash. The rows
+    themselves stay in the observation payload (which the prompt never
+    carries) and in the in-memory snapshot the handle names.
+    """
+    delivered = tuple(outcome.per_provider)
     rows = [{
         "result_id": result.result_id,
         "provider": result.provider,
@@ -710,9 +986,19 @@ def _search_result(provider: str, outcome: SearchOutcome) -> ToolResult:
         "content_hash": result.content_hash,
         "page_index": result.page_index,
         "valid_negative": result.valid_negative,
-    } for result in outcome.per_provider]
+    } for result in delivered]
+    handle = registry.register(provider, delivered) if delivered else None
+    total = delivered[0].total_count if delivered else None
+    if total is None:
+        omitted, estimate = "unknown", False
+    else:
+        omitted = str(max(0, total - len(delivered)))
+        estimate = bool(delivered[0].total_is_estimate)
     note = (f"search {provider}: {len(rows)} source row(s) "
-            f"({outcome.aggregate})")
+            f"({outcome.aggregate}); search_handle={handle or 'none'}; "
+            f"rows={len(rows)}; omitted={omitted}")
+    if estimate:
+        note += "; omitted_is_estimate=true"
     return ToolResult(
         payload=json.dumps({
             "capability": "source_search",
@@ -722,6 +1008,72 @@ def _search_result(provider: str, outcome: SearchOutcome) -> ToolResult:
             "notes": list(outcome.notes),
         }, sort_keys=True, ensure_ascii=False),
         notes=(note,))
+
+
+@dataclass(frozen=True, slots=True)
+class _FetchTarget:
+    """One selected fetch target: a URL carrier or a search-snapshot row."""
+
+    source: SearchResult
+    search_handle: str = ""
+    row_index: int | None = None
+    search_result_hash: str = ""
+
+
+def _select_fetch_target(
+    arguments: Mapping[str, Any],
+    *,
+    provider: str,
+    now: str,
+    registry: SearchResultRegistry,
+) -> _FetchTarget:
+    """Enforce exactly one target form and resolve it before any dial.
+
+    ``url`` alone is the OPS-5B form. ``search_handle`` + ``row_index`` alone
+    is the OPS-5C form. Both, neither, or an incomplete handle form is a
+    named pre-dial refusal; an index/expiry/provider problem comes from the
+    registry with its own named code.
+    """
+    url = arguments.get("url")
+    handle = arguments.get("search_handle")
+    row_index = arguments.get("row_index")
+    has_url = isinstance(url, str) and bool(url.strip())
+    has_handle = isinstance(handle, str) and bool(handle.strip())
+    has_index = row_index is not None
+    if has_url and (has_handle or has_index):
+        raise SearchSelectionRefusal(
+            FETCH_TARGET_AMBIGUOUS,
+            "source_fetch takes exactly one target form: url, or "
+            "search_handle + row_index — not both")
+    if has_url:
+        return _FetchTarget(_synthetic_source(provider, str(url), now))
+    if not (has_handle and has_index):
+        raise SearchSelectionRefusal(
+            FETCH_TARGET_MISSING,
+            "source_fetch needs either url or both search_handle and "
+            "row_index — no target was named")
+    row = registry.resolve(str(handle), provider, row_index)
+    return _FetchTarget(
+        row, search_handle=str(handle), row_index=row_index,
+        search_result_hash=row.content_hash)
+
+
+def _refused_result(capability: str, code: str, detail: str) -> ToolResult:
+    """A benign, pre-dial REFUSED tool result (no artifact, no dial, no row).
+
+    It is an OK observation carrying a REFUSED payload: the run continues and
+    the model sees the named code in the next tick's bounded detail. It is
+    deliberately not `TOOL_FAILED` — the C4 terminal rule is unchanged.
+    """
+    return ToolResult(
+        payload=json.dumps({
+            "capability": capability,
+            "status": "REFUSED",
+            "code": code,
+            "detail": detail,
+        }, sort_keys=True, ensure_ascii=False),
+        artifacts=(),
+        notes=(f"{capability} refused: {code}; {detail}",))
 
 
 def _synthetic_source(provider: str, url: str, now: str) -> SearchResult:

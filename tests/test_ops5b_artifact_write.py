@@ -213,11 +213,12 @@ def test_the_row_is_accepted_by_evidence_ref_through_the_real_gateway(rig) -> No
 
 def test_the_model_cannot_influence_artifact_content_identity_type_project_or_destination(
         rig) -> None:
-    # The declared schema has only provider and url; every artifact property
-    # is fixed by the executor and the store.
+    # The declared schema has provider plus the two OPS-5C target forms;
+    # every artifact property is fixed by the executor and the store.
     tool = rig.supply.registry.tool("source_fetch")
     assert tool is not None
-    assert {field.name for field in tool.inputs} == {"provider", "url"}
+    assert {field.name for field in tool.inputs} == {
+        "provider", "url", "search_handle", "row_index"}
     refusal = rig.invoker.invoke(InvokeRequest(
         capability_id="source_fetch",
         arguments={
