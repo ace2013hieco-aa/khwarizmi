@@ -91,7 +91,11 @@ Resolver: TypeAlias = Callable[[str, int], tuple[str, ...]]
 #: validated is model-declared metadata, never a vendor knob.
 _FORWARDED_OPTIONS: Final[tuple[str, ...]] = ("temperature",)
 
-_CLOSING_TAG: Final = re.compile(r"</\s*untrusted", re.IGNORECASE)
+#: Both the opening and closing envelope tags are escaped (OPS-15): escaping
+#: only ``</untrusted`` left a `<untrusted ...>` inside an envelope readable as
+#: a second opener. The escape is the control; a tag that can be opened from
+#: inside an envelope defeats it.
+_UNTRUSTED_TAG: Final = re.compile(r"</?\s*untrusted", re.IGNORECASE)
 
 #: HTTP statuses that are worth a retry.
 _TRANSIENT_STATUSES: Final[frozenset[int]] = frozenset(
@@ -376,7 +380,7 @@ def render_user(prompt: Sequence[Mapping[str, Any]], rationale: str) -> str:
     if rationale.strip():
         blocks.append(f"Task: {rationale.strip()}")
     for part in prompt:
-        text = _CLOSING_TAG.sub("<\\/untrusted", str(part.get("text", "")))
+        text = _UNTRUSTED_TAG.sub("<\\/untrusted", str(part.get("text", "")))
         blocks.append(
             f'<untrusted origin="{_attr(str(part.get("origin", "")))}" '
             f'ref="{_attr(str(part.get("ref", "")))}">\n{text}\n</untrusted>')

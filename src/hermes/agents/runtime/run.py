@@ -141,6 +141,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from hermes.agents.runtime.assembly import (
     ContextAssembler,
+    contract_feedback_envelope,
     default_context_assembler,
     feedback_envelopes,
     proposal_envelopes,
@@ -216,10 +217,33 @@ from hermes.tools.models.router import (
     bounded_excerpt,
 )
 
-#: A model refusal this plane retries. Only an *output-side* refusal is worth a
-#: second call: a request-side `MALFORMED_PAYLOAD` is deterministic and would
-#: fail identically (the R2 report makes the same split at the provider edge).
+#: The legacy model-refusal codes this plane retries (LOOP-4). A request-side
+#: `MALFORMED_PAYLOAD` is deterministic and would fail identically (the R2
+#: report makes the same split at the provider edge), and the code alone cannot
+#: tell an output-shape refusal from a request guard — which is why OPS-15 adds
+#: the site-set `contract_feedback` marker below. This set stays as the fallback
+#: for `RATIONALE`; it is not the complete retryability rule.
 RETRYABLE_MODEL_REFUSALS: frozenset[str] = frozenset({RATIONALE})
+
+
+def _retryable_model_refusal(item: object) -> bool:
+    """The complete retryability predicate for one model-phase result (OPS-15).
+
+    A refusal is retryable when the model plane marked it a whole-reply,
+    contract-shape failure before any draft existed (`contract_feedback`), or
+    when it is the LOOP-4 `RATIONALE` case this plane already retried. The
+    marker is the refusing site's decision, not a code guess: `ROLE` is emitted
+    at partition, capability, credential and sidecar-route sites that must stay
+    terminal, and a request-side `MALFORMED_PAYLOAD` would fail identically on a
+    second call. A hand-built refusal defaults to False, so a new port that does
+    not set the marker can never silently gain a retry.
+    """
+    if not isinstance(item, ModelRefusal):
+        return False
+    if item.contract_feedback:
+        return True
+    return item.code in RETRYABLE_MODEL_REFUSALS
+
 
 #: Keys a draft, a tool call and a delegation item may carry. Closed schemas:
 #: an unknown key is refused, never ignored.
@@ -778,7 +802,13 @@ class AgentRuntime:
         """Call the Model plane, validate the output, emit the drafts.
 
         Returns `(structured_output, draft_digests)` or `None` when the run must
-        stop. A model refusal is data: it is recorded, and it ends the run.
+        stop. A model refusal is data: it is recorded. A contract-shape refusal
+        gets one informed re-prompt when the profile's call cap allows it
+        (OPS-15); a second refusal, or any non-retryable refusal, ends the run.
+
+        The bound is **model calls per phase per tick** and nothing else.
+        Model calls are not charged to `per_run_tokens` today (OPS-16), so this
+        makes no token or dollar-boundedness claim.
         """
         verdict = self._supervisor.check(token, deadline)
         if verdict:
@@ -788,24 +818,38 @@ class AgentRuntime:
             return None
 
         call_budget = max(1, spec.termination.max_model_calls_per_tick)
+        # OPS-15: one informed retry per model phase per tick. The `1` is
+        # deliberate: the cap is model *calls*, not the supervisor's general
+        # retry schedule, so a profile with three slots still gets one retry.
+        # The declared bound is calls per phase per tick and nothing else —
+        # model calls are not charged to per_run_tokens (OPS-16), so no token
+        # or dollar bound is claimed here.
         budget = RetryBudget(
-            max_retries=min(self._supervisor.retry.max_retries, call_budget - 1),
+            max_retries=min(1, self._supervisor.retry.max_retries,
+                            call_budget - 1),
             base_delay_seconds=self._supervisor.retry.base_delay_seconds)
         request = self._model_request(spec, context, state, tick)
         self._emit(kind="MODEL_REQUESTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"tier": spec.model_policy.tier,
                            "call_budget": call_budget})
-        # A retry is *informed* (LOOP-4 E5): the refusal that ended attempt N-1
-        # is rendered into attempt N's prompt as an origin-marked data envelope,
-        # so the second call is not the same question asked twice. The first
-        # attempt is the plain request.
+        # A retry is *informed* (LOOP-4 E5, OPS-15): the refusal that ended
+        # attempt N-1 is rendered into attempt N's prompt as an origin-marked
+        # data envelope, so the second call is not the same question asked
+        # twice. The first attempt is the plain request, and its trace detail
+        # is unchanged; only a retry adds the attempt-2 request and the
+        # attempt-level refusal.
         refused: list[ModelRefusal] = []
 
         def attempt_request(attempt: int) -> ModelProposal | ModelRefusal:
             if attempt == 1 or not refused:
                 result = self._model.invoke(request)
             else:
+                self._emit(
+                    kind="MODEL_REQUESTED", run_id=run_id, tick=tick,
+                    lease_generation=context.lease_generation,
+                    detail={"tier": spec.model_policy.tier,
+                            "call_budget": call_budget, "attempt": attempt})
                 result = self._model.invoke(self._model_request(
                     spec, context, state, tick, retry_refusal=refused[-1],
                     retry_attempt=attempt - 1))
@@ -813,18 +857,44 @@ class AgentRuntime:
                 refused.append(result)
             return result
 
-        result, attempts = self._supervisor.attempt(
-            attempt_request,
-            retryable=lambda item: (isinstance(item, ModelRefusal)
-                                    and item.code in RETRYABLE_MODEL_REFUSALS),
-            budget=budget, deadline=deadline)
+        def record_attempt_refusal(attempt: int, result: object) -> None:
+            """Keep the refusal that ended an attempt, before it is retried.
 
-        if isinstance(result, ModelRefusal):
+            The supervisor calls this only when a retry will actually happen
+            (OPS-15 R4). A retryable refusal that is terminal for budget or
+            deadline reasons is recorded by the terminal branch below instead,
+            with exactly today's event detail. A `SUCCEEDED` retried run
+            therefore retains this refusal: it succeeded *after* a refusal, and
+            hiding that would understate the refusal rate.
+            """
+            if not isinstance(result, ModelRefusal):
+                return
             state.refuse(result.code, f"model refusal: {result.detail}",
                          tick=tick, excerpt=result.excerpt)
             self._emit(kind="MODEL_REFUSED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
-                       detail={"code": result.code, "attempts": list(attempts)})
+                       detail={"code": result.code, "attempt": attempt,
+                               "attempts": list(range(1, attempt + 1)),
+                               "retryable": True})
+
+        result, attempts = self._supervisor.attempt(
+            attempt_request,
+            retryable=_retryable_model_refusal,
+            budget=budget, deadline=deadline,
+            on_retry=record_attempt_refusal)
+
+        if isinstance(result, ModelRefusal):
+            state.refuse(result.code, f"model refusal: {result.detail}",
+                         tick=tick, excerpt=result.excerpt)
+            terminal: dict[str, Any] = {"code": result.code,
+                                        "attempts": list(attempts)}
+            if len(attempts) > 1:
+                # Attempt-attributed only when a retry actually happened; a
+                # first-attempt terminal refusal keeps today's detail shape.
+                terminal["attempt"] = attempts[-1]
+            self._emit(kind="MODEL_REFUSED", run_id=run_id, tick=tick,
+                       lease_generation=context.lease_generation,
+                       detail=terminal)
             state.terminate(TaskStatus.FAILED.value,
                             Termination.MODEL_REFUSED.value)
             return None
@@ -1581,8 +1651,11 @@ class AgentRuntime:
 
         The prompt is the port's envelopes, then this run's retained tool feedback
         (LOOP-2), then any consumed review verdicts (LOOP-3), then — on a retry —
-        the refusal that ended the previous attempt (LOOP-4 E5), then the tick
-        marker. All four trailing halves are *loop state*, not context: they are
+        the refusal that ended the previous attempt (LOOP-4 E5, OPS-15), then the
+        tick marker. The retry note keeps `runtime.retry` for the LOOP-4
+        `RATIONALE` case and uses `runtime.contract_feedback` for a whole-reply
+        contract-shape refusal. All four trailing halves are *loop state*, not
+        context: they are
         composed after the port, so the assembler keeps owning what a run's own
         context contributes and the runtime adds only what happened during the
         run — which is also why the context digest a resume is checked against
@@ -1595,9 +1668,14 @@ class AgentRuntime:
         prompt.extend(feedback_envelopes(state.feedback))
         prompt.extend(review_envelopes(state.review_verdicts))
         if retry_refusal is not None:
-            prompt.append(retry_envelope(retry_refusal.code,
-                                         retry_refusal.detail,
-                                         attempt=retry_attempt))
+            if retry_refusal.contract_feedback:
+                prompt.append(contract_feedback_envelope(
+                    retry_refusal.code, retry_refusal.detail,
+                    attempt=retry_attempt))
+            else:
+                prompt.append(retry_envelope(retry_refusal.code,
+                                             retry_refusal.detail,
+                                             attempt=retry_attempt))
         prompt.append(UntrustedContent(
             text=f"tick {tick} of {self._max_ticks(spec, context)}",
             origin="runtime.tick", ref=context.task_id))

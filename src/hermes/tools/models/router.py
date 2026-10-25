@@ -603,6 +603,12 @@ class ModelRefusal:
     #: (OPS-10). Diagnostic context only — `as_dict()` keeps the refusal-as-data
     #: shape unchanged, and nothing reads this field as authority.
     excerpt: str = ""
+    #: OPS-15: this refusal came from whole-reply output validation, before any
+    #: draft existed, so one informed re-prompt can repair the shape. Routing
+    #: metadata for the runtime only — not a new code, not a durable field, and
+    #: never an authority. A hand-built refusal defaults to False (fail-closed),
+    #: and `as_dict()` keeps its frozen shape.
+    contract_feedback: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         """The shape §2.4 gives gateway refusals, so a plane refusal and a spine
@@ -1298,6 +1304,7 @@ class _Refusal(Exception):
         model_id: str = "",
         account: ModelCallAccount | None = None,
         excerpt: str = "",
+        contract_feedback: bool = False,
     ) -> None:
         super().__init__(detail)
         self.code = code
@@ -1307,6 +1314,7 @@ class _Refusal(Exception):
         self.model_id = model_id
         self.account = account
         self.excerpt = excerpt
+        self.contract_feedback = contract_feedback
 
 
 # ── the router ──
@@ -2022,63 +2030,75 @@ class ModelRouter:
         a model that emits junk may yet answer correctly on a second attempt.
         A decision-shaped key is `PROPOSAL` and terminal: that is a category
         error, not a formatting one. A kind outside the injected allowlist is
-        `ROLE` and terminal.
+        `ROLE` and terminal at this layer.
+
+        OPS-15: every refusal in this function is a **whole-reply, pre-draft**
+        contract-shape failure and carries `contract_feedback=True`, so the
+        runtime may spend one informed re-prompt on it. The decision-shaped
+        `PROPOSAL` is the exception: a category breach is not repaired by
+        asking again, so its marker stays False. The router's own chain still
+        treats `ROLE` as terminal — this marker is for the runtime's retry, not
+        a licence to ask a second provider.
         """
         if not text.strip():
             raise _Refusal(MALFORMED_PAYLOAD,
                            "model returned no output for a structured contract",
-                           retryable=True)
+                           retryable=True, contract_feedback=True)
         try:
             parsed = json.loads(text)
         except (TypeError, ValueError):
             raise _Refusal(MALFORMED_PAYLOAD,
                            "model output is not valid JSON",
-                           retryable=True) from None
+                           retryable=True, contract_feedback=True) from None
         if not isinstance(parsed, dict):
             raise _Refusal(MALFORMED_PAYLOAD,
                            "model output must be a JSON object",
-                           retryable=True)
+                           retryable=True, contract_feedback=True)
         decision_keys = sorted(set(parsed) & DECISION_SHAPED_KEYS)
         if decision_keys:
             raise _Refusal(
                 PROPOSAL,
                 f"model output carried decision-shaped key(s) {decision_keys} — "
-                f"model output is never an authority, whatever was asked")
+                f"model output is never an authority, whatever was asked",
+                contract_feedback=False)
         declared = {spec.name: spec for spec in contract.fields}
         unknown = sorted(set(parsed) - set(declared))
         if unknown:
             raise _Refusal(
                 MALFORMED_PAYLOAD,
                 f"model output carried unknown key(s) {unknown} for contract "
-                f"{contract.name!r}", retryable=True)
+                f"{contract.name!r}", retryable=True, contract_feedback=True)
         for name, spec in declared.items():
             if name not in parsed:
                 if spec.required:
                     raise _Refusal(
                         MALFORMED_PAYLOAD,
                         f"model output omitted required field {name!r} for "
-                        f"contract {contract.name!r}", retryable=True)
+                        f"contract {contract.name!r}", retryable=True,
+                        contract_feedback=True)
                 continue
             value = parsed[name]
             if not _FIELD_TYPE_CHECKS[spec.type](value):
                 raise _Refusal(
                     MALFORMED_PAYLOAD,
                     f"model output field {name!r} is not of declared type "
-                    f"{spec.type!r}", retryable=True)
+                    f"{spec.type!r}", retryable=True, contract_feedback=True)
             if spec.allowed_values and value not in spec.allowed_values:
                 raise _Refusal(
                     MALFORMED_PAYLOAD,
                     f"model output field {name!r} is outside its declared "
-                    f"values", retryable=True)
+                    f"values", retryable=True, contract_feedback=True)
         if contract.kind_field:
             proposed = parsed.get(contract.kind_field)
             if not isinstance(proposed, str) or proposed not in self._proposable_kinds:
-                # A partition breach, not a formatting slip: the model is not
-                # allowed to propose this whatever the contract said.
+                # A partition breach at the routing layer — the router must not
+                # ask a second provider — but a whole-reply shape failure at
+                # the runtime's layer (OPS-15): the observed `kind None` is
+                # repairable by one informed re-prompt to the same model.
                 raise _Refusal(
                     ROLE,
                     f"model proposed kind {proposed!r}, outside the injected "
-                    f"proposable allowlist")
+                    f"proposable allowlist", contract_feedback=True)
         return parsed
 
     def _translate_tool_calls(
@@ -2166,7 +2186,8 @@ class ModelRouter:
             provider_id=refusal.provider_id or account.provider_id,
             model_id=refusal.model_id or account.model_id,
             account=account,
-            excerpt=refusal.excerpt)
+            excerpt=refusal.excerpt,
+            contract_feedback=refusal.contract_feedback)
 
     def _backoff(self, attempt: int) -> None:
         """Jittered exponential backoff, mirroring `providers/paginate.py`.

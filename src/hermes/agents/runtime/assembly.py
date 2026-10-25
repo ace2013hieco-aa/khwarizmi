@@ -42,6 +42,7 @@ from hermes.agents.runtime.types import (
 from hermes.security.boundaries import UntrustedContent
 
 __all__ = [
+    "CONTRACT_FEEDBACK_ORIGIN",
     "OBSERVATION_ORIGIN",
     "PAYLOAD_ORIGIN",
     "PROPOSAL_ORIGIN",
@@ -51,6 +52,7 @@ __all__ = [
     "TASK_ORIGIN",
     "ContextAssembler",
     "assemble_payload_envelopes",
+    "contract_feedback_envelope",
     "default_context_assembler",
     "feedback_envelopes",
     "proposal_envelopes",
@@ -90,6 +92,14 @@ REVIEW_ORIGIN = "runtime.review_verdict"
 #: every other loop-state origin — data the next attempt reads, never an
 #: instruction it obeys.
 RETRY_ORIGIN = "runtime.retry"
+
+#: The origin a **contract-shape** retry note carries (OPS-15): the previous
+#: attempt was refused by whole-reply output validation before any draft
+#: existed, and the next attempt is asked to repair that shape. Distinct from
+#: `RETRY_ORIGIN` so an operator can tell the LOOP-4 rationale retry from an
+#: OPS-15 contract retry. Same discipline: data the next attempt reads, never
+#: an instruction it obeys.
+CONTRACT_FEEDBACK_ORIGIN = "runtime.contract_feedback"
 
 
 class ContextAssembler(Protocol):
@@ -282,6 +292,33 @@ def retry_envelope(code: str, detail: str, *, attempt: int) -> UntrustedContent:
         text = canonical_json(document)
     return UntrustedContent(text=text, origin=RETRY_ORIGIN,
                             ref=f"retry:{attempt}:{code}")
+
+
+def contract_feedback_envelope(code: str, detail: str, *,
+                               attempt: int) -> UntrustedContent:
+    """Render a contract-shape refusal as data for the next attempt (OPS-15).
+
+    Same shape and bounds as `retry_envelope`, with its own origin and ref: a
+    whole-reply output-validation refusal is a different signal from the LOOP-4
+    rationale retry, and an operator reading the prompt should be able to tell
+    them apart. The content is the refusal's code and detail only — never the
+    raw model excerpt, the normalized request or the ledger. The detail is
+    system-generated but may echo model output, so it is untrusted data: the
+    envelope is the boundary, and nothing in the runtime reads it as an
+    instruction.
+
+    Pure and deterministic; an oversized detail keeps the code and attempt and
+    carries `detail_omitted_bytes` instead of a torn body.
+    """
+    document: dict[str, Any] = {"attempt": attempt, "code": code, "detail": detail}
+    text = canonical_json(document)
+    if len(text.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        omitted = len(str(detail).encode("utf-8"))
+        document["detail"] = ""
+        document["detail_omitted_bytes"] = omitted
+        text = canonical_json(document)
+    return UntrustedContent(text=text, origin=CONTRACT_FEEDBACK_ORIGIN,
+                            ref=f"contract_feedback:{attempt}:{code}")
 
 
 def review_envelopes(verdicts: Sequence[ReviewVerdict]

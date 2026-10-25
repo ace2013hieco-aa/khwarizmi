@@ -106,6 +106,7 @@ from hermes.agents.runtime.run import (
     DRAFT_KEYS,
     RETRYABLE_MODEL_REFUSALS,
     AgentRuntime,
+    _retryable_model_refusal,
     output_contract_for,
     run,
 )
@@ -1052,6 +1053,9 @@ class TestBoundedRun:
         result = _runtime(model).run("researcher", _one_tick())
         assert model.calls_for("researcher") == 2
         assert result.state == TaskStatus.SUCCEEDED.value
+        # OPS-15 R4: the failed attempt is retained even though the run
+        # succeeded after it.
+        assert result.refusal_codes() == (RATIONALE,)
 
     def test_a_request_side_refusal_is_not_retried(self) -> None:
         model = ScriptedModel({"researcher": [
@@ -1074,7 +1078,13 @@ class TestBoundedRun:
         assert budget.allows(4) is False
 
     def test_retryable_matrix_is_the_declared_one(self) -> None:
+        # The legacy LOOP-4 set is unchanged; OPS-15 adds the site marker as
+        # the complete predicate (pinned in test_ops15_contract_retry.py).
         assert frozenset({RATIONALE}) == RETRYABLE_MODEL_REFUSALS
+        assert _retryable_model_refusal(
+            _model_refusal(MALFORMED_PAYLOAD)) is False
+        assert _retryable_model_refusal(ModelRefusal(
+            code=ROLE, detail="kind", contract_feedback=True)) is True
 
 
 # ═══════════════════════ authority ═══════════════════════

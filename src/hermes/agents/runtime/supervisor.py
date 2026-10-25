@@ -179,6 +179,7 @@ class Supervisor:
         retryable: Callable[[Any], bool],
         budget: RetryBudget | None = None,
         deadline: float | None = None,
+        on_retry: Callable[[int, Any], None] | None = None,
     ) -> tuple[Any, tuple[int, ...]]:
         """Call `action(attempt)` until it is not retryable or the budget ends.
 
@@ -195,6 +196,11 @@ class Supervisor:
         than on work — a delay that would cross the deadline ends the retry
         sequence instead of being slept through, and the caller's next supervisor
         check reports the expiry.
+
+        `on_retry` (OPS-15) is called with `(attempt, result)` only after both
+        checks pass and a retry *will* happen, immediately before the sleep. A
+        refusal that is terminal for budget or deadline reasons therefore never
+        fires it: the trace keeps exactly today's single terminal event.
         """
         plan = budget if budget is not None else self._retry
         result: Any = None
@@ -207,6 +213,8 @@ class Supervisor:
             delay = plan.delays()[attempt - 1]
             if deadline is not None and self._monotonic() + delay >= deadline:
                 break
+            if on_retry is not None:
+                on_retry(attempt, result)
             self.sleep(delay)
         return result, tuple(attempts)
 
