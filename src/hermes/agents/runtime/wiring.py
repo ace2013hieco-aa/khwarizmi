@@ -296,6 +296,7 @@ class RuntimeWiring:
         lease_generation: str,
         profiles: Mapping[str, ProfileSpec] | None = None,
         grants: Mapping[str, ToolGrant] | None = None,
+        capability_tool_notes: Mapping[str, str] | None = None,
         capabilities: CapabilityPort | None = None,
         artifacts: ArtifactOverflowPort | None = None,
         clock: Clock = utc_now,
@@ -315,6 +316,7 @@ class RuntimeWiring:
             delegations=require_inmemory_delegations(delegations),
             profiles=profiles,
             grants=grants,
+            capability_tool_notes=capability_tool_notes,
             clock=clock,
             supervisor=supervisor,
         )

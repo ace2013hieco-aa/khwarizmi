@@ -242,7 +242,8 @@ _EMIT_CENSUS = {
     # OPS-1: +8 (live mode line; two composition refusals each with a hint;
     # model-call row, ledger cap and vector line)
     # OPS-10: +2 (report path, report-unavailable line)
-    "src/hermes/cli.py": 126,
+    # OPS-5B: +1 (the capability plane line before the first tick)
+    "src/hermes/cli.py": 127,
     "src/hermes/eval/platform_cli.py": 15,
     "src/hermes/eval/matrix.py": 1,
 }

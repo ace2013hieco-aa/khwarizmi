@@ -593,6 +593,7 @@ def _run(args, cfg: HermesConfig) -> int:
     conn = connect(str(db_path))
     binding = None
     vector = None
+    capability_line = ""
     try:
         migrate_to_latest(conn)
         if live:
@@ -603,9 +604,15 @@ def _run(args, cfg: HermesConfig) -> int:
             ctrl = composed.controller
             binding = composed.binding
             vector = composed.vector
+            capability_line = composed.capability_line
             emit("Model plane: live (tiers: "
                  + ", ".join(f"{tier}={ref}" for tier, ref in sorted(refs.items()))
                  + ")")
+            # D4: one composition statement before the first tick. It states
+            # the environment and the withheld set; it says nothing about cost,
+            # tokens, dollars or bounds.
+            if capability_line:
+                emit(capability_line)
         else:
             ctrl = Controller(
                 conn, project_id=args.project_id,

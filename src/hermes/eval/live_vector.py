@@ -13,9 +13,10 @@ The three honesty rules this module inherits from `loop_observations`:
   stays the trace's claim.
 - **M1 is measured at the port**, by `RecordingModelPort`, which the composition
   injects into the runtime; the recorder is the only path to the model.
-- **M2 is `n/a`, never `0.0`.** The composed handler is given no capability
-  port, so no tool invocation can reach a recorder. A zero would read as "no
-  repeated tool calls" — a claim nobody measured.
+- **M2 is measured when a capability port exists.** The composed handler is
+  given one `RecordingCapabilityPort` per run, so a zero-call run reports a
+  measured ``0.000``; `n/a` survives only where the composition held no port
+  at all (a caller that built its own wiring).
 
 `render()` never raises: a collector defect prints `vector: unavailable
 (<reason>)` and the run keeps its own exit code (R3).
@@ -33,9 +34,14 @@ from hermes.agents.runtime.wiring import RuntimeWiring
 from hermes.eval.loop_metrics import (
     RunObservation,
     prompt_payload_summary,
+    repeat_tool_rate,
     termination_mix,
 )
-from hermes.eval.loop_observations import RecordingModelPort, collect_run
+from hermes.eval.loop_observations import (
+    RecordingCapabilityPort,
+    RecordingModelPort,
+    collect_run,
+)
 
 __all__ = ["LiveVector", "StageRunSnapshot"]
 
@@ -66,10 +72,12 @@ class LiveVector:
         supervisor: Supervisor,
         profiles: Mapping[str, ProfileSpec],
         recorder: RecordingModelPort,
+        capabilities: RecordingCapabilityPort | None = None,
     ) -> None:
         self._supervisor = supervisor
         self._profiles = profiles
         self._recorder = recorder
+        self._capabilities = capabilities
         self._pending: list[tuple[RuntimeWiring, ProposalSet]] = []
 
     def record(self, wiring: RuntimeWiring, result: ProposalSet) -> None:
@@ -135,5 +143,18 @@ class LiveVector:
             f" mix={mix_text}"
             f" M1(calls={m1['calls']},min={m1['min']:g},"
             f"med={m1['median']:g},max={m1['max']:g})"
-            f" M2=n/a"
+            f" {self._m2_text()}"
         )
+
+    def _m2_text(self) -> str:
+        """M2 as a number when a recorder was actually in the call path.
+
+        ``0.000`` is a measurement of zero calls, not a silent default; the
+        ``n/a`` branch exists only for a composition that held no capability
+        port at all (the pre-5B live path and non-live callers).
+        """
+        if self._capabilities is None:
+            return "M2=n/a (no capability port on this run)"
+        calls = self._capabilities.calls
+        return (f"M2(calls={len(calls)},"
+                f"repeat={repeat_tool_rate(calls):.3f})")

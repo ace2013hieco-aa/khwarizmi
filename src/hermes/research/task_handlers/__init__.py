@@ -254,6 +254,7 @@ def build_methodology_handler(
     grants: Mapping[str, Any] | None = None,
     capabilities: Any = None,
     artifacts: Any = None,
+    capability_tool_notes: Mapping[str, str] | None = None,
     actor: str = "methodology-driver",
     governance_context: Any = None,
     supervisor: Any = None,
@@ -323,6 +324,7 @@ def build_methodology_handler(
             lease_generation=lease_generation(),
             profiles=profiles,
             grants=grants,
+            capability_tool_notes=capability_tool_notes,
             capabilities=capabilities,
             artifacts=artifacts,
             supervisor=supervisor)

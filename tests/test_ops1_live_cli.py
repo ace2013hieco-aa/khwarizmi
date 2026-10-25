@@ -288,11 +288,15 @@ def test_live_run_executes_a_methodology_stage(tmp_path, capsys,
 
     assert rc == 0
     assert "Model plane: live (tiers: m=anthropic:test-model)" in captured.out
+    assert "Capability plane: 2 supplied" in captured.out
+    assert "in-process (no sandbox)" in captured.out
+    assert "withheld 10 declaration(s)" in captured.out
     assert "succeeded" in captured.out
     assert "  model call 1: tier=m provider=anthropic model=test-model OK" \
         in captured.out
     assert "vector: runs=" in captured.out
-    assert "M2=n/a" in captured.out
+    assert "M2(calls=0,repeat=0.000)" in captured.out
+    assert "M2=n/a" not in captured.out
     assert _status(db, "meth-1") == TaskStatus.SUCCEEDED.value
     assert _journal_rows(db) > rows
     assert transport.specs, "the live run never reached the transport"

@@ -105,11 +105,19 @@ class ArtifactStore:
         project_id: str | None = None,
         task_id: str | None = None,
         metadata: dict | None = None,
+        artifact_id: str = "",
     ) -> dict:
         """Write artifact content and record metadata.
 
         Returns the artifact metadata dict. If the same content already
         exists (same hash), the existing record is returned (dedup).
+
+        ``artifact_id`` is an optional *derived* row identity for a caller
+        whose citation identity is the content hash itself (OPS-5B's
+        capability-written ``source_payload`` rows). It never changes the
+        content hash, which is recomputed here; an empty value keeps the
+        store's UUID mint. The caller that supplies it owns the collision
+        policy and must re-check the returned row.
         """
         content_hash = compute_content_hash(data)
 
@@ -145,10 +153,10 @@ class ArtifactStore:
             _atomic_write(dest, data)
 
         # Record DB metadata
-        artifact_id = str(uuid.uuid4())
+        row_id = artifact_id or str(uuid.uuid4())
         rel_path = str(dest.relative_to(self._root))
         return self._repo.record(
-            artifact_id=artifact_id,
+            artifact_id=row_id,
             artifact_type=artifact_type,
             content_hash=content_hash,
             size_bytes=len(data),

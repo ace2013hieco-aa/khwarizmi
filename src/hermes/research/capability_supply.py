@@ -97,16 +97,23 @@ from hermes.tools.research_sources import (
 
 __all__ = [
     "DEFAULT_SEARCH_MAX_RESULTS",
+    "EVIDENCE_HANDLE_PREFIX",
+    "HANDLE_SEPARATOR",
     "MAX_SEARCH_RESULTS",
     "PROVIDER_HOSTS",
     "REFUSAL_OUTCOME_KIND",
     "RESEARCH_EGRESS_TOOL_SET_ID",
     "SOURCE_FETCH_SIZE_CAP_BYTES",
+    "SOURCE_PAYLOAD_ARTIFACT_TYPE",
+    "SOURCE_PAYLOAD_HANDLE_PREFIX",
+    "SOURCE_REF_SEPARATOR",
     "SOURCE_SEARCH_SIZE_CAP_BYTES",
     "SUPPLIED_CAPABILITY_IDS",
     "ResearchEgressSupply",
+    "artifact_handles",
     "build_research_egress_supply",
     "research_egress_declarations",
+    "source_payload_ref",
 ]
 
 #: The supplied set — deliberately exactly the two ids `researcher` declares.
@@ -132,6 +139,18 @@ SOURCE_FETCH_SIZE_CAP_BYTES = 256 * 1024
 #: The `outcome_kind` of a refusal row written by this module. It is a
 #: provider-interaction row (the existing journal surface), not an event kind.
 REFUSAL_OUTCOME_KIND = "EGRESS_REFUSED"
+
+#: The artifact handle/ref forms the model is told to cite. The handle is
+#: ``<kind>/<id>`` (the plane's HANDLE_PATTERN); the evidence/source ref is
+#: ``<kind>:<id>`` (EVIDENCE_TRANSITION / source_payload). Both come from this
+#: one pair of constants, so the tool and the contract note cannot drift.
+EVIDENCE_HANDLE_PREFIX = "evidence"
+SOURCE_PAYLOAD_HANDLE_PREFIX = "source_payload"
+HANDLE_SEPARATOR = "/"
+SOURCE_REF_SEPARATOR = ":"
+
+#: The one artifact type a capability-written payload row may carry.
+SOURCE_PAYLOAD_ARTIFACT_TYPE = "source_payload"
 
 #: One bounded retry for a transient fetch; deterministic, no jitter.
 FETCH_RETRY_POLICY = RetryPolicy(
@@ -273,12 +292,14 @@ class _SupplyBase:
         allowlist: tuple[str, ...],
         journal: _EgressJournal,
         resolve: Callable[[str], tuple[str, ...]] | None,
+        store: Any,
     ) -> None:
         self._machinery = machinery
         self._project_id = project_id
         self._allowlist = allowlist
         self._journal = journal
         self._resolve = resolve
+        self._store = store
 
     def _adapter(self, arguments: Mapping[str, Any]) -> Any:
         provider = str(arguments.get("provider") or "")
@@ -384,21 +405,27 @@ class SourceFetchExecutor(_SupplyBase):
         )
         if outcome.per_source and outcome.payloads:
             payload = outcome.payloads[0]
-            text = payload.raw_bytes.decode("utf-8", errors="replace")
+            row = self._record_payload(
+                payload, provider=provider, url=spec.url, context=context)
+            handles = artifact_handles(row)
             return ToolResult(
                 payload=json.dumps({
                     "capability": "source_fetch",
                     "provider": provider,
                     "url": source.source_url,
                     "status": "FETCHED",
-                    "artifact": payload.artifact.artifact_id,
-                    "content_hash": payload.artifact.content_hash,
-                    "media_type": payload.artifact.media_type,
-                    "size_bytes": payload.artifact.size_bytes,
-                    "text": text,
+                    "artifact_id": row["artifact_id"],
+                    "content_hash": row["content_hash"],
+                    "source_ref": source_payload_ref(row),
+                    "media_type": row.get("metadata", {}).get(
+                        "media_type", payload.artifact.media_type),
+                    "size_bytes": row["size_bytes"],
+                    "retrieved_at": row["created_at"],
                 }, sort_keys=True, ensure_ascii=False),
+                artifacts=handles,
                 notes=(
-                    f"fetched {provider}: {payload.artifact.size_bytes} bytes",
+                    (f"fetched {provider}: {row['size_bytes']} bytes; cite "
+                     f"{handles[0]} or {source_payload_ref(row)}"),
                 ))
         if outcome.no_full_text:
             record = outcome.no_full_text[0]
@@ -418,6 +445,74 @@ class SourceFetchExecutor(_SupplyBase):
                 "source_fetch: the fetch driver returned no resolution — "
                 "refusing to report a success")
         raise SourceFetchFailed(failure.failure_class, failure.reason)
+
+    def _record_payload(
+        self,
+        payload: Any,
+        *,
+        provider: str,
+        url: str,
+        context: ToolCallContext,
+    ) -> dict[str, Any]:
+        """Record the fetched bytes as one content-addressed source artifact.
+
+        R1 — recording, not authoring: the bytes are the provider's response,
+        the type is fixed here, the identity is the store's content hash, the
+        project is the composition's, and the destination is the store's
+        content-addressed root. The model cannot name any of them; it only
+        chose to fetch. The row carries enough attribution (provider, host,
+        digest, redacted URL, call key) that it is traceable to the fetch.
+        """
+        if self._store is None:
+            raise SourceArtifactUnavailable(
+                "source_fetch: no artifact store is wired — the fetched bytes "
+                "cannot be recorded, so the call fails closed rather than "
+                "returning an uncitable handle")
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        redacted = redact_url(url, DEFAULT_POLICY)
+        metadata: dict[str, Any] = {
+            "capability_id": "source_fetch",
+            "provider": provider,
+            "host": host,
+            "content_digest": payload.artifact.content_hash,
+            "source_url_redacted": redacted,
+            "media_type": payload.artifact.media_type,
+            "retrieved_at": _now_utc(self._machinery.clock),
+            "idempotency_key": context.idempotency_key,
+            "lease_generation": context.lease_generation,
+            "profile": context.profile,
+        }
+        row = self._store.write(
+            payload.raw_bytes,
+            artifact_type=SOURCE_PAYLOAD_ARTIFACT_TYPE,
+            producer=(f"capability:source_fetch:{provider}:"
+                      f"{context.profile}:{context.idempotency_key}"),
+            project_id=self._project_id,
+            task_id=None,
+            metadata=metadata,
+            artifact_id=payload.artifact.content_hash,
+        )
+        if not isinstance(row, dict):
+            raise SourceArtifactConflict(
+                "source_fetch: the artifact store returned a non-row — "
+                "refusing to cite it")
+        if row.get("artifact_type") != SOURCE_PAYLOAD_ARTIFACT_TYPE:
+            raise SourceArtifactConflict(
+                "source_fetch: the content already exists as artifact type "
+                f"{row.get('artifact_type')!r}, not "
+                f"{SOURCE_PAYLOAD_ARTIFACT_TYPE!r} — a same-hash different-type "
+                "row is never reused as a source (R02)")
+        if row.get("content_hash") != payload.artifact.content_hash:
+            raise SourceArtifactConflict(
+                "source_fetch: the artifact store returned content hash "
+                f"{row.get('content_hash')!r}, not "
+                f"{payload.artifact.content_hash!r}")
+        if row.get("project_id") != self._project_id:
+            raise SourceArtifactConflict(
+                "source_fetch: the content already exists in another project — "
+                "refusing to hand back a row this project cannot dereference "
+                "(R5)")
+        return row
 
     def _require_provider_host(self, provider: str, url: str,
                                adapter: Any) -> None:
@@ -448,6 +543,19 @@ class SourceFetchFailed(ProviderValidationError):
         self.failure_class = failure_class
 
 
+class SourceArtifactUnavailable(ProviderValidationError):
+    """The fetch succeeded but no artifact store is wired for the bytes."""
+
+
+class SourceArtifactConflict(ProviderValidationError):
+    """The store returned a row this capability may not cite.
+
+    A same-content row of a different type, a wrong content hash, or a row
+    owned by another project all fail closed: an uncitable handle is worse
+    than a typed refusal.
+    """
+
+
 # ── supply ──
 
 
@@ -472,6 +580,7 @@ def build_research_egress_supply(
     project_id: str,
     machinery: ProviderMachinery | None = None,
     sandbox_policy: Any | None = None,
+    autonomy_caps: Any | None = None,
     allowlist: tuple[str, ...] | None = None,
     dns_resolve: Callable[[str], tuple[str, ...]] | None = None,
 ) -> ResearchEgressSupply:
@@ -481,12 +590,14 @@ def build_research_egress_supply(
     transport); when absent the production live-fetch wiring is built, which
     is the same path the task-side source handlers use. ``allowlist`` defaults
     to the code-owned surface narrowed by ``sandbox_policy`` — config may only
-    narrow it (``allowlist_from_config``).
+    narrow it (``allowlist_from_config``). ``autonomy_caps`` is the P-AUTO-4
+    operator surface: it must be threaded through the wiring or a tightened
+    rate/deadline knob is silently ignored (FIX-C1 class).
     """
     if machinery is None:
         wiring = build_live_fetch_wiring(
             conn, store, clock, sandbox_policy=sandbox_policy,
-            dns_resolve=dns_resolve)
+            autonomy_caps=autonomy_caps, dns_resolve=dns_resolve)
         active_machinery: ProviderMachinery = wiring.machinery
     else:
         active_machinery = machinery
@@ -512,6 +623,7 @@ def build_research_egress_supply(
         "allowlist": resolved_allowlist,
         "journal": journal,
         "resolve": dns_resolve,
+        "store": store,
     }
     implementations: dict[str, Any] = {
         "source_search": SourceSearchExecutor(**shared),
@@ -533,6 +645,26 @@ def _now_utc(clock: Any) -> str:
         value = now()
         return str(value() if callable(value) else value)
     return str(clock())
+
+
+def artifact_handles(row: Mapping[str, Any]) -> tuple[str, str]:
+    """The two plane-legal handles for one persisted source row.
+
+    ``evidence/<artifact_id>`` is the handle EVIDENCE_TRANSITION cites (as
+    ``evidence:<artifact_id>``); ``source_payload/<content_hash>`` is the
+    handle a source/claim ref cites. Both match the plane's HANDLE_PATTERN.
+    """
+    return (
+        f"{EVIDENCE_HANDLE_PREFIX}{HANDLE_SEPARATOR}{row['artifact_id']}",
+        (f"{SOURCE_PAYLOAD_HANDLE_PREFIX}{HANDLE_SEPARATOR}"
+         f"{row['content_hash']}"),
+    )
+
+
+def source_payload_ref(row: Mapping[str, Any]) -> str:
+    """The ``source_payload:<content_hash>`` ref for one persisted row."""
+    return (f"{SOURCE_PAYLOAD_HANDLE_PREFIX}{SOURCE_REF_SEPARATOR}"
+            f"{row['content_hash']}")
 
 
 def _search_hints(arguments: Mapping[str, Any]) -> RetrievalHints:

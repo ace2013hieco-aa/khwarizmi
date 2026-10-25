@@ -120,6 +120,10 @@ class EventType(str, Enum):
     # Task ordering — C4 exploration floor (ratified design gate §4.3)
     FLOOR_GRANT_RECORDED = "FloorGrantRecorded"  # C4 §4.3: the durable floor-grant / F-C transition record — the ranking itself is transient (never persisted), so the floor's audit history rides this append-only event; the F-C stagnation counter is re-derived from these events + the satisfaction links, never stored
 
+    # Live capability plane (OPS-5B) — the composition's withheld-set record.
+    # Counts, ids and the environment only; no fetched content, no arguments.
+    CAPABILITY_PLANE_COMPOSED = "CapabilityPlaneComposed"
+
 
 @dataclass(frozen=True, slots=True)
 class EventRecord:

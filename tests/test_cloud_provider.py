@@ -23,6 +23,7 @@ from hermes.composition import (
 from hermes.config import HermesConfig, ModelTierConfig
 from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
+from hermes.persistence.repositories import ProjectRepository
 from hermes.security.boundaries import UntrustedContent
 from hermes.tools.models.cloud import (
     AnthropicMessagesDialect,
@@ -671,6 +672,9 @@ class TestComposition:
             self, tmp_path: Any) -> None:
         conn = connect(str(tmp_path / "h.db"))
         migrate_to_latest(conn)
+        # OPS-5B: composition writes the project-scoped plane record, so the
+        # project must exist (the CLI always runs on an existing project).
+        ProjectRepository(conn).create("p1", "test")
         cfg = HermesConfig(model_tiers=ModelTierConfig(m="anthropic:test-model"))
         controller = build_live_controller(
             cfg, conn, project_id="p1", specs=[_spec()], environ=ENV,

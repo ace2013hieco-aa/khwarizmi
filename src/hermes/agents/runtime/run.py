@@ -311,8 +311,18 @@ class IntentApplier(Protocol):
     def __call__(self, intent: Intent) -> Any: ...
 
 
-def output_contract_for(spec: ProfileSpec) -> OutputContract:
-    """The profile's declared output contract, built from configuration."""
+def output_contract_for(
+    spec: ProfileSpec, *,
+    capability_tool_note: str = "",
+) -> OutputContract:
+    """The profile's declared output contract, built from configuration.
+
+    ``capability_tool_note`` is the composition's registry-generated statement
+    of the legal capability ids, their schemas and the observation handle/ref
+    forms. It rides the ``tool_calls`` field note; it is prompt data, never a
+    validator. The runtime's ``spec.tools`` check and the plane's grant remain
+    the authority.
+    """
     fields = [
         FieldSpec(spec.model_policy.kind_field, "string", required=False),
         FieldSpec(spec.model_policy.rationale_field, "string"),
@@ -336,6 +346,8 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
         field_notes.append((
             MULTI_PROPOSAL_FIELD,
             "use this array alone; do not also supply the single-form field"))
+    if "tool_calls" in field_names and capability_tool_note:
+        field_notes.append(("tool_calls", capability_tool_note))
     return OutputContract(
         name=spec.model_policy.contract,
         fields=tuple(fields),
@@ -362,6 +374,29 @@ def output_contract_for(spec: ProfileSpec) -> OutputContract:
     )
 
 
+#: R3: the bounded success detail a tool may put in front of the next tick.
+#: It is the tool's own note (size/handles/status), never the observation
+#: payload's text; the feedback envelope's 4 KiB cap still applies above it.
+TOOL_DETAIL_MAX_BYTES = 1024
+
+
+def _bounded_tool_detail(detail: str) -> str:
+    """Truncate a tool note to the stated bound, deterministically.
+
+    The marker is included in the bound, so the returned string never exceeds
+    ``TOOL_DETAIL_MAX_BYTES`` encoded bytes. Refusals and failures have their
+    own paths; this is the success-detail bridge R3 approved.
+    """
+    if not detail:
+        return ""
+    encoded = detail.encode("utf-8")
+    if len(encoded) <= TOOL_DETAIL_MAX_BYTES:
+        return detail
+    marker = " ... (truncated)"
+    budget = max(0, TOOL_DETAIL_MAX_BYTES - len(marker.encode("utf-8")))
+    return encoded[:budget].decode("utf-8", errors="ignore") + marker
+
+
 def _tool_feedback(tick: int, index: int, capability_id: str, *,
                    outcome: str, refusal_code: str = "", failure: str = "",
                    detail: str = "", artifacts: tuple[str, ...] = (),
@@ -369,12 +404,13 @@ def _tool_feedback(tick: int, index: int, capability_id: str, *,
                    invocation_ref: str = "") -> ToolFeedback:
     """One retained tool-phase result (LOOP-2) — measured, never inlined.
 
-    The observation payload's *size and digest* are the whole of what a next tick
-    learns about it: its text stays behind the artifact handles, which is the
-    certified route for fetched content to reach a judgment surface. The
-    invocation ref is the call's derived key, so a feedback envelope is
-    attributable back to the exact call it came from — and never carries a
-    random or authored identity (§2.3).
+    The observation payload's *size and digest* plus the tool's bounded detail
+    (``TOOL_DETAIL_MAX_BYTES``) are what a next tick learns about it: the
+    payload text stays behind the artifact handles, which is the certified
+    route for fetched content to reach a judgment surface. The invocation ref
+    is the call's derived key, so a feedback envelope is attributable back to
+    the exact call it came from — and never carries a random or authored
+    identity (§2.3).
     """
     text = payload.text if payload is not None else ""
     return ToolFeedback(
@@ -454,6 +490,7 @@ class AgentRuntime:
         delegations: DelegationStore | None = None,
         profiles: Mapping[str, ProfileSpec] | None = None,
         grants: Mapping[str, ToolGrant] | None = None,
+        capability_tool_notes: Mapping[str, str] | None = None,
         clock: Clock = utc_now,
         monotonic: Monotonic | None = None,
         supervisor: Supervisor | None = None,
@@ -470,6 +507,7 @@ class AgentRuntime:
         self._profiles = dict(profiles if profiles is not None
                               else load_profiles())
         self._grants = dict(grants or {})
+        self._capability_tool_notes = dict(capability_tool_notes or {})
         self._supervisor = supervisor if supervisor is not None else Supervisor(
             clock=clock, monotonic=monotonic, retry=retry)
         self._delegator = Delegator(
@@ -1208,6 +1246,19 @@ class AgentRuntime:
         items = structured.get("tool_calls")
         if not items:
             return True
+        # OPS-5B / OPS-5 §7.2: the field the contract asks for is the field the
+        # runtime will read. A profile must BOTH allow tool calls and declare
+        # `tool_calls` in structured_fields; otherwise the item is a shape the
+        # contract forbids, refused whole and skipped (F4).
+        if not (spec.model_policy.allows_tool_calls
+                and "tool_calls" in spec.model_policy.structured_fields):
+            state.refuse(
+                MALFORMED_PAYLOAD,
+                f"tool_calls is outside {spec.name}'s declared contract "
+                f"(allows_tool_calls={spec.model_policy.allows_tool_calls}, "
+                f"structured_fields={list(spec.model_policy.structured_fields)})",
+                tick=tick)
+            return True
         if not isinstance(items, list) or not all(isinstance(item, Mapping)
                                                   for item in items):
             state.refuse(MALFORMED_PAYLOAD,
@@ -1234,13 +1285,14 @@ class AgentRuntime:
                 # cancellation (or the expiry) as the run's terminal state.
                 break
             if not self._one_tool_call(item, index, spec, context, state, run_id,
-                                       tick):
+                                       tick, deadline=deadline):
                 return False
         return True
 
     def _one_tool_call(self, item: Mapping[str, Any], index: int,
                        spec: ProfileSpec, context: TaskContext, state: _RunState,
-                       run_id: str, tick: int) -> bool:
+                       run_id: str, tick: int, *,
+                       deadline: float | None = None) -> bool:
         """Run one declared capability call. `False` stops the run.
 
         One severity rule, stated here and applied at every site (LOOP-4 E7):
@@ -1311,6 +1363,10 @@ class AgentRuntime:
             profile=spec.agent_profile,
             rationale=str(item.get("rationale") or spec.role),
             grant=self._grants.get(spec.agent_profile),
+            # R8: the call may not outlive the run. The invoker lowers its
+            # tool timeout to this remaining run budget; None means no run
+            # deadline was declared, so the tool's own bound applies.
+            deadline_seconds=self._supervisor.remaining(deadline),
         )
         result = self._capabilities.invoke(request)
         state.tool_calls += 1
@@ -1353,6 +1409,7 @@ class AgentRuntime:
         # tick knows what this one observed instead of asking again (LOOP-2).
         state.feedback.append(_tool_feedback(
             tick, index, capability_id, outcome="TOOL_OBSERVED",
+            detail=_bounded_tool_detail(str(getattr(result, "detail", ""))),
             artifacts=tuple(result.artifacts), payload=result.payload,
             invocation_ref=request.idempotency_key))
         return True
@@ -1687,10 +1744,20 @@ class AgentRuntime:
             profile=spec.name,
             lease_generation=context.lease_generation,
             prompt=tuple(prompt),
-            output_contract=output_contract_for(spec),
+            output_contract=output_contract_for(
+                spec,
+                capability_tool_note=self._capability_tool_notes.get(
+                    spec.name, "")),
             rationale=spec.role,
             max_output_tokens=spec.model_policy.max_output_tokens,
-            tools=tuple(spec.tools) if spec.model_policy.allows_tool_calls else (),
+            # OPS-5B Path A: ModelRequest.tools is the *native* tool
+            # advertisement, not "what this stage may call". The capability ids
+            # and their schemas travel in the contract's tool_calls note, which
+            # is a JSON field the provider does not refuse. The router's
+            # tool-allowlist and supports_tool_calls guards therefore stay
+            # unreachable for Hermes callers and keep their teeth for any
+            # caller that does set tools.
+            tools=(),
             options=dict(spec.model_policy.options),
         )
 
@@ -2022,6 +2089,7 @@ def run(
     delegations: DelegationStore | None = None,
     profiles: Mapping[str, ProfileSpec] | None = None,
     grants: Mapping[str, ToolGrant] | None = None,
+    capability_tool_notes: Mapping[str, str] | None = None,
     clock: Clock = utc_now,
     monotonic: Monotonic | None = None,
     supervisor: Supervisor | None = None,
@@ -2045,6 +2113,8 @@ def run(
         model=model, orchestration=orchestration, capabilities=capabilities,
         artifacts=artifacts, assembler=assembler,
         checkpoints=checkpoints, delegations=delegations,
-        profiles=profiles, grants=grants, clock=clock, monotonic=monotonic,
+        profiles=profiles, grants=grants,
+        capability_tool_notes=capability_tool_notes,
+        clock=clock, monotonic=monotonic,
         supervisor=supervisor, retry=retry)
     return runtime.run(profile, task_context, token=token)

@@ -203,6 +203,12 @@ def _provider_response_artifacts(conn) -> int:
     return int(row["c"])
 
 
+def _source_payload_artifacts(conn) -> list[dict[str, Any]]:
+    return [dict(row) for row in conn.execute(
+        "SELECT * FROM artifacts WHERE artifact_type = 'source_payload' "
+        "ORDER BY artifact_id")]
+
+
 # ═══════════════ the supplied set ═══════════════
 
 
@@ -271,27 +277,51 @@ def test_source_search_returns_admitted_source_rows(rig) -> None:
 # ═══════════════ fetch ═══════════════
 
 
-def test_source_fetch_succeeds_against_the_allowlisted_provider(rig) -> None:
+def test_source_fetch_succeeds_against_the_allowlisted_provider(rig, store) -> None:
     observation = rig.call(
         "source_fetch",
         {"provider": "openalex", "url": "https://openalex.org/W2060313932"})
     assert observation.ok(), observation.detail
     payload = json.loads(observation.payload.text)
+    content_hash = hashlib.sha256(FETCH_BODY).hexdigest()
     assert payload["capability"] == "source_fetch"
     assert payload["status"] == "FETCHED"
     assert payload["url"] == "https://openalex.org/W2060313932"
-    assert payload["content_hash"] == hashlib.sha256(FETCH_BODY).hexdigest()
+    assert payload["content_hash"] == content_hash
+    assert payload["artifact_id"] == content_hash
+    assert payload["source_ref"] == f"source_payload:{content_hash}"
     assert payload["size_bytes"] == len(FETCH_BODY)
-    assert FETCH_BODY_MARKER in payload["text"]
+    assert "text" not in payload
+    assert observation.artifacts == (
+        f"evidence/{content_hash}", f"source_payload/{content_hash}")
+    # The bytes live in the content-addressed store, not in the row or reply.
+    assert FETCH_BODY_MARKER.encode("ascii") in store.read_verified(content_hash)
     # The adapter rewrite happened BEFORE the dial, and the vetted host is the
     # API host that the scripted transport saw.
     assert len(rig.calls) == 1
     assert rig.calls[0].url == "https://api.openalex.org/W2060313932"
+    artifacts = _source_payload_artifacts(rig.conn)
+    assert len(artifacts) == 1
+    artifact = artifacts[0]
+    assert artifact["artifact_id"] == content_hash
+    assert artifact["content_hash"] == content_hash
+    assert artifact["project_id"] == PROJECT
+    assert artifact["task_id"] is None
+    assert artifact["producer"] == (
+        "capability:source_fetch:openalex:RESEARCHER:idem-source_fetch")
+    metadata = json.loads(artifact["metadata_json"])
+    assert metadata["provider"] == "openalex"
+    assert metadata["host"] == "api.openalex.org"
+    assert metadata["content_digest"] == content_hash
+    assert metadata["source_url_redacted"] == (
+        "https://api.openalex.org/W2060313932")
+    assert metadata["idempotency_key"] == "idem-source_fetch"
+    assert metadata["lease_generation"] == "lease-gen-7"
     rows = _journal_rows(rig.conn)
     assert len(rows) == 1
     row = rows[0]
     assert row["outcome_kind"] == "RECORDED_SUCCESS"
-    assert row["response_body_hash"] == hashlib.sha256(FETCH_BODY).hexdigest()
+    assert row["response_body_hash"] == content_hash
     assert row["source_url_redacted"] == (
         "https://api.openalex.org/W2060313932")
     assert row["task_id"] is None
