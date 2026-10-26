@@ -7,6 +7,12 @@ the contract was a lossy description of it. These tests pin the two statements
 against the validator's own constants — not prose — plus the three behaviours:
 both forms refuse, an unknown delegation key refuses, and one form with legal
 keys drafts.
+
+OPS-5I corrected one of those statements: the multi-proposal form cannot be
+used in this build (the plane refuses it for its missing top-level kind, and
+the runtime refuses one that carries it), so the note now states one form and
+says the other is refused. The validator is unchanged; the pin moved with the
+statement.
 """
 
 from __future__ import annotations
@@ -99,11 +105,14 @@ def test_every_profile_states_the_form_rule_and_the_delegation_keys() -> None:
         assert mapping["multi_form_field"] == MULTI_PROPOSAL_FIELD
         assert mapping["delegation_keys"] == sorted(DELEGATION_KEYS)
 
+        # OPS-5I: one form is offered. The multi-proposal form cannot be used
+        # in this build, so the note states that it is refused instead of
+        # describing it as an option.
         forms = (
-            "Choose exactly one proposal form: the single-proposal form (a "
-            f'top-level "{SINGLE_PROPOSAL_FIELD}" field) or the multi-proposal '
-            f'form (a "{MULTI_PROPOSAL_FIELD}" array). A reply carrying both '
-            "is refused; exactly one is allowed.")
+            f'The top-level "{SINGLE_PROPOSAL_FIELD}" field is required: the '
+            "single-proposal form is the only proposal form in this build, and "
+            f'a reply carrying a non-empty "{MULTI_PROPOSAL_FIELD}" array is '
+            "refused.")
         assert forms in rendered
 
         keys = ", ".join(sorted(DELEGATION_KEYS))
@@ -166,6 +175,13 @@ def test_a_single_form_with_a_legal_kind_drafts() -> None:
 
 
 def test_a_multi_form_with_a_legal_kind_drafts() -> None:
+    """The runtime validator's own reading, with no model plane in the path.
+
+    OPS-5I: this reply cannot reach the live path. Without a top-level ``kind``
+    the plane refuses it ``ROLE``; with one, this validator refuses it for
+    carrying both forms. The pin keeps the validator's behaviour unchanged —
+    making the form reachable is a separate decision.
+    """
     result, _ = _run("critic", {
         "rationale": "because",
         "proposals": [{"kind": "ABANDON", "rationale": "because",

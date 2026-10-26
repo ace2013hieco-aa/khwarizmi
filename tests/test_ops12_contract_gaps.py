@@ -94,13 +94,13 @@ def test_every_shipped_profile_renders_the_five_statements() -> None:
         declared = list(spec.authority.proposable_kinds)
         available = {kind.value for kind in WIRED_INTENT_KINDS}
 
-        # 1. the single form requires the kind field.
-        assert ('If you use the single-proposal form, the top-level "kind" '
-                "field is required.") in rendered
-        assert ('The multi-proposal form requires "kind" on each proposal '
-                "item.") in rendered
-        assert ("required in the single-proposal form; omit it in the "
-                "multi-proposal form") in rendered
+        # 1. the single form requires the kind field, and it is the only form
+        #    this build accepts (OPS-5I).
+        assert ('The top-level "kind" field is required: the single-proposal '
+                "form is the only proposal form in this build, and a reply "
+                'carrying a non-empty "proposals" array is refused.') in rendered
+        assert "required in the single-proposal form" in rendered
+        assert "not usable in this build" in rendered
 
         # 2. the payload is closed, with the keys its validator checks.
         assert "The payload object is closed." in rendered
@@ -130,14 +130,12 @@ def test_every_shipped_profile_renders_the_five_statements() -> None:
             "validator for them): " + ", ".join(unavailable)
             + ". Choosing one is refused.") in rendered
 
-        # 5. both forms are still stated, and the field list no longer invites
-        #    two optional siblings without a rule.
-        assert ("Choose exactly one proposal form: the single-proposal form "
-                "(a top-level \"kind\" field) or the multi-proposal form (a "
-                "\"proposals\" array). A reply carrying both is refused; "
-                "exactly one is allowed.") in rendered
-        assert ("use this array alone; do not also supply the single-form "
-                "field") in rendered
+        # 5. one form is offered, and the unreachable one is named as refused
+        #    (OPS-5I): the note no longer invites it.
+        assert ("the single-proposal form is the only proposal form in this "
+                "build") in rendered
+        assert ("not usable in this build; a non-empty array is refused"
+                ) in rendered
 
         # The sets the contract carries are the validator's, not a second table.
         assert mapping["derived_keys"] == sorted(AUTHORED_KEYS)
@@ -342,9 +340,9 @@ def test_the_live_composition_renders_the_rules(
     assert transport.specs
     body = json.loads(transport.specs[0].body)
     system = body["system"]
-    assert "If you use the single-proposal form" in system
+    assert 'The top-level "kind" field is required' in system
     assert "The payload object is closed" in system
     assert "INSERT_TASK: " in system
     assert "Never supply identity keys in a payload" in system
     assert "Declared but unavailable in this phase" in system
-    assert "Choose exactly one proposal form" in system
+    assert "the only proposal form in this build" in system

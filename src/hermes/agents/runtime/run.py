@@ -131,6 +131,11 @@ Either the single-proposal form (`kind` + `payload`) or the multi-proposal form
 (`proposals`) — never both, and only the optional sections the profile declares
 in `model_policy.structured_fields`. Tool calls and delegations are *top-level*:
 they describe what the run asks for, not what a proposal is.
+
+OPS-5I: only the single-proposal form is reachable through the live path. A
+multi-form reply without a top-level `kind` is refused by the model plane's
+kind check, and one with it is refused by the both-forms check below; the form
+is recorded as unreachable rather than silently tolerated.
 """
 
 from __future__ import annotations
@@ -347,14 +352,17 @@ def output_contract_for(
     field_names = {field.name for field in fields}
     field_notes: list[tuple[str, str]] = []
     if spec.model_policy.kind_field in field_names:
+        # OPS-5I: the note used to say "omit it in the multi-proposal form".
+        # That form cannot be used in this build — the plane refuses a
+        # multi-form reply for its missing top-level kind, and the runtime
+        # refuses one that carries it — so the note no longer offers it.
         field_notes.append((
             spec.model_policy.kind_field,
-            ("required in the single-proposal form; omit it in the "
-             "multi-proposal form")))
+            "required in the single-proposal form"))
     if MULTI_PROPOSAL_FIELD in field_names:
         field_notes.append((
             MULTI_PROPOSAL_FIELD,
-            "use this array alone; do not also supply the single-form field"))
+            "not usable in this build; a non-empty array is refused"))
     if TOOL_CALLS_FIELD in field_names and capability_tool_note:
         field_notes.append((TOOL_CALLS_FIELD, capability_tool_note))
     return OutputContract(
@@ -372,6 +380,11 @@ def output_contract_for(
         # in the prompt (the drift guard is in test_ops9_contract_rules).
         single_form_field=SINGLE_PROPOSAL_FIELD,
         multi_form_field=MULTI_PROPOSAL_FIELD,
+        # OPS-5H: the plane never learns the runtime's vocabulary, only the
+        # name — exactly as it already learns the form fields. Empty for every
+        # contract that declares no `tool_calls`, so those profiles keep
+        # today's behaviour by construction.
+        action_field=(TOOL_CALLS_FIELD if TOOL_CALLS_FIELD in field_names else ""),
         delegation_keys=tuple(sorted(DELEGATION_KEYS)),
         # OPS-12: the validator's derived-identity set and the conditional
         # field wording are read here, not hand-typed into the prompt.

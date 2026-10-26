@@ -141,12 +141,14 @@ def _proposal_reply() -> str:
 
     The live path uses the single-proposal form because the contract's
     ``kind_field`` prompts the model for a top-level kind
-    (``tools/models/cloud.py:240-243``). The multi-proposal form is also
-    reachable: the runtime refuses only when *both* forms appear in one reply
-    (``agents/runtime/run.py:648``), and the loop suite drives it
-    (``tests/test_loop2_feedback.py::_draft``). An earlier revision of this
-    docstring claimed the multi-proposal form was unreachable — that was wrong,
-    and the correction is recorded in ``MERGE-LOG-OPS-1``.
+    (``tools/models/cloud.py``). The multi-proposal form is **not** reachable
+    through the live path (OPS-5I): the plane refuses a reply that omits the
+    top-level kind, and the runtime refuses one that carries it, so every
+    multi-form reply fails one of the two. An earlier revision of this
+    docstring said the form was reachable because the runtime refuses only when
+    *both* forms appear; that reading looked at the runtime alone and missed the
+    plane's kind check. Whether to make the form work or remove it is its own
+    decision.
     """
     return json.dumps({
         "rationale": "one ordinary task",

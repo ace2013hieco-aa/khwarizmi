@@ -281,19 +281,24 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
         parts.append(f'The "{rationale_field}" field must be non-empty.')
     single = str(contract.get("single_form_field") or "")
     multi = str(contract.get("multi_form_field") or "")
+    action = str(contract.get("action_field") or "")
     if single:
-        text = (f'If you use the single-proposal form, the top-level "{single}" '
-                f"field is required.")
+        # OPS-5I: the multi-proposal form cannot be used in this build — the
+        # plane refuses a reply that omits the top-level kind, and the runtime
+        # refuses one that carries it — so the note states one form and says
+        # the other is refused instead of offering both.
+        text = (f'The top-level "{single}" field is required: the '
+                f"single-proposal form is the only proposal form in this build")
         if multi:
-            text += (f' The multi-proposal form requires "{single}" on each '
-                     f"proposal item.")
-        parts.append(text)
-    if single and multi:
+            text += f', and a reply carrying a non-empty "{multi}" array is refused'
+        parts.append(text + ".")
+    if single and multi and action:
+        # OPS-5H: the positive case, rendered from the injected names so a
+        # rename of either form field or of the action array moves the sentence.
         parts.append(
-            f"Choose exactly one proposal form: the single-proposal form (a "
-            f'top-level "{single}" field) or the multi-proposal form (a '
-            f'"{multi}" array). A reply carrying both is refused; exactly one '
-            f"is allowed.")
+            f"A reply that proposes nothing is valid when it calls a tool: "
+            f'omit the "{single}" and "{multi}" fields and output a non-empty '
+            f'"{action}" array; the stage continues within its tick budget.')
     payload_keys = contract.get("payload_keys")
     derived = contract.get("derived_keys")
     derived_set = ({str(key) for key in derived}

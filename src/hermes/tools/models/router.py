@@ -356,11 +356,15 @@ class OutputContract:
     `single_form_field` / `multi_form_field` name the two mutually exclusive
     proposal forms, and `delegation_keys` names the keys a delegation item may
     carry. Both are rendered into the prompt from the validator's own constants
-    (OPS-9) and are guidance only. `derived_keys` names the identity keys the
-    runtime derives and refuses to accept (OPS-12), and `field_notes` carries
-    the conditional wording for individual schema fields. `max_proposal_bytes`
-    is the whole-reply cap the runtime's refusal interpolates (OPS-17); zero
-    means the contract carries no cap statement.
+    (OPS-9) and are guidance only. `action_field` names the array in which a
+    reply may ask for action *without* proposing (OPS-5H): when it is non-empty
+    and the reply carries a non-empty array there and raises no proposal, the
+    kind check is skipped — a tick may gather. `""` means the contract has no
+    such concept, which is today's behaviour exactly. `derived_keys` names the
+    identity keys the runtime derives and refuses to accept (OPS-12), and
+    `field_notes` carries the conditional wording for individual schema fields.
+    `max_proposal_bytes` is the whole-reply cap the runtime's refusal
+    interpolates (OPS-17); zero means the contract carries no cap statement.
     """
 
     name: str
@@ -371,6 +375,7 @@ class OutputContract:
     proposable_kinds: tuple[str, ...] = ()
     single_form_field: str = ""
     multi_form_field: str = ""
+    action_field: str = ""
     delegation_keys: tuple[str, ...] = ()
     derived_keys: tuple[str, ...] = ()
     field_notes: tuple[tuple[str, str], ...] = ()
@@ -2033,7 +2038,11 @@ class ModelRouter:
         a model that emits junk may yet answer correctly on a second attempt.
         A decision-shaped key is `PROPOSAL` and terminal: that is a category
         error, not a formatting one. A kind outside the injected allowlist is
-        `ROLE` and terminal at this layer.
+        `ROLE` and terminal at this layer — except for a reply that calls a
+        tool and raises no proposal, which is valid with no kind (OPS-5H: a
+        tick may gather). The exemption is narrow: a malformed kind beside a
+        call still refuses `ROLE`, and a reply with neither a proposal nor a
+        call still refuses `ROLE` with today's detail.
 
         OPS-15: every refusal in this function is a **whole-reply, pre-draft**
         contract-shape failure and carries `contract_feedback=True`, so the
@@ -2064,6 +2073,17 @@ class ModelRouter:
                 f"model output carried decision-shaped key(s) {decision_keys} — "
                 f"model output is never an authority, whatever was asked",
                 contract_feedback=False)
+        # OPS-5H: a tick may gather. The predicate is read once, before the
+        # unknown-key check and the declared-field loop, so a `kind` the runtime
+        # reads as "no proposal" is dropped before its declared-type check — and
+        # every other check still runs on what remains.
+        action_only = _action_only_reply(contract, parsed)
+        if action_only and contract.single_form_field:
+            # Only None/""/whitespace can reach here (a truthy string makes the
+            # predicate false), so nothing a proposal could be built from is
+            # removed. This is the runtime's own reading of "no proposal"
+            # (`_validate_drafts`), so the two layers cannot disagree.
+            parsed.pop(contract.single_form_field, None)
         declared = {spec.name: spec for spec in contract.fields}
         unknown = sorted(set(parsed) - set(declared))
         if unknown:
@@ -2091,7 +2111,7 @@ class ModelRouter:
                     MALFORMED_PAYLOAD,
                     f"model output field {name!r} is outside its declared "
                     f"values", retryable=True, contract_feedback=True)
-        if contract.kind_field:
+        if contract.kind_field and not action_only:
             proposed = parsed.get(contract.kind_field)
             if not isinstance(proposed, str) or proposed not in self._proposable_kinds:
                 # A partition breach at the routing layer — the router must not
@@ -2238,6 +2258,45 @@ class ModelRouter:
         return tuple(found)
 
 
+def _action_only_reply(
+    contract: OutputContract, parsed: Mapping[str, Any]
+) -> bool:
+    """True when a reply calls a tool and raises no proposal (OPS-5H).
+
+    The one predicate behind the gathering exemption, evaluated in this order:
+
+    1. the contract names an action array (`action_field` is non-empty — `""`
+       is every contract that has no such concept, and today's behaviour);
+    2. that field holds a **list with at least one element** — an empty array
+       is a reply with neither a proposal nor a call;
+    3. the reply raises **no proposal**: the single-form field is absent,
+       `None`, or a string that strips to empty; the multi-form field is
+       absent, `None`, or an empty list.
+
+    A truthy value in either form field — including a value of the wrong type —
+    makes the predicate false, so the ordinary declared-type and kind checks
+    still refuse it. The predicate decides *validation* only: the per-call item
+    shape remains the runtime's check, and the plane never executes anything.
+    """
+    action_field = contract.action_field
+    if not action_field:
+        return False
+    calls = parsed.get(action_field)
+    if not isinstance(calls, list) or not calls:
+        return False
+    single = contract.single_form_field
+    if single:
+        value = parsed.get(single)
+        if value is not None and not (isinstance(value, str) and not value.strip()):
+            return False
+    multi = contract.multi_form_field
+    if multi:
+        value = parsed.get(multi)
+        if value is not None and not (isinstance(value, list) and not value):
+            return False
+    return True
+
+
 def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
     if contract is None:
         return None
@@ -2254,6 +2313,7 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "proposable_kinds": list(contract.proposable_kinds),
         "single_form_field": contract.single_form_field,
         "multi_form_field": contract.multi_form_field,
+        "action_field": contract.action_field,
         "delegation_keys": list(contract.delegation_keys),
         "derived_keys": list(contract.derived_keys),
         "field_notes": dict(contract.field_notes),
