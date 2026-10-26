@@ -212,6 +212,13 @@ def project_stage(
     during the run and added by the driver), so the projection is a function of
     the document, the caller's inputs and the run's attribution alone — never
     of execution state.
+
+    OPS-5F: the stage's own tick budget is projected as the context's
+    ``max_ticks`` (a stage that declares none inherits the methodology-wide
+    value), and a declared ``objective`` rides the stage-identity payload as
+    untrusted, origin-labelled data — the existing ``runtime.payload`` port,
+    no new origin, no second envelope. A stage without an objective adds no
+    payload key at all.
     """
     stage_task_id = f"{task_id}:{stage.stage}"
     task_envelopes = ()
@@ -221,17 +228,20 @@ def project_stage(
             question=inputs.question,
             external_refs=inputs.external_refs,
             admission_refs=inputs.admission_refs),)
+    payload: dict[str, Any] = {
+        "stage": stage.stage,
+        "methodology_id": config.methodology_id,
+        "predecessor_stage": predecessor_stage,
+    }
+    if stage.objective is not None:
+        payload["objective"] = stage.objective
     context = TaskContext(
         task_id=stage_task_id,
         project_id=project_id,
         lease_generation=lease_generation,
         context=task_envelopes,
-        payload={
-            "stage": stage.stage,
-            "methodology_id": config.methodology_id,
-            "predecessor_stage": predecessor_stage,
-        },
-        limits=config.termination.limits())
+        payload=payload,
+        limits=config.termination.limits(stage.max_ticks))
     return StageProjection(
         spec=stage,
         task_id=stage_task_id,

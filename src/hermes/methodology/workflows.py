@@ -78,6 +78,7 @@ from hermes.methodology.substrate import (
 __all__ = [
     "GOVERNANCE_ACTIONS",
     "LITERATURE_REVIEW_DOCUMENT",
+    "MAX_STAGE_TICKS",
     "METHODOLOGY_SCHEMA_VERSION",
     "STAGE_KEYS",
     "TERMINATION_KEYS",
@@ -97,13 +98,21 @@ __all__ = [
 
 METHODOLOGY_SCHEMA_VERSION = "1"
 
+#: The bound on a stage's own tick budget (inclusive). Enough for
+#: search–fetch–cite plus two corrections, and below the largest profile
+#: default; a value outside ``1..MAX_STAGE_TICKS`` is refused at load, never
+#: clamped.
+MAX_STAGE_TICKS = 5
+
 #: The closed stage-spec vocabulary. A stage names the profile that runs it,
-#: the governance action it performs and whether it is required. Toolsets are
+#: the governance action it performs, whether it is required, the tick budget
+#: its own work needs and the plain-language job it is given. Toolsets are
 #: deliberately absent: the runtime's ``run()`` exposes no toolset surface, so
 #: a *declared* toolset could not be enforced — declaring one would be an inert
 #: control, so the key is refused rather than silently carried.
 STAGE_KEYS: frozenset[str] = frozenset({
     "stage", "profile", "governance_action", "required",
+    "max_ticks", "objective",
 })
 
 #: The closed termination vocabulary.
@@ -131,20 +140,48 @@ class MethodologyConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class StageSpec:
-    """One stage: which profile runs, what governance gates it."""
+    """One stage: which profile runs, what gates it, its budget and its job.
+
+    ``max_ticks`` is the stage's own tick budget. It is optional and additive:
+    a document that does not declare it serializes exactly as before, parses to
+    ``None`` and inherits the methodology-wide ``max_ticks_per_stage``. The
+    budget is the *bound*: a stage that proposes early still stops early.
+
+    ``objective`` is the stage's job in plain words — how the profile should
+    spend the ticks it was given. It is methodology **data** (stage
+    configuration), never operator text and never instruction authority: it
+    enters the stage prompt through the existing payload envelope port,
+    origin-labelled like every other payload value, and it is deliberately
+    absent from ``predecessor_content`` so it cannot re-enter a later prompt
+    as chain content. A document without it renders no objective at all.
+
+    Both keys are omitted by :meth:`to_mapping` when unset, so an old-form
+    document keeps its digest to the byte.
+    """
 
     stage: str
     profile: str
     governance_action: str = ""
     required: bool = True
+    max_ticks: int | None = None
+    objective: str | None = None
+
+    def effective_ticks(self, default: int) -> int:
+        """This stage's tick budget — its own, or the methodology default."""
+        return default if self.max_ticks is None else self.max_ticks
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping: dict[str, Any] = {
             "stage": self.stage,
             "profile": self.profile,
             "governance_action": self.governance_action,
             "required": self.required,
         }
+        if self.max_ticks is not None:
+            mapping["max_ticks"] = self.max_ticks
+        if self.objective is not None:
+            mapping["objective"] = self.objective
+        return mapping
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "StageSpec":
@@ -166,7 +203,42 @@ class StageSpec:
                 f"stage {stage!r} declares governance action {action!r}, which "
                 f"is not a governance plane action")
         return cls(stage=stage, profile=profile, governance_action=action,
-                   required=bool(data.get("required", True)))
+                   required=bool(data.get("required", True)),
+                   max_ticks=_stage_ticks(stage, data),
+                   objective=_stage_objective(stage, data))
+
+
+def _stage_ticks(stage: str, data: Mapping[str, Any]) -> int | None:
+    """The declared budget, if any — an integer in ``1..MAX_STAGE_TICKS``.
+
+    A missing key is ``None`` (inherit the methodology default). Anything else
+    must be a real integer in range: a bool, a float, a string, zero, a
+    negative or an over-cap value is refused rather than clamped, because a
+    silently adjusted budget would make the cost table a fiction.
+    """
+    if "max_ticks" not in data:
+        return None
+    value = data["max_ticks"]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise MethodologyConfigError(
+            f"stage {stage!r} max_ticks must be an integer, not "
+            f"{type(value).__name__}")
+    if not 1 <= value <= MAX_STAGE_TICKS:
+        raise MethodologyConfigError(
+            f"stage {stage!r} max_ticks {value} is outside 1.."
+            f"{MAX_STAGE_TICKS}")
+    return value
+
+
+def _stage_objective(stage: str, data: Mapping[str, Any]) -> str | None:
+    """The declared objective, if any — non-empty text, never a blank job."""
+    if "objective" not in data:
+        return None
+    value = data["objective"]
+    if not isinstance(value, str) or not value.strip():
+        raise MethodologyConfigError(
+            f"stage {stage!r} objective must be non-empty text when declared")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,10 +270,17 @@ class TerminationPolicy:
             max_proposals_per_stage=int(data.get("max_proposals_per_stage", 1)),
             deadline_seconds=(None if deadline is None else float(deadline)))
 
-    def limits(self) -> RunLimits:
-        """This policy's per-stage bounds, as the runtime's own limits value."""
+    def limits(self, max_ticks: int | None = None) -> RunLimits:
+        """This policy's per-stage bounds, as the runtime's own limits value.
+
+        ``max_ticks`` is the stage's own budget when it declares one; a ``None``
+        (the usual case) keeps the methodology-wide value. Nothing else in the
+        limits changes, so a stage budget can never widen a proposal, tool or
+        deadline bound.
+        """
         return RunLimits(
-            max_ticks=self.max_ticks_per_stage,
+            max_ticks=(self.max_ticks_per_stage if max_ticks is None
+                       else max_ticks),
             max_proposals=self.max_proposals_per_stage,
             deadline_seconds=self.deadline_seconds)
 
@@ -320,7 +399,10 @@ def parse_methodology(data: Mapping[str, Any]) -> MethodologyConfig:
 LITERATURE_REVIEW_DOCUMENT: Mapping[str, Any] = {
     "schema_version": METHODOLOGY_SCHEMA_VERSION,
     "methodology_id": "literature-review",
-    "version": "1",
+    # The content revision, distinct from the schema version: document version
+    # 2 is the revision that declares a stage budget and each stage's job. It
+    # is a governed-document event — see docs/idr/LIVE-STAGE-BUDGET.md §6.2.
+    "version": "2",
     "name": "literature-review",
     "description": (
         "A cited search of admitted sources: frame the question, draw a "
@@ -332,18 +414,54 @@ LITERATURE_REVIEW_DOCUMENT: Mapping[str, Any] = {
         "gate."),
     "stages": [
         {"stage": "QUESTION", "profile": "planner",
-         "governance_action": "WEB_SEARCH"},
+         "governance_action": "WEB_SEARCH",
+         "objective": (
+             "State the question this run must answer, in terms the recorded "
+             "evidence could settle.")},
         {"stage": "HYPOTHESIS", "profile": "researcher",
-         "governance_action": "WEB_SEARCH"},
-        {"stage": "PREDICTION", "profile": "experimenter"},
+         "governance_action": "WEB_SEARCH",
+         "objective": (
+             "Propose a testable hypothesis and cite the prior art you were "
+             "given: the hypothesis: ref in the task input.")},
+        {"stage": "PREDICTION", "profile": "experimenter",
+         "objective": (
+             "State what your hypothesis predicts, and the observation that "
+             "would refute it.")},
         {"stage": "EXPERIMENT", "profile": "experimenter",
-         "governance_action": "SANDBOX_RUN"},
+         "governance_action": "SANDBOX_RUN",
+         "objective": (
+             "Describe the test that would discriminate between the hypothesis "
+             "and the observation that would refute it.")},
         {"stage": "OBSERVATION", "profile": "researcher",
-         "governance_action": "WEB_READ"},
-        {"stage": "EVIDENCE", "profile": "verifier"},
-        {"stage": "CLAIM", "profile": "synthesizer"},
-        {"stage": "CRITIQUE", "profile": "critic"},
-        {"stage": "CONCLUSION", "profile": "synthesizer"},
+         "governance_action": "WEB_READ",
+         # OPS-5F: search, fetch, cite. A proposal ends the stage, so the model
+         # must gather before it proposes; the objective spells out that order.
+         "max_ticks": 3,
+         "objective": (
+             "Gather first, propose last. Call source_search to find a source; "
+             "its reply carries a search handle. Then call source_fetch with "
+             "that handle and a row index; its reply names the artifact it "
+             "wrote. Only once you hold a fetched artifact should you propose "
+             "an EVIDENCE_TRANSITION whose payload.evidence_artifact_ref is "
+             "that artifact as evidence:<artifact_id>. A proposal ends this "
+             "stage (stop_when: proposals_raised), so a proposal made before "
+             "you have fetched cites nothing.")},
+        {"stage": "EVIDENCE", "profile": "verifier",
+         "objective": (
+             "Cite the artifact this run observed: the evidence: ref the "
+             "observation admitted, as this stage's external_ref.")},
+        {"stage": "CLAIM", "profile": "synthesizer",
+         "objective": (
+             "State what the cited evidence supports, and only what it "
+             "supports.")},
+        {"stage": "CRITIQUE", "profile": "critic",
+         "objective": (
+             "Attack the claim: say what would break it, and whether the cited "
+             "evidence already does.")},
+        {"stage": "CONCLUSION", "profile": "synthesizer",
+         "objective": (
+             "Answer the question the run started from, in light of the "
+             "recorded chain.")},
     ],
     "termination": {
         "max_stages": 9,
@@ -707,18 +825,25 @@ def run_methodology(
         if refusal is not None:
             return refusal
 
+        payload: dict[str, Any] = {
+            "stage": stage.stage,
+            "methodology_id": config.methodology_id,
+            "predecessor": predecessor_id,
+            "predecessor_content": dict(content_cache.get(
+                predecessor_id, {})),
+        }
+        if stage.objective is not None:
+            # Stage configuration, rendered by the existing payload port
+            # (`runtime.payload`): untrusted, origin-labelled data, never
+            # operator text and never an instruction authority. A document
+            # without an objective adds no key, so an old stage renders none.
+            payload["objective"] = stage.objective
         context = TaskContext(
             task_id=f"{task_id}:{stage.stage}",
             project_id=project_id,
             lease_generation=lease_generation,
-            payload={
-                "stage": stage.stage,
-                "methodology_id": config.methodology_id,
-                "predecessor": predecessor_id,
-                "predecessor_content": dict(content_cache.get(
-                    predecessor_id, {})),
-            },
-            limits=config.termination.limits())
+            payload=payload,
+            limits=config.termination.limits(stage.max_ticks))
         result: ProposalSet = runtime_run(
             stage.profile, context, model=model, orchestration=orchestration,
             capabilities=capabilities, profiles=profiles)

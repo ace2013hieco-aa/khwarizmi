@@ -315,8 +315,12 @@ def test_the_projection_is_pure_document_data() -> None:
     projection = project_stage(config, config.stages[1], project_id=PROJECT,
                                task_id=TASK, lease_generation=LEASE,
                                predecessor_stage=config.stages[0].stage)
+    # OPS-5F: a declared objective rides the stage-identity payload; it is
+    # stage configuration, not chain content, and its value is the document's.
     assert set(projection.context.payload) == {
-        "stage", "methodology_id", "predecessor_stage"}
+        "stage", "methodology_id", "predecessor_stage", "objective"}
+    assert projection.context.payload["objective"] == \
+        config.stages[1].objective
     assert set(projection.to_mapping()) == {
         "stage", "profile", "governance_action", "required", "task_id",
         "project_id", "lease_generation", "predecessor_stage"}

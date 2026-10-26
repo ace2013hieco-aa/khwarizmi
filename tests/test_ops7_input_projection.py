@@ -142,10 +142,13 @@ def test_every_projected_stage_carries_the_question_and_the_ref_ids() -> None:
         assert document["external_refs"] == REFS
         assert document["admission_refs"] == sorted(REFS.values())
         assert _task_part(parts).ref == f"{projection.task_id}:task_input"
-        # The structural payload is unchanged: the input is not smuggled into
-        # the stage-identity mapping.
+        # The structural payload keeps its shape: the input is not smuggled
+        # into the stage-identity mapping, and the only addition is the stage's
+        # own declared objective (OPS-5F) — never the question or a ref.
         assert set(projection.context.payload) == {
-            "stage", "methodology_id", "predecessor_stage"}
+            "stage", "methodology_id", "predecessor_stage", "objective"}
+        assert projection.context.payload["objective"] == projection.spec.objective
+        assert QUESTION not in str(projection.context.payload)
 
 
 def test_the_question_reaches_every_model_call_and_moves_m1() -> None:
@@ -233,4 +236,4 @@ def test_a_projection_without_inputs_keeps_the_previous_shape() -> None:
         lease_generation=LEASE)
     assert projection.context.context == ()
     assert set(projection.context.payload) == {
-        "stage", "methodology_id", "predecessor_stage"}
+        "stage", "methodology_id", "predecessor_stage", "objective"}

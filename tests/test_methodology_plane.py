@@ -1055,7 +1055,10 @@ class TestMethodologyConfig:
 
     def test_the_shipped_methodology_loads_and_is_versioned(self) -> None:
         config = literature_review()
-        assert config.version == "1"
+        # OPS-5F: document version 2 is the recorded revision that declares a
+        # per-stage tick budget and each stage's objective. The schema version
+        # stays "1" (both keys are optional and additive).
+        assert config.version == "2"
         assert config.stage_kinds() == CHAIN_KINDS
         assert config.termination.max_stages == len(CHAIN_KINDS)
         assert methodology_identity(config).startswith("mth_")
@@ -1065,7 +1068,7 @@ class TestMethodologyConfig:
         assert config.digest() == config.digest()
         assert config.digest() == digest_of(config.to_mapping())
         other = dict(LITERATURE_REVIEW_DOCUMENT)
-        other["version"] = "2"
+        other["version"] = "3"
         assert parse_methodology(other).digest() != config.digest()
 
     def test_every_stage_names_a_real_governance_action(self) -> None:
