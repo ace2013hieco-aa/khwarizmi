@@ -43,7 +43,11 @@ from pathlib import Path
 from typing import Any, Final
 
 from hermes.agents.runtime.config import ProfileSpec, load_profiles
-from hermes.agents.runtime.run import TOOL_CALL_KEYS
+from hermes.agents.runtime.run import (
+    TOOL_CALL_ARGUMENTS_KEY,
+    TOOL_CALL_KEYS,
+    TOOL_CALLS_FIELD,
+)
 from hermes.agents.runtime.supervisor import Supervisor
 from hermes.artifacts.store import ArtifactStore
 from hermes.config import HermesConfig, ModelTierConfig
@@ -347,20 +351,40 @@ def _fetch_target_rule() -> str:
         f"run, never a citation.")
 
 
+def _tool_call_shape(item_keys: frozenset[str]) -> str:
+    """The nested ``tool_calls`` shape, rendered from the validator's names.
+
+    The field name is the runtime's ``TOOL_CALLS_FIELD`` and every key is a
+    member of ``TOOL_CALL_KEYS``; ``TOOL_CALL_ARGUMENTS_KEY`` is the one key the
+    validator requires to be a mapping, so it is rendered as an object. Nothing
+    here is typed a second time: a new key in the closed set moves this sentence
+    and its drift test (OPS-5G). The flat form is named as the negative case —
+    the model may put a call's keys at the reply's top level, and the router
+    refuses that reply before any draft exists.
+    """
+    item = ", ".join(
+        f'"{key}": ' + ("{...}" if key == TOOL_CALL_ARGUMENTS_KEY else '"..."')
+        for key in sorted(item_keys))
+    return (f'"{TOOL_CALLS_FIELD}" is an array; each item is an object with '
+            f"exactly these keys: {{{item}}}; the flat form — those keys at "
+            f"the reply's top level — is refused (MALFORMED_PAYLOAD).")
+
+
 def _capability_tool_note(schemas: tuple[str, ...], item_keys: frozenset[str],
                           *, fetch_target_forms: bool) -> str:
     """One generated ``tool_calls`` field note.
 
-    The legal ids and schemas come from the registry declarations; the item
-    keys come from the runtime's closed TOOL_CALL_KEYS; the handle/ref and
-    index forms come from the supply's own constants. No list here is typed a
-    second time, so a declaration change or a handle change flows into the
-    prompt and fails its drift test.
+    The legal ids and schemas come from the registry declarations; the field
+    name and item-key set come from the runtime's closed constants, rendered as
+    the nested shape rather than as a bare key list; the handle/ref and index
+    forms come from the supply's own constants. No list here is typed a second
+    time, so a declaration change or a handle change flows into the prompt and
+    fails its drift test.
     """
-    keys = ", ".join(sorted(item_keys))
+    shape = _tool_call_shape(item_keys)
     if not schemas:
-        return (f"no capability is reachable for this profile — a tool_calls "
-                f"item is refused (ROLE). Item keys: {keys}.")
+        return (f"no capability is reachable for this profile — a "
+                f"{TOOL_CALLS_FIELD} item is refused (ROLE). {shape}")
     handles = (
         f"An observation returns artifact handles "
         f"{EVIDENCE_HANDLE_PREFIX}{HANDLE_SEPARATOR}<artifact_id> and "
@@ -377,7 +401,7 @@ def _capability_tool_note(schemas: tuple[str, ...], item_keys: frozenset[str],
         f"later tick.")
     target_forms = f" {_fetch_target_rule()}" if fetch_target_forms else ""
     return ("legal capabilities: " + "; ".join(schemas)
-            + f". Item keys: {keys}. " + handles + target_forms)
+            + f". {shape} " + handles + target_forms)
 
 
 def build_capability_tool_notes(

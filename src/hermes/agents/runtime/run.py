@@ -245,10 +245,19 @@ def _retryable_model_refusal(item: object) -> bool:
     return item.code in RETRYABLE_MODEL_REFUSALS
 
 
+#: The top-level array field a reply carries tool calls in. The runtime reads
+#: this name and the composition renders it, so the prompt and the check cannot
+#: disagree about where a call goes (OPS-5G).
+TOOL_CALLS_FIELD: str = "tool_calls"
+
 #: Keys a draft, a tool call and a delegation item may carry. Closed schemas:
-#: an unknown key is refused, never ignored.
+#: an unknown key is refused, never ignored. ``TOOL_CALL_ARGUMENTS_KEY`` is
+#: named separately because the validator requires it to be a mapping, and the
+#: prompt renders that one key as an object rather than a string (OPS-5G).
 DRAFT_KEYS: frozenset[str] = frozenset({"kind", "rationale", "payload"})
-TOOL_CALL_KEYS: frozenset[str] = frozenset({"capability_id", "arguments",
+TOOL_CALL_ARGUMENTS_KEY: str = "arguments"
+TOOL_CALL_KEYS: frozenset[str] = frozenset({"capability_id",
+                                            TOOL_CALL_ARGUMENTS_KEY,
                                             "rationale"})
 DELEGATION_KEYS: frozenset[str] = frozenset({"profile", "spec", "task_type"})
 
@@ -266,7 +275,7 @@ AUTHORED_KEYS: frozenset[str] = frozenset({"proposed_by", "project_id",
 #: Contract sections and the JSON types they may carry.
 _CONTRACT_SECTIONS: Mapping[str, str] = {
     "proposals": "array",
-    "tool_calls": "array",
+    TOOL_CALLS_FIELD: "array",
     "delegations": "array",
 }
 
@@ -346,8 +355,8 @@ def output_contract_for(
         field_notes.append((
             MULTI_PROPOSAL_FIELD,
             "use this array alone; do not also supply the single-form field"))
-    if "tool_calls" in field_names and capability_tool_note:
-        field_notes.append(("tool_calls", capability_tool_note))
+    if TOOL_CALLS_FIELD in field_names and capability_tool_note:
+        field_notes.append((TOOL_CALLS_FIELD, capability_tool_note))
     return OutputContract(
         name=spec.model_policy.contract,
         fields=tuple(fields),
@@ -1243,7 +1252,7 @@ class AgentRuntime:
         probe 3b; LOOP-4 G8 — the batch used to read `token.cancelled` directly
         and never observe the deadline, the one place in the run that did).
         """
-        items = structured.get("tool_calls")
+        items = structured.get(TOOL_CALLS_FIELD)
         if not items:
             return True
         # OPS-5B / OPS-5 §7.2: the field the contract asks for is the field the
@@ -1251,10 +1260,10 @@ class AgentRuntime:
         # `tool_calls` in structured_fields; otherwise the item is a shape the
         # contract forbids, refused whole and skipped (F4).
         if not (spec.model_policy.allows_tool_calls
-                and "tool_calls" in spec.model_policy.structured_fields):
+                and TOOL_CALLS_FIELD in spec.model_policy.structured_fields):
             state.refuse(
                 MALFORMED_PAYLOAD,
-                f"tool_calls is outside {spec.name}'s declared contract "
+                f"{TOOL_CALLS_FIELD} is outside {spec.name}'s declared contract "
                 f"(allows_tool_calls={spec.model_policy.allows_tool_calls}, "
                 f"structured_fields={list(spec.model_policy.structured_fields)})",
                 tick=tick)
@@ -1262,7 +1271,7 @@ class AgentRuntime:
         if not isinstance(items, list) or not all(isinstance(item, Mapping)
                                                   for item in items):
             state.refuse(MALFORMED_PAYLOAD,
-                         f"tool_calls must be a list of mappings, got "
+                         f"{TOOL_CALLS_FIELD} must be a list of mappings, got "
                          f"{type(items).__name__}", tick=tick)
             return True
         bound = context.limits.max_tool_calls or spec.termination.max_tool_calls
@@ -1349,7 +1358,7 @@ class AgentRuntime:
                 invocation_ref=tool_idempotency_key_of(run_id, tick, index,
                                                        capability_id)))
             return True
-        arguments = item.get("arguments") or {}
+        arguments = item.get(TOOL_CALL_ARGUMENTS_KEY) or {}
         if not isinstance(arguments, Mapping):
             state.refuse(MALFORMED_PAYLOAD, "tool call arguments must be a mapping",
                          tick=tick)
