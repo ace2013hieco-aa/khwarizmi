@@ -376,6 +376,21 @@ def _reject(kind: IntentKind, code: str, reason: str) -> GatewayRejection:
     return GatewayRejection(kind, code, reason)
 
 
+#: The bound on a rejected value quoted in a refusal detail (OPS-5K). A
+#: gateway refusal must show the operator what the model actually wrote, but
+#: the detail also rides the runtime's INTENT_REFUSED event, so the value is
+#: quoted and bounded — never dumped whole.
+_MAX_REJECTED_VALUE_CHARS = 120
+
+
+def _bounded_rejected(value: object) -> str:
+    """A bounded ``repr`` of a rejected value, for a refusal detail (OPS-5K)."""
+    text = repr(value)
+    if len(text) <= _MAX_REJECTED_VALUE_CHARS:
+        return text
+    return text[:_MAX_REJECTED_VALUE_CHARS] + f"... ({len(text)} chars)"
+
+
 # ── per-kind validators ──
 
 def _validate_propose_research_program(
@@ -1384,19 +1399,37 @@ INTENT_PAYLOAD_VALUE_SETS: Mapping[IntentKind, Mapping[str, frozenset[str]]] = {
 #: list has no value set to enumerate, only a shape.
 _PAYLOAD_LIST_SHAPE = "a list of strings"
 
-#: The list-valued payload keys whose shape the contract states, per kind
-#: (OPS-14, completed in OPS-17), beside the closed-key map above. The value is
-#: the shape phrase ``_require_str_list`` uses in its refusal. These are
-#: exactly the keys ``_payload_to_node`` passes through ``_require_str_list``:
-#: ``inputs``, ``outputs``, ``dependencies`` and ``provenance``. Omission is
-#: accepted — the validator reads an absent key as an empty list. Keys with
-#: bespoke scalar checks are not mapped here; their shape is not this family.
+#: The remaining `INSERT_TASK` shapes the validator enforces (OPS-5K). Each
+#: phrase is the one its refusal interpolates, so a shape change moves both
+#: the refusal and the contract.
+_PAYLOAD_DICT_SHAPE = "a dict"
+_PAYLOAD_INT_AT_LEAST_1_SHAPE = "an int >= 1"
+_PAYLOAD_INT_AT_LEAST_0_SHAPE = "an int >= 0"
+_PAYLOAD_NULLABLE_STRING_SHAPE = "a string or null"
+
+#: The payload keys whose shape the contract states, per kind (OPS-14,
+#: completed in OPS-17, extended in OPS-5K), beside the closed-key map above.
+#: The value is the shape phrase the validator's refusal uses. The list family
+#: is exactly the keys ``_payload_to_node`` passes through
+#: ``_require_str_list``: ``inputs``, ``outputs``, ``dependencies`` and
+#: ``provenance``. OPS-5K added the dict key ``spec`` and the scalar keys whose
+#: bespoke checks the validator also enforces (``iteration``,
+#: ``max_retries`` and the three nullable strings). Omission is accepted for
+#: every key — the validator supplies its own default. Derived identity keys
+#: (``task_id``, ``idempotency_key``) are not mapped: the contract forbids
+#: supplying them at all.
 INTENT_PAYLOAD_SHAPES: Mapping[IntentKind, Mapping[str, str]] = {
     IntentKind.INSERT_TASK: {
+        "spec": _PAYLOAD_DICT_SHAPE,
         "inputs": _PAYLOAD_LIST_SHAPE,
         "outputs": _PAYLOAD_LIST_SHAPE,
         "dependencies": _PAYLOAD_LIST_SHAPE,
         "provenance": _PAYLOAD_LIST_SHAPE,
+        "iteration": _PAYLOAD_INT_AT_LEAST_1_SHAPE,
+        "max_retries": _PAYLOAD_INT_AT_LEAST_0_SHAPE,
+        "parent_task_id": _PAYLOAD_NULLABLE_STRING_SHAPE,
+        "cost_class": _PAYLOAD_NULLABLE_STRING_SHAPE,
+        "concurrency_group": _PAYLOAD_NULLABLE_STRING_SHAPE,
     },
 }
 
@@ -1430,25 +1463,33 @@ def _validate_evidence_transition(
             intent.kind, MALFORMED_PAYLOAD,
             f"unknown payload keys {unknown} for EVIDENCE_TRANSITION")
     from hermes.research.evidence_transitions import (
+        EVIDENCE_HANDLE_REF_PREFIX,
         EVIDENCE_REF_PREFIX,
         MAX_EVIDENCE_TRANSITION_RATIONALE,
         RATIFIED_EVIDENCE_STATES,
+        canonical_evidence_ref,
     )
-    evidence_artifact_ref = payload.get("evidence_artifact_ref")
-    if (not isinstance(evidence_artifact_ref, str)
-            or not evidence_artifact_ref.startswith(EVIDENCE_REF_PREFIX)):
+    raw_ref = payload.get("evidence_artifact_ref")
+    evidence_artifact_ref = (
+        canonical_evidence_ref(raw_ref) if isinstance(raw_ref, str) else None)
+    if evidence_artifact_ref is None:
         raise _reject(
             intent.kind, MALFORMED_PAYLOAD,
             f"payload.evidence_artifact_ref must be "
-            f"'{EVIDENCE_REF_PREFIX}<artifact_id>'")
+            f"'{EVIDENCE_REF_PREFIX}<artifact_id>' (or the observation handle "
+            f"'{EVIDENCE_HANDLE_REF_PREFIX}<artifact_id>'); got "
+            f"{_bounded_rejected(raw_ref)}")
     artifact_id = evidence_artifact_ref[len(EVIDENCE_REF_PREFIX):]
     if not artifact_id:
-        raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.evidence_artifact_ref has an empty artifact id")
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            "payload.evidence_artifact_ref has an empty artifact id; got "
+            f"{_bounded_rejected(raw_ref)}")
     if not ArtifactRepository(conn).in_project(artifact_id, intent.project_id):
         raise _reject(
             intent.kind, EVIDENCE_REF,
-            f"evidence artifact {artifact_id!r} not in project "
+            f"evidence artifact {_bounded_rejected(artifact_id)} (from "
+            f"{_bounded_rejected(raw_ref)}) not in project "
             f"{intent.project_id!r}")
     from_state = payload.get("from_state")
     to_state = payload.get("to_state")
@@ -1499,7 +1540,9 @@ def _validate_evidence_transition(
                 f"REJECT_BRANCH proposal whose action is in the "
                 f"classification's permitted set")
 
-    # Deterministic transition identity — the idempotency key.
+    # Deterministic transition identity — the idempotency key. OPS-5K: the
+    # ref was normalised above, so ``evidence/<id>`` and ``evidence:<id>``
+    # produce the same id and the same stored payload — one reference, not two.
     import hashlib
     import json as _json
     transition_id = "tr_" + hashlib.sha256(_json.dumps(
@@ -4161,30 +4204,41 @@ def _payload_to_node(intent: Intent) -> NodeContract:
     spec = payload.get("spec", {})
     if not isinstance(spec, dict):
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.spec must be a dict")
+                      f"payload.spec must be {_PAYLOAD_DICT_SHAPE}; got "
+                      f"{_bounded_rejected(spec)}")
 
     iteration = payload.get("iteration", 1)
     if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 1:
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.iteration must be an int >= 1")
+                      f"payload.iteration must be "
+                      f"{_PAYLOAD_INT_AT_LEAST_1_SHAPE}; got "
+                      f"{_bounded_rejected(iteration)}")
 
     max_retries = payload.get("max_retries", 3)
     if not isinstance(max_retries, int) or isinstance(max_retries, bool) or max_retries < 0:
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.max_retries must be an int >= 0")
+                      f"payload.max_retries must be "
+                      f"{_PAYLOAD_INT_AT_LEAST_0_SHAPE}; got "
+                      f"{_bounded_rejected(max_retries)}")
 
     parent = payload.get("parent_task_id")
     if parent is not None and not isinstance(parent, str):
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.parent_task_id must be a string or null")
+                      f"payload.parent_task_id must be "
+                      f"{_PAYLOAD_NULLABLE_STRING_SHAPE}; got "
+                      f"{_bounded_rejected(parent)}")
     cost_class = payload.get("cost_class")
     if cost_class is not None and not isinstance(cost_class, str):
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.cost_class must be a string or null")
+                      f"payload.cost_class must be "
+                      f"{_PAYLOAD_NULLABLE_STRING_SHAPE}; got "
+                      f"{_bounded_rejected(cost_class)}")
     concurrency_group = payload.get("concurrency_group")
     if concurrency_group is not None and not isinstance(concurrency_group, str):
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
-                      "payload.concurrency_group must be a string or null")
+                      f"payload.concurrency_group must be "
+                      f"{_PAYLOAD_NULLABLE_STRING_SHAPE}; got "
+                      f"{_bounded_rejected(concurrency_group)}")
 
     return NodeContract(
         task_id=task_id,

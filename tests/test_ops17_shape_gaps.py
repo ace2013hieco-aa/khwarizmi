@@ -91,8 +91,8 @@ def _cap_line(cap: int = MAX_PAYLOAD_BYTES) -> str:
 
 def _shape_line(key: str, shape: str = _PAYLOAD_LIST_SHAPE) -> str:
     return (f'For INSERT_TASK, the payload key "{key}" is optional '
-            "(omitting it admits an empty list); when supplied it must be "
-            f"{shape}. Any other value is refused.")
+            "(omitting it takes the validator's default); when supplied it "
+            f"must be {shape}. Any other value is refused.")
 
 
 def _mapping_with_rules(spec: Any) -> tuple[dict[str, Any], str]:
@@ -159,9 +159,12 @@ def test_task_profiles_state_every_list_shape() -> None:
 
 
 def test_the_shape_map_is_exactly_the_str_list_family() -> None:
-    expected = {
-        IntentKind.INSERT_TASK: dict.fromkeys(LIST_KEYS, _PAYLOAD_LIST_SHAPE)}
-    assert expected == INTENT_PAYLOAD_SHAPES
+    # OPS-5K extended the map with `spec` and the scalar shapes; this pin stays
+    # on the four keys `_require_str_list` owns, and the full map is pinned in
+    # test_ops5k_ref_spelling.
+    shapes = INTENT_PAYLOAD_SHAPES[IntentKind.INSERT_TASK]
+    assert {key: shapes[key] for key in LIST_KEYS} == dict.fromkeys(
+        LIST_KEYS, _PAYLOAD_LIST_SHAPE)
 
 
 def test_the_two_cap_constants_agree() -> None:

@@ -37,6 +37,7 @@ from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
 from hermes.persistence.repositories import ProjectRepository
 from hermes.research.gateway import (
+    _PAYLOAD_LIST_SHAPE,
     INTENT_PAYLOAD_SHAPES,
     INTENT_PAYLOAD_VALUE_SETS,
     GatewayRejection,
@@ -65,7 +66,7 @@ LEASE = "gen-ops14"
 PROFILE_VALUES = tuple(sorted(member.value for member in AgentProfile))
 
 #: The `inputs` shape, derived from the gateway constant rather than typed here.
-INPUTS_SHAPE = "a list of strings"
+INPUTS_SHAPE = _PAYLOAD_LIST_SHAPE
 
 
 def _mapping_with_rules(spec: Any) -> tuple[dict[str, Any], str]:
@@ -94,8 +95,8 @@ def _profile_line(kinds: str = "INSERT_TASK") -> str:
 
 def _inputs_line(kinds: str = "INSERT_TASK") -> str:
     return (f'For {kinds}, the payload key "inputs" is optional '
-            "(omitting it admits an empty list); when supplied it must be "
-            f"{INPUTS_SHAPE}. Any other value is refused.")
+            "(omitting it takes the validator's default); when supplied it "
+            f"must be {INPUTS_SHAPE}. Any other value is refused.")
 
 
 def _gateway_db() -> Any:
@@ -155,16 +156,13 @@ def test_the_value_set_is_the_agent_profile_enum() -> None:
 
 
 def test_the_inputs_shape_is_the_validator_constant() -> None:
-    # OPS-17 completed the family: every key `_payload_to_node` passes through
-    # `_require_str_list` now carries its shape. This pin stays the exact map
-    # equality, so an unmapped or invented key fails here.
-    assert INTENT_PAYLOAD_SHAPES == {
-        IntentKind.INSERT_TASK: {
-            "inputs": INPUTS_SHAPE,
-            "outputs": INPUTS_SHAPE,
-            "dependencies": INPUTS_SHAPE,
-            "provenance": INPUTS_SHAPE,
-        }}
+    # OPS-17 completed the list family; OPS-5K added the dict/scalar shapes.
+    # This pin stays focused on the four `_require_str_list` keys; the full
+    # map is pinned in test_ops5k_ref_spelling.
+    list_keys = ("inputs", "outputs", "dependencies", "provenance")
+    shapes = INTENT_PAYLOAD_SHAPES[IntentKind.INSERT_TASK]
+    assert {key: shapes[key] for key in list_keys} == dict.fromkeys(
+        list_keys, INPUTS_SHAPE)
     # The check and the sentence share one source: a refused shape names it.
     conn = _gateway_db()
     try:

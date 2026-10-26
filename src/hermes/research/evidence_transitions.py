@@ -3,7 +3,9 @@
 The evidence ladder itself is a Phase 0 placeholder (v6 §10.1/§10.2 — no
 evidence table, no EvidenceRepository); this module lands the ratified
 VOCABULARY the gateway validator checks at admission: the closed set of
-evidence states and the ``evidence:<artifact_id>`` dereference prefix.
+evidence states and the ``evidence:<artifact_id>`` dereference prefix. OPS-5K
+adds the observation-handle spelling (``evidence/<artifact_id>``) as an accepted
+alias normalised to that one canonical identity.
 
 The ratified states are exactly what the architecture already names:
 the ladder rungs ``SUPPORTED`` / ``ROBUST`` / ``REPLICATED`` (the authority
@@ -24,10 +26,12 @@ from __future__ import annotations
 from enum import Enum
 
 __all__ = [
+    "EVIDENCE_HANDLE_REF_PREFIX",
     "EVIDENCE_REF_PREFIX",
     "MAX_EVIDENCE_TRANSITION_RATIONALE",
     "RATIFIED_EVIDENCE_STATES",
     "EvidenceState",
+    "canonical_evidence_ref",
 ]
 
 
@@ -51,6 +55,29 @@ RATIFIED_EVIDENCE_STATES = frozenset(s.value for s in EvidenceState)
 
 # The evidence dereference identity: ``evidence:<artifact_id>``.
 EVIDENCE_REF_PREFIX = "evidence:"
+
+#: The observation-handle spelling of the same identity (OPS-5K). The
+#: capability plane returns ``evidence/<artifact_id>`` from every source row;
+#: the gateway accepts that spelling and normalises it to the canonical
+#: ``evidence:<artifact_id>``. One artifact therefore has one reference — and
+#: one transition identity — whichever separator the model copied.
+EVIDENCE_HANDLE_REF_PREFIX = "evidence/"
+
+
+def canonical_evidence_ref(ref: str) -> str | None:
+    """The canonical ``evidence:<artifact_id>`` form of ``ref``, or ``None``.
+
+    Both spellings the system actually emits are accepted: the citation form
+    (``evidence:<id>``) and the observation handle (``evidence/<id>``). The
+    artifact id itself is NOT validated here — the gateway still dereferences
+    it through ``ArtifactRepository.in_project``, so a ghost id under either
+    spelling refuses exactly as before.
+    """
+    for prefix in (EVIDENCE_REF_PREFIX, EVIDENCE_HANDLE_REF_PREFIX):
+        if ref.startswith(prefix):
+            return EVIDENCE_REF_PREFIX + ref[len(prefix):]
+    return None
+
 
 # Capped admission rationale (schema discipline — never a citation).
 MAX_EVIDENCE_TRANSITION_RATIONALE = 2000

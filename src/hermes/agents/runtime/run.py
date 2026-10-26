@@ -1037,7 +1037,8 @@ class AgentRuntime:
                 continue
             proposal = self._emit_intent(intent, rationale, spec, context, state,
                                         run_id, tick, model_ref, artifact_ref,
-                                        capability_refs=evidence_refs)
+                                        capability_refs=evidence_refs,
+                                        raw_excerpt=raw_excerpt)
             state.proposals.append(proposal)
             digests.append(proposal.draft_digest())
         return tuple(digests)
@@ -1203,8 +1204,15 @@ class AgentRuntime:
     def _emit_intent(self, intent: Intent, rationale: str, spec: ProfileSpec,
                      context: TaskContext, state: _RunState, run_id: str, tick: int,
                      model_ref: str, artifact_ref: str,
-                     capability_refs: tuple[str, ...] = ()) -> Proposal:
-        """Emit one intent through the Orchestration API and record its verdict."""
+                     capability_refs: tuple[str, ...] = (),
+                     raw_excerpt: str = "") -> Proposal:
+        """Emit one intent through the Orchestration API and record its verdict.
+
+        ``raw_excerpt`` is the bounded reply text the draft was parsed from
+        (OPS-5K). A gateway refusal keeps it on the RuntimeRefusal so the run
+        report shows the value the model actually wrote — the diagnostic OPS-10
+        already provides for model-plane refusals.
+        """
         self._emit(kind="INTENT_EMITTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"kind": intent.kind.value})
@@ -1218,7 +1226,8 @@ class AgentRuntime:
                     "detail": detail})
         if admission == Admission.REFUSED.value:
             state.refuse(_code_of(detail), detail or "the spine refused the intent",
-                         tick=tick, kind=intent.kind.value)
+                         tick=tick, kind=intent.kind.value,
+                         excerpt=raw_excerpt)
         return Proposal(
             intent=intent,
             rationale=rationale,

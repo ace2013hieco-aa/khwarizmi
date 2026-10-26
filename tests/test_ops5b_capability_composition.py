@@ -255,6 +255,9 @@ def test_the_tool_calls_note_states_the_handle_forms_and_citing_rules() -> None:
     assert "evidence:<artifact_id>" in note
     assert "source_payload:<content_hash>" in note
     assert "<artifact_type>:<artifact_id>" in note
+    # OPS-5K: the note says the handle spelling is accepted and normalised, so
+    # the model need not translate the separator by hand.
+    assert "is accepted and normalized to the same ref" in note
     assert "later tick" in note
     # A profile with no grant gets the empty-reach statement, not a legal id.
     critic = build_capability_tool_notes(

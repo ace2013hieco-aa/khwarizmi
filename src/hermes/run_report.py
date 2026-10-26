@@ -88,7 +88,8 @@ def build_run_report(
 
     Only the listed fields are copied; prompts, credential state and the
     model's normalized request are never read. A refusal's diagnostic excerpt
-    is the *reply* text, bounded here again.
+    is the *reply* text, bounded here again — carried for model-plane and
+    gateway refusals alike (OPS-5K), so a refused ref shows what was written.
     """
     stages: list[dict[str, Any]] = []
     refusals: list[dict[str, Any]] = []
