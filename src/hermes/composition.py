@@ -146,7 +146,7 @@ _DIALECTS = ("anthropic", "openai")
 _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
     "anthropic": frozenset({"api.anthropic.com"}),
     "openai": frozenset({"api.openai.com", "oxionai.com",
-                         "integrate.api.nvidia.com"}),
+                         "integrate.api.nvidia.com", "api.apinex.bond"}),
 }
 
 #: The code-owned hosted-model registry (OPS-1 Decision A2): the policy surface
@@ -160,6 +160,7 @@ _MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
     "openai": ("openai", "OPENAI_API_KEY"),
     "oxionai": ("openai", "OXIONAI_API_KEY"),
     "nvidia": ("openai", "NVIDIA_API_KEY"),
+    "apinex": ("openai", "APINEX_API_KEY"),
 }
 
 #: The endpoint binding for a provider whose id is not its dialect (OPS-6:
@@ -171,6 +172,7 @@ _MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
 _PROVIDER_HOSTS: Final[Mapping[str, str]] = {
     "oxionai": "oxionai.com",
     "nvidia": "integrate.api.nvidia.com",
+    "apinex": "api.apinex.bond",
 }
 
 

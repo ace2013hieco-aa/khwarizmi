@@ -722,6 +722,16 @@ class TestHostOverride:
         assert spec.host == "integrate.api.nvidia.com"
         assert spec.make_dialect().host == "integrate.api.nvidia.com"
 
+    def test_the_apinex_gateway_host_is_accepted_for_the_openai_dialect(
+            self) -> None:
+        """A third reviewed gateway: apinex, apex only."""
+        spec = _spec(provider_id="apinex", dialect="openai",
+                     model_id="deepseek-v4.1-flash",
+                     api_key_env="APINEX_API_KEY",
+                     host="api.apinex.bond")
+        assert spec.host == "api.apinex.bond"
+        assert spec.make_dialect().host == "api.apinex.bond"
+
     def test_the_gateway_www_host_is_refused(self) -> None:
         """The probed www host answers HTTP 403; only the apex is admitted."""
         with pytest.raises(ValueError, match="host allowlist"):
