@@ -507,8 +507,10 @@ class TestProviderRules:
         with pytest.raises(TransientProviderError):
             provider.invoke(_call(provider))
 
-    @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+    @pytest.mark.parametrize("status", [400, 401, 402, 403, 404, 422])
     def test_other_statuses_do_not_retry(self, status: int) -> None:
+        # OPS-5M: 402 is in this set deliberately. It is legible as a billing
+        # failure now, and it is still permanent — a top-up is not a retry.
         provider = _provider(ScriptedTransport(_status(status)))
         with pytest.raises(PermanentProviderError) as info:
             provider.invoke(_call(provider))

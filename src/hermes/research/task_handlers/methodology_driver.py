@@ -119,6 +119,7 @@ from hermes.research.evidence_transitions import (
 __all__ = [
     "ADMISSION_BOUNDARY",
     "DURABILITY_GATE",
+    "METHODOLOGY_COMPLETE",
     "AdmissionRef",
     "ClaimLimits",
     "MethodologyExecution",
@@ -145,6 +146,42 @@ ADMISSION_BOUNDARY = "apply_intent"
 #: holds nodes/edges as derived working state only and claims no durable
 #: substrate state, durable chain or durable node/edge reference.
 DURABILITY_GATE = "docs/archive/ARCHITECTURE_DELTA.md §8 item 9"
+
+#: The one termination value that means **the chain finished** (OPS-5M).
+#:
+#: :attr:`MethodologyExecution.termination` holds this value when, and only when,
+#: the stage loop below ran to its end without breaking: every required stage of
+#: the document was projected, consulted, run and recorded, and every recorded
+#: stage's run reached ``SUCCEEDED``. A stage the document marks not-required is
+#: skipped by design and does not affect it; a stage already recorded (an
+#: idempotent resume) counts as run. Neither stops the loop.
+#:
+#: Every other value the field can hold means the loop **broke before the last
+#: stage** — the chain is truncated. The field is assigned in exactly two places,
+#: each immediately followed by that break:
+#:
+#: - ``STAGE_LIMIT`` — this driver's own value: ``termination.max_stages`` was
+#:   reached before the next stage could run.
+#: - the stopping stage run's own ``termination``, or its ``state`` when that run
+#:   recorded none. In vocabulary that is any
+#:   :class:`hermes.agents.runtime.types.Termination` member — ``PROPOSAL_LIMIT``,
+#:   ``TICK_LIMIT``, ``NO_PROPOSALS``, ``STOP_WHEN``, ``CANCELLED``, ``TIMEOUT``,
+#:   ``MODEL_REFUSED``, ``TOOL_FAILED``, ``PORT_FAILURE`` — or, for a run that
+#:   ended without a reason, a terminal ``TaskStatus`` value (``FAILED``,
+#:   ``CANCELLED``, ``SKIPPED``, ``INVALIDATED``, ``NO_SIGNAL``).
+#:
+#: None of those is legitimate *at this level*. A stage that stops early on
+#: ``STOP_WHEN``, ``NO_PROPOSALS``, ``PROPOSAL_LIMIT`` or ``TICK_LIMIT`` and
+#: still reaches ``SUCCEEDED`` is a stage that did its job: it is recorded, the
+#: chain extends, and this field stays ``COMPLETE`` — a succeeded stage's own
+#: termination never reaches it. Only a stage that did **not** succeed assigns
+#: here, and a chain that stopped at a stage that did not succeed did not finish.
+#:
+#: A consumer must therefore test ``termination != METHODOLOGY_COMPLETE``, never
+#: membership in a list of known failures: the predicate is an equality against
+#: completion, so a termination value added to the runtime later fails closed
+#: rather than passing as complete (the handler's OPS-5M gate).
+METHODOLOGY_COMPLETE = "COMPLETE"
 
 
 # ═══════════════════════ projection (stage → task) ═══════════════════════
@@ -550,6 +587,13 @@ def run_methodology(
     recorded** and does not extend the chain, so a run never reports ``COMPLETE``
     over a stage that did not run.
 
+    ``termination`` is ``METHODOLOGY_COMPLETE`` only when the loop reached the
+    document's last stage without breaking; every other value names why it broke
+    early (the constant's own note is the closed definition). The two are
+    different facts about the run — a truncated chain is still an *execution*,
+    carrying the stages it did record — so this function returns the execution
+    either way and leaves the verdict to its caller.
+
     OPS-18: when ``project_index`` is supplied, it is called once per stage —
     after the previous stage's committed admissions and before ``wiring.run`` —
     and its envelope is appended to the stage's context. The chain half of the
@@ -576,7 +620,7 @@ def run_methodology(
     stages: list[StageRecord] = []
     question_id = ""
     predecessor_id = ""
-    termination = "COMPLETE"
+    termination = METHODOLOGY_COMPLETE
     applied_so_far = 0
     content_cache: dict[str, Mapping[str, Any]] = {}
     evidence_ref = ""

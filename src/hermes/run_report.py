@@ -127,16 +127,7 @@ def build_run_report(
                 "excerpt": bounded_excerpt(refusal.excerpt, excerpt_bytes),
             })
 
-    attempts = [{
-        "tier": row.tier,
-        "provider": row.provider_id,
-        "model": row.model_id,
-        "attempt": row.attempt,
-        "outcome": row.outcome,
-        "tokens_in": row.usage.input_tokens,
-        "tokens_out": row.usage.output_tokens,
-        "duration_ms": row.duration_ms,
-    } for row in ledger]
+    attempts = [_attempt_row(row) for row in ledger]
 
     note_text = tuple(str(note) for note in notes)
     quarantine = next(
@@ -177,6 +168,33 @@ def build_run_report(
 NO_EVIDENCE_REASON = (
     "the run admitted no EVIDENCE_TRANSITION: an EVIDENCE stage ran, and no "
     "evidence ref was admitted in any stage of the run (OPS-5L)")
+
+
+def _attempt_row(row: ModelCallAccount) -> dict[str, Any]:
+    """One ledger row, as the report prints it.
+
+    OPS-5M adds the failure's legibility — the provider's own error class, the
+    HTTP status and the bounded message — **only on a failed attempt**. Runs 20
+    and 21 printed ``PERMANENT (in 0, out 0)`` for a 402 ``billing_error`` and
+    for a malformed request alike; an operator could not tell an empty account
+    from a code fault. A successful attempt's row is byte-identical to before,
+    so a green run's report does not move.
+    """
+    entry: dict[str, Any] = {
+        "tier": row.tier,
+        "provider": row.provider_id,
+        "model": row.model_id,
+        "attempt": row.attempt,
+        "outcome": row.outcome,
+        "tokens_in": row.usage.input_tokens,
+        "tokens_out": row.usage.output_tokens,
+        "duration_ms": row.duration_ms,
+    }
+    if row.outcome != "OK":
+        entry["failure_class"] = row.failure_class or ""
+        entry["http_status"] = row.http_status
+        entry["failure_detail"] = row.failure_detail
+    return entry
 
 
 def _terminal(

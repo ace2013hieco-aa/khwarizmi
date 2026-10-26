@@ -274,6 +274,16 @@ def build_methodology_handler(
     §8 item 9 durability gate is untouched, and `run_methodology` refuses any
     durability claim as data.
 
+    Two gates stand between an execution and a ``completed`` verdict, and they
+    answer different questions. **S6-B2** asks *did anything happen* — a run
+    that recorded nothing through the one write path is not an outcome.
+    **OPS-5M** asks *did it finish* — a run whose termination is not
+    ``METHODOLOGY_COMPLETE`` stopped before the document's last stage, and the
+    stages it recorded on the way do not make the chain whole. Neither implies
+    the other: an effectless complete run fails S6-B2 only, and the truncated
+    chain that admitted at ``OBSERVATION`` and stopped at ``EVIDENCE`` fails
+    OPS-5M only. S6-B2 is checked first and is unchanged.
+
     ``project_index`` (OPS-18) is the composition-injected read port. It is
     called once per stage and its envelope is appended to the stage context;
     the provider is opaque here so this package keeps its "never persistence"
@@ -297,6 +307,7 @@ def build_methodology_handler(
         from hermes.methodology.workflows import MethodologyRefusal
         from hermes.research.source_handlers import HandlerResult
         from hermes.research.task_handlers.methodology_driver import (
+            METHODOLOGY_COMPLETE,
             parse_workflow,
             run_methodology,
         )
@@ -348,6 +359,27 @@ def build_methodology_handler(
                 reason=("PROPOSAL: methodology completed with 0 admissions "
                         "via apply_intent — an effectless run is not a "
                         "recorded outcome (S6-B2)"),
+                outcome_recorded=False)
+        if execution.termination != METHODOLOGY_COMPLETE:
+            # OPS-5M: the gate above asks whether anything happened; this one
+            # asks whether the run finished. They are different questions and
+            # both need asking — a chain that admitted at OBSERVATION and then
+            # stopped at EVIDENCE on a terminal refusal has a non-zero
+            # admission count and no finished chain, so S6-B2 alone called it
+            # completed. A run that did not reach METHODOLOGY_COMPLETE did not
+            # finish, whatever it managed to record on the way (the driver
+            # assigns the field only where its stage loop breaks; the
+            # constant's note is the closed definition and every non-complete
+            # value). The predicate is an equality against completion, so an
+            # unknown or empty value fails closed here too.
+            return HandlerResult(
+                status="failed_typed",
+                reason=(f"PROPOSAL: methodology {execution.methodology_id!r} "
+                        f"stopped early — termination "
+                        f"{execution.termination!r} with "
+                        f"{len(execution.stages)} of {len(parsed.stages)} "
+                        f"declared stage(s) recorded; a truncated chain is "
+                        f"not a recorded outcome (OPS-5M)"),
                 outcome_recorded=False)
         return HandlerResult(
             status="completed",

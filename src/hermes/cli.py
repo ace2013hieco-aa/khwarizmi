@@ -701,6 +701,14 @@ def _run(args, cfg: HermesConfig) -> int:
                     f"{row.outcome}")
             if row.refusal_code:
                 line += f" code={row.refusal_code}"
+            # OPS-5M: a failed attempt says what failed. `PERMANENT` alone was
+            # the whole diagnosis runs 20/21 offered for an exhausted account;
+            # the status and the provider's own error class make a 402 a
+            # billing failure and a 400 a request failure at a glance.
+            if row.http_status is not None:
+                line += f" status={row.http_status}"
+            if row.failure_class:
+                line += f" class={row.failure_class}"
             if row.attempt >= 1:
                 line += (f" (in {row.usage.input_tokens}, "
                          f"out {row.usage.output_tokens})")

@@ -677,7 +677,14 @@ def test_the_driver_defines_no_new_vocabulary() -> None:
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id.isupper():
                     constants.add(target.id)
-    assert constants == {"ADMISSION_BOUNDARY", "DURABILITY_GATE"}
+    # OPS-5M adds ``METHODOLOGY_COMPLETE``. It is a *name* for a value the
+    # driver already produced (``termination = "COMPLETE"`` was a literal in
+    # this file), not a new value: it introduces no code, no kind and no
+    # string the plane did not already hold. The handler compares against it,
+    # so the two spellings of "finished" cannot drift — which is the point of
+    # naming it. The closed set stays closed at three.
+    assert constants == {"ADMISSION_BOUNDARY", "DURABILITY_GATE",
+                         "METHODOLOGY_COMPLETE"}
     source = DRIVER_PATH.read_text(encoding="utf-8")
     for code in ("UNSUPPORTED_CLAIM", "PREMATURE_CONCLUSION", "CIRCULAR_REASONING",
                  "RETRACTED_CITATION"):

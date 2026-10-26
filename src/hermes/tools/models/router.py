@@ -647,7 +647,17 @@ class ModelCallAccount:
     usage: TokenUsage = field(default_factory=TokenUsage)
     context_tokens: int = 0
     refusal_code: str | None = None
+    #: OPS-5M — the failure's legibility, all three empty on a successful call.
+    #: ``failure_class`` names the *class* of the failure: the provider's own
+    #: error class when its body named one (``billing_error``), else the hazard
+    #: class (``MALFORMED_REQUEST``), else the exception type. ``http_status`` is
+    #: the status the provider answered with, and ``failure_detail`` the bounded
+    #: one-line message. A token, a number and a sentence — never a body, never
+    #: a header, never a credential. Diagnostic only: nothing reads them as an
+    #: authority and nothing retries on them.
     failure_class: str | None = None
+    http_status: int | None = None
+    failure_detail: str = ""
     price_usd: float | None = None
     #: Wall-clock duration of this provider attempt in milliseconds (OPS-10).
     #: Diagnostic only; a refusal before any provider call is 0.0.
@@ -1895,19 +1905,21 @@ class ModelRouter:
                 usage=usage, failure_class=None,
                 duration_ms=elapsed_ms())
         except TransientProviderError as exc:
-            failure_class = type(exc).__name__
+            failure_class, status, detail = _failure_of(exc)
             self._record(candidate=candidate, request=request, attempt=attempt,
                          outcome="TRANSIENT", normalized=normalized,
                          digest=digest, usage=usage,
                          failure_class=failure_class,
+                         http_status=status, failure_detail=detail,
                          duration_ms=elapsed_ms())
             raise
         except PermanentProviderError as exc:
-            failure_class = type(exc).__name__
+            failure_class, status, detail = _failure_of(exc)
             self._record(candidate=candidate, request=request, attempt=attempt,
                          outcome="PERMANENT", normalized=normalized,
                          digest=digest, usage=usage,
                          failure_class=failure_class,
+                         http_status=status, failure_detail=detail,
                          duration_ms=elapsed_ms())
             raise
 
@@ -2159,6 +2171,8 @@ class ModelRouter:
         usage: TokenUsage, failure_class: str | None,
         refusal_code: str | None = None,
         duration_ms: float = 0.0,
+        http_status: int | None = None,
+        failure_detail: str = "",
     ) -> ModelCallAccount:
         row = ModelCallAccount(
             sequence=len(self._ledger),
@@ -2175,7 +2189,9 @@ class ModelRouter:
             usage=usage,
             context_tokens=usage.input_tokens or self._estimate_context_tokens(request),
             refusal_code=refusal_code,
-            failure_class=failure_class,
+            failure_class=_bounded_failure_class(failure_class),
+            http_status=http_status,
+            failure_detail=_bounded_failure_detail(failure_detail),
             price_usd=_price_of(candidate.profile, usage),
             duration_ms=duration_ms)
         self._ledger.append(row)
@@ -2368,9 +2384,64 @@ def _price_of(profile: ModelProfile, usage: TokenUsage) -> float | None:
 
 
 def _note(candidate: _Candidate, attempt: int, exc: ProviderError) -> str:
+    """The controller note for a failed attempt — class and status included.
+
+    OPS-5M: ``attempt 1: PermanentProviderError`` was the whole diagnosis runs
+    20 and 21 offered. The provider's own class and the HTTP status are what an
+    operator reads first, and both are the bounded tokens the ledger already
+    holds — the note says the same thing the row says.
+    """
+    detail = type(exc).__name__
+    status = getattr(exc, "http_status", None)
+    if isinstance(status, int):
+        detail += f" HTTP {status}"
+    error_class = str(getattr(exc, "error_class", "") or "")
+    if error_class:
+        detail += f" {error_class}"
     return (f"{candidate.provider_id}/{candidate.model_id} "
-            f"(tier {candidate.tier}) attempt {attempt}: "
-            f"{type(exc).__name__}")
+            f"(tier {candidate.tier}) attempt {attempt}: {detail}")
+
+
+#: The ledger's own caps on a failure's legibility (OPS-5M). A class is a token
+#: and a detail is one line; both are bounded here as well as at the provider
+#: edge, because the ledger is the surface the bound is a promise about — a
+#: provider that ignores the edge's helper cannot widen the row.
+MAX_FAILURE_CLASS_CHARS = 64
+MAX_FAILURE_DETAIL_CHARS = 240
+
+
+def _bounded_failure_class(value: str | None) -> str | None:
+    """The failure's class, capped — ``None`` when there is nothing to say."""
+    if not value:
+        return None
+    token = str(value).strip()[:MAX_FAILURE_CLASS_CHARS]
+    return token or None
+
+
+def _bounded_failure_detail(value: str) -> str:
+    """The failure's message, flattened to one line and capped."""
+    return " ".join(str(value).split())[:MAX_FAILURE_DETAIL_CHARS]
+
+
+def _failure_of(exc: ProviderError) -> tuple[str, int | None, str]:
+    """``(class, status, message)`` for one failed attempt (OPS-5M).
+
+    The class is the provider's own when it named one — that is what makes a
+    ``402 billing_error`` readable at a glance and a ``400`` a request failure —
+    else the hazard class, else the exception's type name, so no failed attempt
+    is ever class-less. The status is the provider's when the failure had one.
+    The message is ``str(exc)``, which is this plane's own sentence: no vendor
+    body text reaches it.
+    """
+    error_class = str(getattr(exc, "error_class", "") or "")
+    hazard = str(getattr(exc, "hazard_class", "") or "")
+    if hazard == "UNKNOWN":
+        # The default is not a class: it says the raiser did not classify, so
+        # the exception's own type is the more useful name.
+        hazard = ""
+    name = error_class or hazard or type(exc).__name__
+    status = getattr(exc, "http_status", None)
+    return (name, status if isinstance(status, int) else None, str(exc))
 
 
 def _default_sleep(clock: Any) -> Callable[[float], None]:

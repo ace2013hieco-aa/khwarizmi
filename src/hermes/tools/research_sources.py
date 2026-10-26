@@ -630,7 +630,18 @@ class RequestLogRecord:
 
 class ProviderError(Exception):
     """Base provider error. Carries provider_id + hazard_class + recordable so the
-    caller (and `search_accounting`) can classify without inspecting messages."""
+    caller (and `search_accounting`) can classify without inspecting messages.
+
+    OPS-5M adds the *legibility* pair, both diagnostic and neither an authority:
+    ``http_status`` is the status the provider answered with, and ``error_class``
+    is the provider's own name for the failure (``billing_error``,
+    ``invalid_request_error``) when its error body names one. A call that dies on
+    ``HTTP 402 {"type": "billing_error"}`` and a call that dies on a malformed
+    request are both ``PermanentProviderError`` — the retry decision is unchanged
+    — but an operator must be able to tell them apart without a probe. Nothing
+    here carries a body, a header or a credential: the class is a bounded token,
+    extracted where the response is read and never stored whole.
+    """
 
     def __init__(
         self,
@@ -638,11 +649,15 @@ class ProviderError(Exception):
         provider_id: str = "",
         hazard_class: str = "UNKNOWN",
         recordable: bool = True,
+        http_status: int | None = None,
+        error_class: str = "",
     ) -> None:
         super().__init__(message)
         self.provider_id = provider_id
         self.hazard_class = hazard_class
         self.recordable = recordable
+        self.http_status = http_status
+        self.error_class = error_class
 
 
 class TransientProviderError(ProviderError):

@@ -101,24 +101,80 @@ _UNTRUSTED_TAG: Final = re.compile(r"</?\s*untrusted", re.IGNORECASE)
 _TRANSIENT_STATUSES: Final[frozenset[int]] = frozenset(
     {408, 409, 425, 429, 500, 502, 503, 504, 529})
 _CREDENTIAL_STATUSES: Final[frozenset[int]] = frozenset({401, 403})
+#: The status a provider answers with when the account cannot pay for the call.
+#: ``402`` is not retryable and is not a malformed request: it is the one
+#: failure whose whole diagnosis is "top up the account" (OPS-5M, runs 20/21).
+_BILLING_STATUSES: Final[frozenset[int]] = frozenset({402})
+
+#: The bound on the provider's error class before it reaches the ledger. An
+#: error class is a token (``billing_error``), never a sentence and never a body;
+#: the cap makes that true of a vendor that sends something else.
+_MAX_ERROR_CLASS_CHARS: Final = 64
+_ERROR_CLASS_SEPARATORS: Final = re.compile(r"[^A-Za-z0-9_.:-]+")
 
 
 # ── errors ──
 
 
 def _permanent(provider_id: str, code: str, detail: str,
-               hazard: str = "MALFORMED_REQUEST") -> PermanentProviderError:
+               hazard: str = "MALFORMED_REQUEST", *,
+               http_status: int | None = None,
+               error_class: str = "") -> PermanentProviderError:
     """A non-retryable refusal. Names a code and a fact, never a body."""
     return PermanentProviderError(
         f"{code}: {detail}", provider_id=provider_id,
-        hazard_class=hazard, recordable=False)
+        hazard_class=hazard, recordable=False,
+        http_status=http_status, error_class=error_class)
 
 
 def _transient(provider_id: str, status: int,
-               hazard: str) -> TransientProviderError:
+               hazard: str, *, error_class: str = "") -> TransientProviderError:
     return TransientProviderError(
         f"HTTP {status} from the model provider (retryable)",
-        provider_id=provider_id, hazard_class=hazard, recordable=True)
+        provider_id=provider_id, hazard_class=hazard, recordable=True,
+        http_status=status, error_class=error_class)
+
+
+def _bounded_error_class(raw: Any) -> str:
+    """The provider's error class as a bounded token — never the body.
+
+    Untrusted text is reduced to one short token: separators collapse to ``_``,
+    everything outside the token alphabet is dropped, and the result is capped.
+    A vendor that sends a paragraph, a body dump or a header value as its
+    ``type`` therefore contributes a token or nothing — never the text.
+    """
+    if not isinstance(raw, str):
+        return ""
+    token = _ERROR_CLASS_SEPARATORS.sub("_", raw.strip())[:_MAX_ERROR_CLASS_CHARS]
+    return token.strip("_")
+
+
+def _error_class_of(response: TransportResponse) -> str:
+    """The provider's own error class from a failed response, bounded.
+
+    Reads *one* field out of the body — ``error.type``, ``error.code``,
+    ``type`` or ``code``, in that order (the shapes Anthropic, OpenAI and the
+    OpenAI-compatible gateways use) — and reduces it to a token. The body, its
+    message text and every header stay where they are: an operator needs to know
+    *what class* of failure this was, not what the vendor wrote about it.
+    """
+    try:
+        document = json.loads(response.body.decode("utf-8", errors="replace"))
+    except ValueError:
+        return ""
+    if not isinstance(document, Mapping):
+        return ""
+    inner = document.get("error")
+    candidates: tuple[Any, ...] = (
+        inner.get("type") if isinstance(inner, Mapping) else None,
+        inner.get("code") if isinstance(inner, Mapping) else None,
+        document.get("type"),
+        document.get("code"))
+    for candidate in candidates:
+        token = _bounded_error_class(candidate)
+        if token:
+            return token
+    return ""
 
 
 # ── egress guard ──
@@ -686,7 +742,7 @@ class CloudChatProvider:
                 provider_id=self.provider_id, hazard_class="SECRET_LEAK",
                 recordable=False)
         response = self._transport.request(spec)
-        self._raise_for_status(response.status)
+        self._raise_for_status(response)
         return self._dialect.parse(response, provider_id=self.provider_id)
 
     def stream(self, call: ModelCall) -> tuple[ProviderChunk, ...]:
@@ -723,16 +779,40 @@ class CloudChatProvider:
                 "tool calls are outside this seam's remit — the model answers, "
                 "it never acts")
 
-    def _raise_for_status(self, status: int) -> None:
+    def _raise_for_status(self, response: TransportResponse) -> None:
+        """Classify a non-2xx answer — the status, never the body.
+
+        The retry decision is unchanged (OPS-5M reclassifies nothing): a 402
+        stays ``PermanentProviderError`` because a 402 genuinely will not succeed
+        on retry. What changes is that the failure now *says* what it is — the
+        status and the provider's own error class ride the error to the ledger,
+        so an exhausted account costs a glance instead of an investigation.
+        """
+        status = response.status
         if 200 <= status < 300:
             return
+        error_class = _error_class_of(response)
         if status in _TRANSIENT_STATUSES:
             raise _transient(self.provider_id, status,
-                             "THROTTLED" if status == 429 else "TRANSIENT")
+                             "THROTTLED" if status == 429 else "TRANSIENT",
+                             error_class=error_class)
         if status in _CREDENTIAL_STATUSES:
             raise _permanent(
                 self.provider_id, "ROLE",
                 f"HTTP {status}: the provider rejected the credential",
-                hazard="CREDENTIAL_REJECTED")
+                hazard="CREDENTIAL_REJECTED",
+                http_status=status, error_class=error_class)
+        if status in _BILLING_STATUSES:
+            # No refusal code is honest for this one: `MALFORMED_PAYLOAD` names
+            # the wrong fault and `ROLE` names authority, so the message carries
+            # no code prefix at all. The class is data (`error_class`), and the
+            # sentence says what an operator needs: the account cannot pay.
+            raise PermanentProviderError(
+                f"HTTP {status}: the provider will not serve this account — a "
+                f"billing failure, not a malformed request",
+                provider_id=self.provider_id, hazard_class="BILLING",
+                recordable=False, http_status=status, error_class=error_class)
         raise _permanent(self.provider_id, "MALFORMED_PAYLOAD",
-                         f"HTTP {status} from the model provider")
+                         f"HTTP {status} from the model provider",
+                         hazard="MALFORMED_REQUEST",
+                         http_status=status, error_class=error_class)

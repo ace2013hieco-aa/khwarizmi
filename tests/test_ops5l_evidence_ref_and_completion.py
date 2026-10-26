@@ -33,10 +33,12 @@ The four falsifiers the design gate names:
 - a stage before any admission carries no ``runtime.evidence`` part (§1.3).
 
 What this file deliberately does **not** fix: the latent second path (§8) — a
-stage run that ends non-SUCCEEDED after an earlier admission still reaches the
-handler's ``completed`` branch, because the handler's only gate is a run-level
-admission count. That is a task-state semantics change outside this slice; it is
-demonstrated and named here, never asserted as correct.
+stage run that ends non-SUCCEEDED after an earlier admission still reached the
+handler's ``completed`` branch, because the handler's only gate was a run-level
+admission count. That was a task-state semantics change outside this slice; it
+was demonstrated and named here, never asserted as correct. **OPS-5M has since
+taken it**: §8's test now asserts the task state too, because the defect it was
+protecting no longer exists.
 """
 
 from __future__ import annotations
@@ -1036,23 +1038,22 @@ def test_the_report_read_is_project_scoped_and_fails_closed_to_empty() -> None:
         conn.close()
 
 
-# ═══════════════ 8. the latent second path: named, not fixed ═══════════════
+# ═══════════ 8. the latent second path: named here, fixed by OPS-5M ═══════════
 
 
 def test_a_stage_refusal_after_an_admission_is_reported_failed() -> None:
-    """The second path OPS-5L found and did **not** fix.
+    """The second path OPS-5L found and left; OPS-5M closed it.
 
     A stage run that ends non-SUCCEEDED after an earlier admission makes the
-    driver return an *execution*, and the handler's only gate is a run-level
-    admission count — so the task can reach SUCCEEDED with the chain half
-    recorded. Fixing that is a task-state semantics change and belongs to its own
-    slice; the design note names it and recommends
-    ``execution.termination != "COMPLETE"`` as the handler's second gate.
+    driver return an *execution*, and the handler's only gate was a run-level
+    admission count — so the task reached SUCCEEDED with the chain half
+    recorded. OPS-5L named it and recommended
+    ``execution.termination != "COMPLETE"`` as the handler's second gate; OPS-5M
+    landed that gate (``tests/test_ops5m_truncated_chain.py``).
 
-    What this slice guarantees is the report: the terminal mirrors the record, and
-    the backstop reads admitted proposal kinds, so the run is never *diagnosed* as
-    a success. The row's own state is deliberately not asserted here — pinning it
-    would freeze the defect as the contract.
+    So this test now asserts **both** halves: the row is not a success, and the
+    report mirrors it. Before OPS-5M the row assertion would have failed — that
+    is exactly why it was withheld, and why it can be made now.
     """
     conn = _spine()
     try:
@@ -1063,9 +1064,15 @@ def test_a_stage_refusal_after_an_admission_is_reported_failed() -> None:
         ctrl = Controller(conn, project_id=PROJECT,
                           task_handlers={"methodology_run": handler},
                           clock=lambda: CLOCK)
-        _admit(conn, "t-ops5l-latent")
+        task_id = _admit(conn, "t-ops5l-latent")
 
-        ctrl.tick()
+        out = ctrl.tick()
+
+        # The row: a truncated chain never reaches SUCCEEDED. The handler's
+        # failed_typed verdict is retried, not succeeded.
+        assert out.succeeded == []
+        assert out.retried == [task_id]
+        assert _task_status(conn, task_id) == TaskStatus.RETRYING.value
 
         snapshots = _snapshots(collected)
         outcomes = _root_task_outcomes(conn, PROJECT, snapshots)
@@ -1074,13 +1081,17 @@ def test_a_stage_refusal_after_an_admission_is_reported_failed() -> None:
             ticks=1, stage_runs=snapshots, ledger=(), notes=list(ctrl.notes),
             vector="", task_outcomes=outcomes)
 
-        # Evidence the follow-up slice needs: the chain did not complete, and a
-        # stage run did not succeed — so the stage-only rule alone was not
+        # The evidence the follow-up slice needed: the chain did not complete,
+        # and a stage run did not succeed — so the stage-only rule alone was not
         # enough, and the record is what the report must read.
         assert [r.state for r in collected][-1] != TaskStatus.SUCCEEDED.value
         assert report["terminal_state"] != "SUCCEEDED"
         assert report["terminal_state"] == "FAILED"
         assert report["terminal_reason"]
+        # And the reason the row now carries is the new gate's, not S6-B2's:
+        # an admission happened, so the run was never effectless.
+        assert "OPS-5M" in outcomes[0]["reason"]
+        assert "S6-B2" not in outcomes[0]["reason"]
     finally:
         conn.close()
 

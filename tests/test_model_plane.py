@@ -387,7 +387,10 @@ class TestFrozenSurfaces:
             "sequence", "tier", "profile", "provider_id", "model_id", "attempt",
             "outcome", "lease_generation", "request_digest", "normalized_request",
             "retrieved_at", "usage", "context_tokens", "refusal_code",
-            "failure_class", "price_usd", "duration_ms"}
+            "failure_class", "price_usd", "duration_ms",
+            # OPS-5M: the failure's status and bounded message, beside the class
+            # that was already here — three diagnostic fields, no new authority.
+            "http_status", "failure_detail"}
 
     def test_decision_shaped_keys_are_the_verdict_vocabulary(self) -> None:
         assert "verdict" in DECISION_SHAPED_KEYS
@@ -1299,7 +1302,11 @@ class TestAccounting:
         assert router.provider_attempts == provider.calls_made
         assert [row.attempt for row in rows] == [1, 2]
         assert [row.outcome for row in rows] == ["TRANSIENT", "OK"]
-        assert rows[0].failure_class == "TransientProviderError"
+        # OPS-5M: the class names the *failure*, not the Python type that
+        # carried it — the hazard class when the provider named none.
+        assert rows[0].failure_class == "TIMEOUT"
+        assert rows[0].http_status is None
+        assert rows[0].failure_detail == "a"
         assert rows[0].refusal_code is None
 
     def test_sequence_is_contiguous(self) -> None:
@@ -1433,7 +1440,11 @@ class TestAccounting:
         assert len(rows) == 1
         assert rows[0].attempt == 1
         assert rows[0].outcome == "PERMANENT"
-        assert rows[0].failure_class == "PermanentProviderError"
+        # OPS-5M: the provider named no error class, so the hazard class is the
+        # row's class — never the exception's type name, which said nothing.
+        assert rows[0].failure_class == "MALFORMED_200"
+        assert rows[0].http_status is None
+        assert rows[0].failure_detail == "x"
         router.verify_accounting()
 
     def test_refusal_as_data_shape(self) -> None:
