@@ -732,6 +732,25 @@ class TestHostOverride:
         assert spec.host == "api.apinex.bond"
         assert spec.make_dialect().host == "api.apinex.bond"
 
+    def test_a_gateway_that_serves_another_prefix_may_declare_its_path(
+            self) -> None:
+        """OpenRouter serves OpenAI's shape under /api/v1, not /v1."""
+        spec = _spec(provider_id="openrouter", dialect="openai",
+                     model_id="~openai/gpt-sol-latest",
+                     api_key_env="OPENROUTER_API_KEY",
+                     host="openrouter.ai",
+                     path="/api/v1/chat/completions")
+        assert spec.path == "/api/v1/chat/completions"
+        assert spec.make_dialect().path == "/api/v1/chat/completions"
+
+    def test_a_path_outside_the_dialect_allowlist_is_refused(self) -> None:
+        """The credential rides the request to whatever path is built."""
+        with pytest.raises(ValueError, match="path allowlist"):
+            _spec(provider_id="openrouter", dialect="openai",
+                  model_id="~openai/gpt-sol-latest",
+                  api_key_env="OPENROUTER_API_KEY",
+                  host="openrouter.ai", path="/v1/steal")
+
     def test_the_gateway_www_host_is_refused(self) -> None:
         """The probed www host answers HTTP 403; only the apex is admitted."""
         with pytest.raises(ValueError, match="host allowlist"):

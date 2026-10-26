@@ -698,15 +698,21 @@ def _canonical_bytes(value: Any) -> bytes:
 def parse_model_ref(ref: str) -> tuple[str, str]:
     """Parse a config model ref `"provider:model"` into its two parts.
 
+    The split is on the **first** colon only: a hosted model id may itself carry
+    a colon — OpenRouter's `nvidia/nemotron-3.5-super-vl:free` names a routing
+    variant — and the provider prefix is drawn from a closed registry, so there
+    is no ambiguity about which colon separates them.
+
     Raises `ProviderValidationError` on a malformed ref: a config ref is a
     startup surface, and `load_config`'s discipline is to fail loudly rather
     than run with a value it cannot interpret.
     """
-    if not isinstance(ref, str) or ref.count(":") != 1:
+    if not isinstance(ref, str) or ":" not in ref:
         raise ProviderValidationError(
             f"model ref must be 'provider:model', got {ref!r}",
             hazard_class="MALFORMED_REQUEST", recordable=False)
-    provider_id, model_id = (part.strip() for part in ref.split(":"))
+    provider_id, _, model_id = ref.partition(":")
+    provider_id, model_id = provider_id.strip(), model_id.strip()
     if not provider_id or not model_id:
         raise ProviderValidationError(
             f"model ref must name both a provider and a model, got {ref!r}",

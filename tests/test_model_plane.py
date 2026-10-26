@@ -502,7 +502,18 @@ class TestPolicySelection:
         with pytest.raises(ProviderValidationError):
             parse_model_ref("alpha:")
         with pytest.raises(ProviderValidationError):
-            parse_model_ref("alpha:m1:extra")
+            parse_model_ref(":beta")
+
+    def test_a_colon_inside_the_model_id_is_legal(self) -> None:
+        """OpenRouter names routing variants with a colon: `…-vl:free`.
+
+        The split is on the first colon, and the provider prefix is drawn from
+        a closed registry, so the separator is unambiguous. This used to refuse
+        every ref with two colons, which made a free-tier model unusable.
+        """
+        assert parse_model_ref("openrouter:nvidia/nemotron-3.5-super-vl:free") == (
+            "openrouter", "nvidia/nemotron-3.5-super-vl:free")
+        assert parse_model_ref("alpha:m1:extra") == ("alpha", "m1:extra")
 
     def test_tier_order_prefers_the_requested_tier(self) -> None:
         policy = _policy(fallback_chain=("m", "c", "s"))

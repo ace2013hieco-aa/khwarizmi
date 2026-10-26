@@ -146,7 +146,8 @@ _DIALECTS = ("anthropic", "openai")
 _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
     "anthropic": frozenset({"api.anthropic.com"}),
     "openai": frozenset({"api.openai.com", "oxionai.com",
-                         "integrate.api.nvidia.com", "api.apinex.bond"}),
+                         "integrate.api.nvidia.com", "api.apinex.bond",
+                         "openrouter.ai"}),
 }
 
 #: The code-owned hosted-model registry (OPS-1 Decision A2): the policy surface
@@ -161,6 +162,7 @@ _MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
     "oxionai": ("openai", "OXIONAI_API_KEY"),
     "nvidia": ("openai", "NVIDIA_API_KEY"),
     "apinex": ("openai", "APINEX_API_KEY"),
+    "openrouter": ("openai", "OPENROUTER_API_KEY"),
 }
 
 #: The endpoint binding for a provider whose id is not its dialect (OPS-6:
@@ -173,6 +175,21 @@ _PROVIDER_HOSTS: Final[Mapping[str, str]] = {
     "oxionai": "oxionai.com",
     "nvidia": "integrate.api.nvidia.com",
     "apinex": "api.apinex.bond",
+    "openrouter": "openrouter.ai",
+}
+
+#: The code-owned request paths a dialect may use. A gateway that serves the
+#: same API under a different prefix (OpenRouter serves OpenAI's shape under
+#: ``/api/v1``) is admitted here by name — never by config, for the same reason
+#: the host is: the credential rides the request to whatever URL this builds.
+_DIALECT_PATHS: Final[Mapping[str, frozenset[str]]] = {
+    "anthropic": frozenset({"/v1/messages"}),
+    "openai": frozenset({"/v1/chat/completions", "/api/v1/chat/completions"}),
+}
+
+#: The path a provider uses when it is not its dialect's default.
+_PROVIDER_PATHS: Final[Mapping[str, str]] = {
+    "openrouter": "/api/v1/chat/completions",
 }
 
 
@@ -511,6 +528,7 @@ class CloudModelSpec:
     model_id: str
     api_key_env: str
     host: str = ""
+    path: str = ""
     context_window_tokens: int = 200_000
     max_output_tokens: int = 4_096
     input_cost_per_1k_tokens: float = 0.0
@@ -531,6 +549,14 @@ class CloudModelSpec:
                 f"{sorted(_DIALECT_HOSTS[self.dialect])} — a key-bearing "
                 f"transport is never redirected to an undeclared host")
         object.__setattr__(self, "host", canonical)
+        declared_path = self.path.strip()
+        if declared_path and declared_path not in _DIALECT_PATHS[self.dialect]:
+            raise ValueError(
+                f"CloudModelSpec.path {self.path!r} is outside the "
+                f"{self.dialect!r} path allowlist "
+                f"{sorted(_DIALECT_PATHS[self.dialect])} — a key-bearing "
+                f"transport is never redirected to an undeclared path")
+        object.__setattr__(self, "path", declared_path)
 
     def to_profile(self) -> ModelProfile:
         return ModelProfile(
@@ -548,8 +574,10 @@ class CloudModelSpec:
         if self.dialect == "anthropic":
             return (AnthropicMessagesDialect(host=self.host) if self.host
                     else AnthropicMessagesDialect())
-        return (OpenAIChatDialect(host=self.host) if self.host
-                else OpenAIChatDialect())
+        if self.host or self.path:
+            return OpenAIChatDialect(host=self.host or "api.openai.com",
+                                     **({"path": self.path} if self.path else {}))
+        return OpenAIChatDialect()
 
 
 def tier_refs_from_config(cfg: HermesConfig) -> dict[str, str]:
@@ -594,7 +622,8 @@ def specs_from_tiers(
                 spec = CloudModelSpec(
                     provider_id=provider_id, dialect=dialect,
                     model_id=model_id, api_key_env=api_key_env,
-                    host=_PROVIDER_HOSTS.get(provider_id, ""))
+                    host=_PROVIDER_HOSTS.get(provider_id, ""),
+                    path=_PROVIDER_PATHS.get(provider_id, ""))
                 if not spec.host and provider_id != spec.dialect:
                     raise ValueError(
                         f"provider {provider_id!r} has no code-owned endpoint "
