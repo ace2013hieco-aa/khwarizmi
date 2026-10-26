@@ -30,12 +30,14 @@ from pathlib import Path
 from typing import Any
 
 from hermes.agents.runtime.types import TaskStatus
+from hermes.core.intents import IntentKind
 from hermes.eval.live_vector import StageRunSnapshot
 from hermes.tools.models.router import ModelCallAccount, bounded_excerpt
 
 __all__ = [
     "DEFAULT_EXCERPT_BYTES",
     "DEFAULT_MAX_BYTES",
+    "NO_EVIDENCE_REASON",
     "build_run_report",
     "new_run_id",
     "redact_report",
@@ -83,6 +85,7 @@ def build_run_report(
     mode: str = "live",
     excerpt_bytes: int = DEFAULT_EXCERPT_BYTES,
     generated_at: str = "",
+    task_outcomes: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     """Assemble the report from the live run's own surfaces.
 
@@ -90,6 +93,15 @@ def build_run_report(
     model's normalized request are never read. A refusal's diagnostic excerpt
     is the *reply* text, bounded here again — carried for model-plane and
     gateway refusals alike (OPS-5K), so a refused ref shows what was written.
+
+    OPS-5L: ``task_outcomes`` is the root methodology task's outcome (its
+    final state and the reason on its latest FAILED transition). The report's
+    terminal mirrors that record instead of inferring success from stage
+    states; ``terminal_reason`` names the failure. When no task outcome is
+    supplied, a stage-only report still fails closed if an ``EVIDENCE`` stage
+    admitted no ``EVIDENCE_TRANSITION`` anywhere in the run. This is a
+    diagnostic field, never an authority: the journal and the task row remain
+    the record.
     """
     stages: list[dict[str, Any]] = []
     refusals: list[dict[str, Any]] = []
@@ -129,17 +141,9 @@ def build_run_report(
     note_text = tuple(str(note) for note in notes)
     quarantine = next(
         (note for note in note_text if "quarantin" in note.lower()), "")
-    states = [snapshot.result.state for snapshot in stage_runs]
-    if quarantine:
-        # A quarantined task outranks per-stage state: its stages may each have
-        # ended SUCCEEDED with zero admissions, but the run did not.
-        terminal = "QUARANTINED"
-    elif not states:
-        terminal = "NO_STAGE_RUNS"
-    elif all(state == TaskStatus.SUCCEEDED.value for state in states):
-        terminal = "SUCCEEDED"
-    else:
-        terminal = "FAILED"
+    terminal, terminal_reason = _terminal(
+        quarantine=quarantine, stage_runs=stage_runs,
+        task_outcomes=task_outcomes, excerpt_bytes=excerpt_bytes)
 
     return {
         "report": "diagnostic-run-report",
@@ -153,6 +157,7 @@ def build_run_report(
         "mode": mode,
         "ticks": ticks,
         "terminal_state": terminal,
+        "terminal_reason": terminal_reason,
         "quarantine_reason": quarantine,
         "stages": stages,
         "model_attempts": attempts,
@@ -165,6 +170,74 @@ def build_run_report(
         "refusals_omitted": 0,
         "notes_omitted": 0,
     }
+
+
+#: The fail-closed backstop's reason (OPS-5L). Diagnostic text, not a code: the
+#: terminal is the existing ``FAILED``, and this sentence says why.
+NO_EVIDENCE_REASON = (
+    "the run admitted no EVIDENCE_TRANSITION: an EVIDENCE stage ran, and no "
+    "evidence ref was admitted in any stage of the run (OPS-5L)")
+
+
+def _terminal(
+    *,
+    quarantine: str,
+    stage_runs: Sequence[StageRunSnapshot],
+    task_outcomes: Sequence[Mapping[str, Any]],
+    excerpt_bytes: int,
+) -> tuple[str, str]:
+    """The report's terminal and the reason that explains it (OPS-5L).
+
+    Precedence, most authoritative first:
+
+    1. a quarantine note: ``QUARANTINED`` (OPS-10, unchanged), and the note is
+       the reason;
+    2. a root task that did not end ``SUCCEEDED``: ``FAILED``, and the reason is
+       the task's latest FAILED transition reason (or a sentence naming its
+       state when none is on file);
+    3. an ``EVIDENCE`` stage run with no admitted ``EVIDENCE_TRANSITION`` in any
+       stage of the run: ``FAILED`` (the fail-closed backstop, for a caller
+       with no task outcome and as a second check when there is one). It reads
+       the admitted proposals' *kind*, never the admission count, so a review
+       child's ``INSERT_TASK`` cannot mask it;
+    4. no stage runs and no task outcome: ``NO_STAGE_RUNS``;
+    5. every stage run ``SUCCEEDED``: ``SUCCEEDED``;
+    6. otherwise ``FAILED``, naming the first stage run that did not succeed.
+
+    Only existing vocabulary: no terminal value is new. ``SUCCEEDED`` needs
+    every check to pass, so the stage data can veto a task outcome but can
+    never promote one. The reason is empty exactly when the terminal is
+    ``SUCCEEDED`` or ``NO_STAGE_RUNS``.
+    """
+    succeeded = TaskStatus.SUCCEEDED.value
+    if quarantine:
+        return "QUARANTINED", bounded_excerpt(quarantine, excerpt_bytes)
+    for outcome in task_outcomes:
+        state = str(outcome.get("state") or "")
+        if state == succeeded:
+            continue
+        reason = str(outcome.get("reason") or "")
+        if not reason:
+            task_id = str(outcome.get("task_id") or "")
+            reason = (f"root task {task_id!r} ended {state or 'UNKNOWN'} "
+                      f"with no FAILED reason on file")
+        return "FAILED", bounded_excerpt(reason, excerpt_bytes)
+    ran_evidence = any(snapshot.stage == "EVIDENCE" for snapshot in stage_runs)
+    admitted_evidence = any(
+        proposal.intent.kind == IntentKind.EVIDENCE_TRANSITION
+        for snapshot in stage_runs
+        for proposal in snapshot.result.admitted())
+    if ran_evidence and not admitted_evidence:
+        return "FAILED", NO_EVIDENCE_REASON
+    if not stage_runs and not task_outcomes:
+        return "NO_STAGE_RUNS", ""
+    for snapshot in stage_runs:
+        result = snapshot.result
+        if result.state != succeeded:
+            return "FAILED", (
+                f"stage {snapshot.stage} ended {result.state}"
+                + (f" ({result.termination})" if result.termination else ""))
+    return "SUCCEEDED", ""
 
 
 def redact_report(report: Mapping[str, Any],
@@ -249,7 +322,8 @@ def _fit(report: dict[str, Any], max_bytes: int) -> dict[str, Any]:
     minimal_keys = (
         "report", "version", "not_a_record", "disclaimer", "run_id",
         "project_id", "started_at", "generated_at", "mode", "ticks",
-        "terminal_state", "quarantine_reason", "vector", "truncated",
+        "terminal_state", "terminal_reason", "quarantine_reason", "vector",
+        "truncated",
         "stages_omitted", "model_attempts_omitted", "refusals_omitted",
         "notes_omitted")
     minimal = {key: report[key] for key in minimal_keys if key in report}

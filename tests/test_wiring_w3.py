@@ -608,7 +608,10 @@ def test_the_driver_runs_the_shipped_profiles_too() -> None:
 
 #: Exactly what the driver may import: its plane, its runtime binding and the
 #: one context-assembly port (OPS-7 projects the operator's task input through
-#: it), plus core types.
+#: it), plus core types. OPS-5L adds the citation grammar's read-side
+#: canonicaliser (``canonical_evidence_ref``), a vocabulary module with no write
+#: surface; `test_ops5l_evidence_ref_and_completion.py` pins that it imports
+#: only ``__future__`` and ``enum``.
 DRIVER_IMPORTS = frozenset({
     "__future__", "dataclasses", "typing",
     "hermes.agents.runtime.assembly",
@@ -618,6 +621,7 @@ DRIVER_IMPORTS = frozenset({
     "hermes.methodology",
     "hermes.methodology.substrate",
     "hermes.methodology.workflows",
+    "hermes.research.evidence_transitions",
 })
 
 #: Names a module with a write surface would mention.

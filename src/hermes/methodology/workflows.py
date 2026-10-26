@@ -46,6 +46,7 @@ canonical-policy entry, no model vendor named anywhere.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -654,12 +655,24 @@ def _seeded_evidence_refusal(
 
 
 def _admitted_evidence_proposal(
-        proposals: tuple[Proposal, ...]) -> Proposal | None:
+        proposals: tuple[Proposal, ...],
+        *,
+        canonicalise: Callable[[str], str | None] | None = None,
+) -> Proposal | None:
     """The latest admitted EVIDENCE_TRANSITION naming an ``evidence:`` ref.
 
     The gateway already validated the ref (``EVIDENCE_REF`` / in-project); this
     selector only checks the admitted verdict and the ref shape. It never reads
     the artifact table.
+
+    OPS-5L: the gateway normalises both the citation form (``evidence:<id>``)
+    and the observation handle (``evidence/<id>``) at admission, but the
+    admitted proposal's intent payload still carries the raw spelling. A caller
+    that owns the citation grammar (the live driver, which passes the research
+    plane's ``canonical_evidence_ref``) injects it here, so an admitted handle
+    is not silently skipped. The default keeps this plane's historical
+    colon-only reading for callers with no capability plane (the plane's
+    reference/swap driver); it never weakens the gateway's check.
     """
     selected: Proposal | None = None
     for proposal in proposals:
@@ -668,16 +681,30 @@ def _admitted_evidence_proposal(
         if proposal.intent.kind.value != "EVIDENCE_TRANSITION":
             continue
         ref = proposal.intent.payload.get("evidence_artifact_ref")
-        if isinstance(ref, str) and ref.startswith("evidence:"):
+        if not isinstance(ref, str):
+            continue
+        if canonicalise is not None:
+            canonical = canonicalise(ref)
+        else:
+            canonical = ref if ref.startswith("evidence:") else None
+        if canonical:
             selected = proposal
     return selected
 
 
-def _evidence_ref_of(proposal: Proposal | None) -> str:
+def _evidence_ref_of(
+        proposal: Proposal | None,
+        *,
+        canonicalise: Callable[[str], str | None] | None = None,
+) -> str:
     if proposal is None:
         return ""
     ref = proposal.intent.payload.get("evidence_artifact_ref")
-    return ref if isinstance(ref, str) else ""
+    if not isinstance(ref, str):
+        return ""
+    if canonicalise is not None:
+        return canonicalise(ref) or ""
+    return ref
 
 
 def _node_rationale(kind: str, stage: str, profile: str,

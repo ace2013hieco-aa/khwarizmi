@@ -59,6 +59,13 @@ binds, its context types, and the one context-assembly port that renders task
 input), ``hermes.core.task_status``, the methodology plane's public surface
 (``hermes.methodology.workflows``, whose declared preflight this exercises) and
 ``hermes.methodology.substrate`` (the derived-state boundary), plus stdlib.
+OPS-5L adds one read-side vocabulary import,
+``hermes.research.evidence_transitions`` (``canonical_evidence_ref`` and its
+``EVIDENCE_REF_PREFIX``) — the citation grammar the gateway already normalises
+with (OPS-5K), a pure function of a string — so the evidence selector reads an
+admitted ``evidence/<id>`` handle as the same canonical ``evidence:<id>`` the
+gateway stored. It is not a second artifact-row check: the gateway's
+``EVIDENCE_REF`` remains the only one.
 Never ``hermes.persistence``, never a repository, never a raw connection or
 transaction, and no new consumer of the governance plane.
 
@@ -79,6 +86,7 @@ from typing import Any, Callable, Mapping
 from hermes.agents.runtime.assembly import (
     ProjectIndexChainNode,
     ProjectIndexPort,
+    evidence_envelope,
     project_index_envelope,
     task_input_envelope,
 )
@@ -102,6 +110,10 @@ from hermes.methodology.workflows import (
     MethodologyInputs,
     MethodologyRefusal,
     StageSpec,
+)
+from hermes.research.evidence_transitions import (
+    EVIDENCE_REF_PREFIX,
+    canonical_evidence_ref,
 )
 
 __all__ = [
@@ -499,6 +511,25 @@ def parse_workflow(data: Mapping[str, Any]) -> MethodologyConfig | MethodologyRe
                                   source="parse")
 
 
+def _canonical_citation(ref: str) -> str | None:
+    """The canonical ``evidence:<artifact_id>`` an admitted ref cites, or None.
+
+    OPS-5L: the evidence selector's grammar. ``canonical_evidence_ref`` maps
+    both spellings the gateway admits (``evidence:<id>`` / ``evidence/<id>``)
+    and deliberately leaves the id to the gateway. A ref with no artifact id at
+    all (``evidence:`` / ``evidence/``) names nothing to cite or to render, so
+    it selects as *no* admitted ref — the run then stops at ``EVIDENCE`` on the
+    substrate's own refusal — rather than raising in the next stage's
+    ``runtime.evidence`` envelope. The real gateway never admits one (it
+    refuses an empty id, ``MALFORMED_PAYLOAD``); this guards an injected
+    applier. It is a shape check of a string, never an artifact-row check.
+    """
+    canonical = canonical_evidence_ref(ref)
+    if canonical is None or canonical == EVIDENCE_REF_PREFIX:
+        return None
+    return canonical
+
+
 def run_methodology(
     config: MethodologyConfig,
     inputs: MethodologyInputs,
@@ -594,6 +625,16 @@ def run_methodology(
             context = context.with_changes(
                 context=context.context
                 + (project_index_envelope(project_id, view),))
+        if evidence_ref:
+            # OPS-5L: the run's admitted evidence fact, on its own origin. It is
+            # appended only when a ref exists; before an admission there is no
+            # envelope (never a "none" sentinel). The stage that admits the ref
+            # cannot see it in its own prompt (the prompt predates the
+            # admission); every later stage can, and the EVIDENCE stage must.
+            context = context.with_changes(
+                context=context.context
+                + (evidence_envelope(task_id=context.task_id,
+                                     evidence_ref=evidence_ref),))
         wired: WiredRun = wiring.run(projection.profile, context)
         if on_stage is not None:
             # The surface is handed out, never interpreted here: the live
@@ -613,10 +654,12 @@ def run_methodology(
 
         if projection.stage in methodology_plane._EVIDENCE_STAGES:
             selected = methodology_plane._admitted_evidence_proposal(
-                wired.result.proposals)
+                wired.result.proposals,
+                canonicalise=_canonical_citation)
             if selected is not None:
                 evidence_proposal = selected
-                evidence_ref = methodology_plane._evidence_ref_of(selected)
+                evidence_ref = methodology_plane._evidence_ref_of(
+                    selected, canonicalise=_canonical_citation)
                 # Projection of the gateway's admission into the in-memory
                 # registry the substrate's write boundary reads. Not a second
                 # validation: the gateway already checked the artifact row.

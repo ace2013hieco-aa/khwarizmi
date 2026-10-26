@@ -474,6 +474,47 @@ def _resume(args, cfg: HermesConfig) -> int:
     return 0
 
 
+def _root_task_outcomes(conn: sqlite3.Connection, project_id: str,
+                        stage_runs: Any) -> tuple[dict[str, str], ...]:
+    """Each root methodology task's final state and latest FAILED reason.
+
+    OPS-5L: the diagnostic report mirrors the task record instead of inferring
+    a terminal from stage states. A root is the prefix of a stage run's task id
+    (``{task}:{stage}``), read in first-seen order and only inside the run's
+    project. Read-only, on the run's own connection, before it closes: no
+    write, no transaction, no new authority. Any failure returns ``()``, so the
+    report falls back to its stage-only, fail-closed terminal and the run is
+    never failed by its report.
+    """
+    from .persistence.repositories import EventRepository, TaskRepository
+
+    try:
+        roots: list[str] = []
+        for snapshot in stage_runs:
+            stage_task_id = str(snapshot.result.task_id)
+            root = stage_task_id.rsplit(":", 1)[0]
+            if root and root not in roots:
+                roots.append(root)
+        tasks = TaskRepository(conn)
+        events = EventRepository(conn)
+        found: list[dict[str, str]] = []
+        for root in roots:
+            row = tasks.get(root)
+            if row.get("project_id") != project_id:
+                continue
+            reason = ""
+            for event in events.list_for_task(root):
+                if (event.get("event_type") == "TaskStatusChanged"
+                        and event.get("to_state") == "FAILED"):
+                    reason = str(event.get("reason") or "")
+            found.append({"task_id": root,
+                          "state": str(row.get("status") or ""),
+                          "reason": reason})
+        return tuple(found)
+    except Exception:  # noqa: BLE001 — a report read never fails the run
+        return ()
+
+
 def _write_live_report(
     cfg: HermesConfig,
     db_path: Path,
@@ -486,12 +527,15 @@ def _write_live_report(
     ledger: Any,
     notes: Any,
     vector_line: str,
+    task_outcomes: Any = (),
 ) -> str:
     """Build and write the OPS-10 diagnostic report; return the path.
 
     The report is written beside the live DB unless ``[reporting] run_dir``
     names an absolute directory. It is a diagnostic artifact, never a record,
     and its failure is reported by the caller without changing the exit code.
+    OPS-5L: ``task_outcomes`` is the root task's outcome, read before the
+    connection closed; the report's terminal mirrors it.
     """
     from .composition import EnvCredentialResolver
     from .run_report import (
@@ -514,7 +558,8 @@ def _write_live_report(
         ledger=ledger,
         notes=notes,
         vector=vector_line,
-        excerpt_bytes=cfg.reporting.excerpt_bytes)
+        excerpt_bytes=cfg.reporting.excerpt_bytes,
+        task_outcomes=task_outcomes)
     resolver = EnvCredentialResolver(
         {spec.provider_id: spec.api_key_env for spec in specs})
     secrets = tuple(
@@ -594,6 +639,7 @@ def _run(args, cfg: HermesConfig) -> int:
     binding = None
     vector = None
     capability_line = ""
+    task_outcomes: tuple[dict[str, str], ...] = ()
     try:
         migrate_to_latest(conn)
         if live:
@@ -620,6 +666,11 @@ def _run(args, cfg: HermesConfig) -> int:
         started_at = datetime.now(UTC).isoformat()
         outcomes = ctrl.run(max_ticks=args.ticks)
         notes = list(ctrl.notes)
+        if live and vector is not None:
+            # OPS-5L: the report mirrors the root task, read before the
+            # connection closes. Read-only; a failure falls back to ().
+            task_outcomes = _root_task_outcomes(
+                conn, args.project_id, vector.stage_runs())
     except CompositionError as exc:  # the environment moved between pre-flight
         emit(f"Error: {exc}")  # and composition; same refusal, same hint
         emit("Hint: re-run with --drain-only to skip the model plane.")
@@ -666,7 +717,7 @@ def _run(args, cfg: HermesConfig) -> int:
                 cfg, db_path, specs, started_at=started_at,
                 project_id=args.project_id, ticks=len(outcomes),
                 stage_runs=stage_runs, ledger=rows, notes=notes,
-                vector_line=vector_line)
+                vector_line=vector_line, task_outcomes=task_outcomes)
         except Exception as exc:  # noqa: BLE001 — a report never fails the run
             emit(f"report: unavailable ({type(exc).__name__}: {exc})")
         else:

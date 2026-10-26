@@ -43,6 +43,7 @@ from hermes.security.boundaries import UntrustedContent
 
 __all__ = [
     "CONTRACT_FEEDBACK_ORIGIN",
+    "EVIDENCE_ORIGIN",
     "OBSERVATION_ORIGIN",
     "PAYLOAD_ORIGIN",
     "PROJECT_INDEX_MAX_ENTRIES",
@@ -60,6 +61,7 @@ __all__ = [
     "assemble_payload_envelopes",
     "contract_feedback_envelope",
     "default_context_assembler",
+    "evidence_envelope",
     "feedback_envelopes",
     "project_index_envelope",
     "proposal_envelopes",
@@ -113,6 +115,12 @@ CONTRACT_FEEDBACK_ORIGIN = "runtime.contract_feedback"
 #: never an instruction and never an admissibility claim — the gateway remains
 #: the only validator.
 PROJECT_INDEX_ORIGIN = "runtime.project_index"
+
+#: The origin the OPS-5L admitted-evidence envelope carries: the one evidence
+#: ref the run admitted, and its artifact id. It is a run-level fact, distinct
+#: from the predecessor's content (`runtime.payload`) and from the operator's
+#: task input (`runtime.task`); the gateway remains the only validator.
+EVIDENCE_ORIGIN = "runtime.evidence"
 
 #: The hard entry cap of one project index. Entries are ordered before the cap
 #: is applied; the tail is the truncation priority. The renderer additionally
@@ -277,6 +285,38 @@ def task_input_envelope(
             "external_refs": dict(external_refs),
             "admission_refs": sorted(admission_refs),
         },
+    )
+
+
+def evidence_envelope(*, task_id: str,
+                      evidence_ref: str) -> UntrustedContent:
+    """Render the run's admitted evidence ref as a ``runtime.evidence`` envelope.
+
+    OPS-5L: the EVIDENCE stage must know the ref the run admitted. The document
+    is exactly ``{"evidence_ref": "evidence:<artifact_id>", "artifact_id":
+    "<artifact_id>"}`` — the ref, its artifact id and nothing else. No
+    rationale, provider, URL, media type, byte count, state rung or content
+    travels here; the envelope is data the model reads, never an instruction
+    and never an admissibility claim (the gateway and the substrate remain the
+    validators).
+
+    The ref must already be canonical. The caller is the live methodology
+    driver, whose selector canonicalises the admitted proposal's raw payload
+    before it gets here; a non-canonical ref is a programming error, refused
+    loudly rather than rendered as a half-document. Pure and deterministic, so
+    equal inputs assemble to equal envelopes.
+    """
+    prefix = "evidence:"
+    ref = str(evidence_ref)
+    if not ref.startswith(prefix) or len(ref) == len(prefix):
+        raise ValueError(
+            "evidence_envelope requires a canonical "
+            "'evidence:<artifact_id>' ref")
+    artifact_id = ref[len(prefix):]
+    return _document_envelope(
+        EVIDENCE_ORIGIN,
+        f"{task_id}:evidence",
+        {"evidence_ref": ref, "artifact_id": artifact_id},
     )
 
 
