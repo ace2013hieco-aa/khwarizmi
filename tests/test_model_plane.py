@@ -19,8 +19,8 @@ Covers the port's whole contract:
   naming the value, live secrets refused loudly, no credential field anywhere;
 - **replay** — byte-identical fixtures, recomputed `fx_` identity, and a refusing
   inner transport proving zero live contact;
-- **boundedness** — the 4 KiB proposal cap overflowing to artifact bytes that
-  carry no identity.
+- **boundedness** — the 8 KiB whole-proposal cap (OPS-5S) overflowing to
+  artifact bytes that carry no identity.
 
 The plane is a port: nothing asserted here may decide a transition.
 """
@@ -291,8 +291,16 @@ class TestModuleInvariants:
     def test_terminal_refusals_are_a_subset_of_refusal_codes(self) -> None:
         assert TERMINAL_REFUSALS <= REFUSAL_CODES
 
-    def test_proposal_cap_is_the_event_payload_cap(self) -> None:
-        assert MAX_PROPOSAL_BYTES == 4096
+    def test_proposal_cap_is_the_whole_proposal_cap(self) -> None:
+        """OPS-5S: the proposal cap is *not* the journal's payload cap.
+
+        The old name of this test — `test_proposal_cap_is_the_event_payload_cap`
+        — asserted the analogy that produced the defect: a proposal is never a
+        journal row, so nothing about the journal's 4096-byte row bound requires
+        a model reply to fit 4096 bytes. The payload bound is enforced where a
+        payload exists (`run._emit_drafts`); this is the reply's own bound.
+        """
+        assert MAX_PROPOSAL_BYTES == 8192
 
     def test_module_names_no_vendor(self) -> None:
         source = _module_source()

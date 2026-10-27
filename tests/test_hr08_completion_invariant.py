@@ -150,15 +150,24 @@ def satisfy(db, program_id, requirement_ref, classes, prefix="art",
                  aid, CLOCK))
 
 
-def insert_gate_task(db, task_id, gate_name):
-    """A HUMAN_GATE task carrying its requirement in spec.gate_requirement."""
+def insert_gate_task(db, task_id, gate_name, *, program_id="rp-1",
+                     status="SUCCEEDED", task_type="HUMAN_GATE"):
+    """A gate task carrying its requirement in spec.gate_requirement.
+
+    The spec also carries ``program_id`` because that is what the planner mints
+    (``task_plan.build_task_plan._gate_task``): a gate task belongs to exactly
+    one program, and its identity is content-addressed over that id. OPS-5T
+    scopes the completion predicate's gate join to it, so a fixture without it
+    would be a fixture the shipped planner cannot produce.
+    """
     db.execute(
         """INSERT INTO tasks
            (task_id, project_id, task_type, idempotency_key, status,
             spec_json, created_at)
-           VALUES (?, 'p1', 'HUMAN_GATE', ?, 'SUCCEEDED', ?, ?)""",
-        (task_id, f"idem-{task_id}",
-         _json.dumps({"gate_requirement": gate_name}), CLOCK),
+           VALUES (?, 'p1', ?, ?, ?, ?, ?)""",
+        (task_id, task_type, f"idem-{task_id}", status,
+         _json.dumps({"program_id": program_id,
+                      "gate_requirement": gate_name}), CLOCK),
     )
 
 

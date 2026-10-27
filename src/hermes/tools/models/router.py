@@ -15,12 +15,12 @@ What this module is NOT
 **It is never an authority.** Model bytes are untrusted input. Every output
 crosses back into Hermes as an envelope-wrapped `UntrustedContent`
 (`hermes.security.boundaries`, §2.1 *Outputs*) inside a `ModelProposal`, which
-carries rationale and is bounded to 4 KiB — never a mutation, never a decision,
-never an identity. A request that asks for a decision, or a model that answers
-with decision-shaped output, is refused `PROPOSAL` rather than served. This is
-the `evaluation.py` discipline ("no LLM in evaluation", "no write path") applied
-at the port boundary: there is nothing here to Goodhart, because nothing here
-can decide.
+carries rationale and is bounded to 8 KiB (OPS-5S) — never a mutation, never a
+decision, never an identity. A request that asks for a decision, or a model that
+answers with decision-shaped output, is refused `PROPOSAL` rather than served.
+This is the `evaluation.py` discipline ("no LLM in evaluation", "no write path")
+applied at the port boundary: there is nothing here to Goodhart, because nothing
+here can decide.
 
 It owns no state either: no SQLite, no transaction, no repository, no journal,
 no artifact store, no lease custody. An oversized proposal is handed back as
@@ -202,9 +202,22 @@ REFUSAL_CODES: frozenset[str] = frozenset({
 #: breach.
 TERMINAL_REFUSALS: frozenset[str] = frozenset({LOCK, PROPOSAL, ROLE})
 
-#: The event-payload cap (§3.3, `event_validation.py`). A model proposal is an
-#: event-payload-shaped crossing, so it inherits the same bound.
-MAX_PROPOSAL_BYTES = 4096
+#: The whole-proposal cap (OPS-5S): the canonical bytes of the reply this plane
+#: hands on — `structured` + `rationale` + `tool_calls`, the rationale counted
+#: once (see `_without_rationale`).
+#:
+#: It is **not** the journal cap. A proposal is never a journal row; the intent
+#: payload derived from it is, and that bound stays 4096 where it is enforced
+#: (`run.MAX_PAYLOAD_BYTES`, checked per draft in `_emit_drafts`). The two
+#: numbers were equal by analogy — "a model proposal is an event-payload-shaped
+#: crossing" — and the analogy is what made run 33 fail four times in one run.
+#:
+#: 8192 = 4096 (the largest payload the journal will accept) + 4096 (a
+#: rationale as large as the payload it justifies). That is the shape a
+#: methodology stage actually writes: a short structured payload and a long
+#: prose rationale. The bound still refuses: a proposal at twice this size is
+#: an overflow, exactly as before.
+MAX_PROPOSAL_BYTES = 8192
 
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
 DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -365,6 +378,9 @@ class OutputContract:
     `field_notes` carries the conditional wording for individual schema fields.
     `max_proposal_bytes` is the whole-reply cap the runtime's refusal
     interpolates (OPS-17); zero means the contract carries no cap statement.
+    `max_payload_bytes` is the *other* bound a draft faces — the journal's
+    event-payload cap, enforced per proposal in the runtime (OPS-5S). Zero means
+    the contract carries no statement for it.
     """
 
     name: str
@@ -380,6 +396,7 @@ class OutputContract:
     derived_keys: tuple[str, ...] = ()
     field_notes: tuple[tuple[str, str], ...] = ()
     max_proposal_bytes: int = 0
+    max_payload_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -697,6 +714,27 @@ ToolCallTranslation: TypeAlias = "tuple[ToolCallRequest, ...] | ModelRefusal"
 
 
 # ── canonicalisation + fixture identity ──
+
+
+def _without_rationale(structured: Mapping[str, Any],
+                       contract: OutputContract | None) -> Mapping[str, Any]:
+    """The structured body, with the rationale carried once instead of twice.
+
+    When a contract declares ``rationale_field``, `_proposal` reads the
+    rationale *out of* `structured` into its own key. Writing both would charge
+    the same prose twice against `max_proposal_bytes` — and since a rationale is
+    usually the largest field, it would roughly halve the budget the prompt
+    states (OPS-5S: a 2288-byte reply measured 4504 bytes, 4356 of them the
+    same 2178-byte rationale counted twice).
+
+    Nothing is lost by lifting it: the body still carries the rationale, under
+    the key that names it, and `ModelProposal.structured` is unchanged — the
+    runtime reads the rationale from there.
+    """
+    field = contract.rationale_field if contract is not None else ""
+    if not field or field not in structured:
+        return structured
+    return {key: value for key, value in structured.items() if key != field}
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -2018,7 +2056,7 @@ class ModelRouter:
                         model_id=candidate.model_id, account=account)
         tool_calls = self._translate_tool_calls(candidate, response)
         body = _canonical_bytes({
-            "structured": structured,
+            "structured": _without_rationale(structured, contract),
             "rationale": rationale_text,
             "tool_calls": [
                 {"tool_name": call.tool_name,
@@ -2385,6 +2423,7 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "derived_keys": list(contract.derived_keys),
         "field_notes": dict(contract.field_notes),
         "max_proposal_bytes": contract.max_proposal_bytes,
+        "max_payload_bytes": contract.max_payload_bytes,
     }
 
 

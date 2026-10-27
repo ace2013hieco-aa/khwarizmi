@@ -354,11 +354,17 @@ def build_methodology_handler(
             # unadmitted observation (:124-129) is the same code family and
             # reason shape, so a zero-admission run fails closed and never
             # claims completed.
+            #
+            # OPS-5T: the count is read off the proposals' admission records,
+            # and the message now carries what those records said. A run that
+            # proposed nine intents and had all nine refused used to report the
+            # same bare "0 admissions" as a run that proposed nothing — the
+            # operator could not tell a silent run from a refused one, which is
+            # the difference between "the model had nothing to say" and "the
+            # spine said no to everything it said".
             return HandlerResult(
                 status="failed_typed",
-                reason=("PROPOSAL: methodology completed with 0 admissions "
-                        "via apply_intent — an effectless run is not a "
-                        "recorded outcome (S6-B2)"),
+                reason=_zero_admission_reason(execution),
                 outcome_recorded=False)
         if execution.termination != METHODOLOGY_COMPLETE:
             # OPS-5M: the gate above asks whether anything happened; this one
@@ -393,6 +399,44 @@ def build_methodology_handler(
 
 
 # ── pure helpers (no I/O, no writes) ──
+
+
+def _zero_admission_reason(execution: Any) -> str:
+    """S6-B2's refusal message when a completed run recorded no new row.
+
+    OPS-5T: "0 admissions" is the verdict, not the diagnosis. A run that
+    proposed nothing and a run whose every proposal the spine refused both
+    count zero, and they are different events — the first says the loop never
+    reached the write path, the second says the write path said no to
+    everything the loop said. The message therefore carries the tally the
+    driver counted off the admission records: how many proposals were made, how
+    many the spine refused (with its own codes), how many were duplicates of
+    rows it already held, and how many were never answered.
+    """
+    proposed = sum(stage.intents_proposed for stage in execution.stages)
+    applied = sum(stage.intents_applied for stage in execution.stages)
+    duplicate = sum(stage.intents_duplicate for stage in execution.stages)
+    refused = sum(stage.intents_refused for stage in execution.stages)
+    codes = ", ".join(dict.fromkeys(
+        code for stage in execution.stages for code in stage.refusal_codes))
+    head = (f"PROPOSAL: methodology {execution.methodology_id!r} completed "
+            f"with {applied} admissions via apply_intent")
+    if proposed == 0:
+        return (f"{head} — the run proposed nothing, so no intent ever reached "
+                f"the one write path; an effectless run is not a recorded "
+                f"outcome (S6-B2)")
+    if refused == proposed:
+        return (f"{head} — all {proposed} proposal(s) the run made were refused "
+                f"by the spine ({codes or 'no code'}); a refusal is data, not "
+                f"an admission, so the run recorded nothing (S6-B2)")
+    parts = [f"{refused} refused by the spine ({codes or 'no code'})",
+             f"{duplicate} duplicate(s) of rows it already held"]
+    unanswered = proposed - applied - duplicate - refused
+    if unanswered:
+        parts.append(f"{unanswered} never answered")
+    return (f"{head} — {proposed} proposal(s) were made and none became a new "
+            f"row: {', '.join(parts)}; an effectless run is not a recorded "
+            f"outcome (S6-B2)")
 
 
 def _observation_admission_intent(handoff: Any, *, ctx: _WiringContext,

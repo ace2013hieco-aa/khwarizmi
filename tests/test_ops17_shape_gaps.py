@@ -83,10 +83,19 @@ LEASE = "gen-ops17"
 LIST_KEYS = ("dependencies", "inputs", "outputs", "provenance")
 
 
-def _cap_line(cap: int = MAX_PAYLOAD_BYTES) -> str:
-    return (f"The whole reply must be at most {cap} bytes. A proposal over the "
-            "cap is refused, and no artifact overflow port is wired today, so "
-            "an over-cap body is neither preserved nor parsed.")
+def _cap_line(cap: int = MAX_PROPOSAL_BYTES) -> str:
+    return (f"The whole reply must be at most {cap} bytes — about {cap} "
+            "characters of English text, and fewer if you use non-ASCII "
+            "characters. A proposal over the cap is refused, and no artifact "
+            "overflow port is wired today, so an over-cap body is neither "
+            "preserved nor parsed.")
+
+
+def _payload_cap_line(cap: int = MAX_PAYLOAD_BYTES) -> str:
+    return (f"Each proposal's payload must fit the journal's {cap}-byte cap on "
+            "its own; the runtime derives the identity keys after that, so "
+            "leave room for them. A payload over the cap refuses that "
+            "proposal.")
 
 
 def _shape_line(key: str, shape: str = _PAYLOAD_LIST_SHAPE) -> str:
@@ -138,8 +147,9 @@ def test_every_profile_states_the_cap_from_the_runtime_constant() -> None:
 
     for spec in profiles.values():
         mapping, rendered = _mapping_with_rules(spec)
-        assert mapping["max_proposal_bytes"] == MAX_PAYLOAD_BYTES
+        assert mapping["max_proposal_bytes"] == MAX_PROPOSAL_BYTES
         assert _cap_line() in rendered
+        assert _payload_cap_line() in rendered
 
 
 def test_task_profiles_state_every_list_shape() -> None:
@@ -167,26 +177,46 @@ def test_the_shape_map_is_exactly_the_str_list_family() -> None:
         LIST_KEYS, _PAYLOAD_LIST_SHAPE)
 
 
-def test_the_two_cap_constants_agree() -> None:
-    """The statement is true only while both proposal checks share one bound.
+def test_the_payload_cap_is_the_journal_cap_and_the_proposal_cap_is_not() -> None:
+    """OPS-5S separates two bounds this test used to pin together.
 
-    The runtime refuses an overflow with `MAX_PAYLOAD_BYTES`; the model plane
-    creates the overflow at `MAX_PROPOSAL_BYTES`; both derive from the journal's
-    event-payload cap. If one moves alone, the stated cap describes a check the
-    model does not actually face — so the drift is a test failure, not prose.
+    The runtime refuses an over-cap *payload* with `MAX_PAYLOAD_BYTES`, which is
+    the journal's own event-payload cap — that equality is the one that must
+    hold, because a payload is written to a row. The model plane creates the
+    overflow at `MAX_PROPOSAL_BYTES`, which bounds a *reply*, and a reply is
+    never a row. Pinning the three equal (as this test did before OPS-5S) made
+    the stated cap describe a check the model does not face.
+
+    What must hold instead: the payload bound is still exactly the journal's,
+    and the proposal bound is the one the runtime's overflow refusal states.
     """
-    assert MAX_PAYLOAD_BYTES == MAX_PROPOSAL_BYTES == DEFAULT_PAYLOAD_MAX_BYTES
+    assert MAX_PAYLOAD_BYTES == DEFAULT_PAYLOAD_MAX_BYTES == 4096
+    assert MAX_PROPOSAL_BYTES == 8192
+    assert MAX_PROPOSAL_BYTES > MAX_PAYLOAD_BYTES
+    assert run_module.MAX_PROPOSAL_BYTES == MAX_PROPOSAL_BYTES
 
 
 def test_cap_drift_flows_into_the_contract(monkeypatch: Any) -> None:
     spec = load_profiles()["planner"]
-    monkeypatch.setattr(run_module, "MAX_PAYLOAD_BYTES", 2048)
+    monkeypatch.setattr(run_module, "MAX_PROPOSAL_BYTES", 2048)
 
     mapping, rendered = _mapping_with_rules(spec)
 
     assert mapping["max_proposal_bytes"] == 2048
     assert _cap_line(2048) in rendered
     assert _cap_line() not in rendered
+
+
+def test_payload_cap_drift_flows_into_the_contract(monkeypatch: Any) -> None:
+    """The second bound is generated from its constant too, not hand-typed."""
+    spec = load_profiles()["planner"]
+    monkeypatch.setattr(run_module, "MAX_PAYLOAD_BYTES", 1024)
+
+    mapping, rendered = _mapping_with_rules(spec)
+
+    assert mapping["max_payload_bytes"] == 1024
+    assert _payload_cap_line(1024) in rendered
+    assert _payload_cap_line() not in rendered
 
 
 def test_without_the_injected_cap_the_statement_is_absent() -> None:
@@ -230,7 +260,7 @@ def test_an_over_cap_proposal_still_refuses_with_the_same_message() -> None:
 
     assert result.refusal_codes() == (RATIONALE,)
     assert result.refusals[0].detail == (
-        f"the model proposal exceeded the {MAX_PAYLOAD_BYTES}-byte cap "
+        f"the model proposal exceeded the {MAX_PROPOSAL_BYTES}-byte cap "
         "(5811 bytes); no artifact overflow port is wired, so the body is not "
         "preserved — an overflowed body is not parsed")
 

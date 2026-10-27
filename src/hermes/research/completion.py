@@ -26,9 +26,14 @@ ladder row:
 - the per-requirement satisfaction links (IDR-038 §3.1), and only those whose
   linked artifact carries a dereferenceable PASS validation verdict covering
   its content hash (M1 / HR-02 — a bare artifact class can never satisfy a
-  requirement);
+  requirement) **and is still live** — a retracted artifact's PASS covers
+  nothing (OPS-5T);
 - the mandatory gate requirements of the program, evidenced by ``GatePassed``
-  audit events on the gate tasks that carry them;
+  audit events on **succeeding gate tasks planned for this program** — not on a
+  task of another program, not on a task that ended ``FAILED``, not on a task
+  that is not a gate (OPS-5T);
+- the well-formedness of the obligations themselves: a malformed requirement
+  denies completion instead of vanishing from it (OPS-5T);
 - the refutation state — a confirmatory hypothesis whose ladder record is
   REFUTED has NOT been satisfied (refutation routes to revision, §6.1, never
   to completion);
@@ -66,9 +71,13 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
+from typing import Any
 
 from hermes.core.program_refs import canonical_program_scope
-from hermes.persistence.repositories import _research_program_row_to_dict
+from hermes.persistence.repositories import (
+    _research_program_row_to_dict,
+    artifact_is_active,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,9 +173,18 @@ def _verdict_covered_classes(
     verdict no longer covers its content) contributes nothing — a bare
     artifact class can never satisfy a requirement. Nothing stored is trusted;
     the coverage is re-derived at read time.
+
+    OPS-5T: a **retracted** artifact contributes nothing either. The link and
+    its PASS verdict survive a retraction — retraction is a metadata marker on
+    the artifact row, not a delete — so without this filter a retracted
+    artifact's PASS still covered the requirement it was linked to, and a
+    project could complete on evidence that had been withdrawn. The marker is
+    read through the repository's own rule (``artifact_is_active``), not a
+    second copy of it: the same predicate that retires a contradiction party
+    decides whether a satisfaction link still covers its requirement.
     """
     rows = conn.execute(
-        """SELECT s.program_id, s.requirement_ref, a.artifact_type
+        """SELECT s.program_id, s.requirement_ref, s.artifact_id, a.artifact_type
            FROM program_requirement_satisfactions s
            JOIN artifacts a ON a.artifact_id = s.artifact_id
            JOIN validation_verdicts v ON v.artifact_id = s.artifact_id
@@ -177,28 +195,55 @@ def _verdict_covered_classes(
         (project_id,),
     ).fetchall()
     out: dict[str, dict[str, set[str]]] = {}
+    active: dict[str, bool] = {}
     for r in rows:
+        artifact_id = r["artifact_id"]
+        if artifact_id not in active:
+            active[artifact_id] = artifact_is_active(conn, artifact_id)
+        if not active[artifact_id]:
+            continue
         out.setdefault(r["program_id"], {}).setdefault(
             r["requirement_ref"], set()).add(r["artifact_type"])
     return out
 
 
 def _passed_gate_requirements(
-    conn: sqlite3.Connection, project_id: str,
+    conn: sqlite3.Connection, project_id: str, program_id: str,
 ) -> set[str]:
-    """The gate requirement names evidenced by a ``GatePassed`` audit event.
+    """The gate requirement names this program has actually had passed.
 
-    A gate task carries its requirement in ``spec.gate_requirement``
-    (task_plan); the ``GatePassed`` event references the task. Only gate names
-    that dereference through a real task with a ``GatePassed`` event count —
-    an unparseable spec or a missing requirement field contributes nothing
-    (fail-closed).
+    A gate task carries its requirement in ``spec.gate_requirement`` and the
+    program it was planned for in ``spec.program_id`` (``task_plan.build_task_plan``,
+    whose task identity is content-addressed over that program id). A
+    ``GatePassed`` audit event references the task, so the join reads five
+    facts, not one (OPS-5T):
+
+    - the event is in this project;
+    - the task is in the same project as the event (a mis-filed event cannot
+      borrow a foreign task's spec);
+    - the task is a gate — ``GATE`` or ``HUMAN_GATE``, the two types the
+      planner mints for ``gate_requirements``;
+    - the task is **terminal ``SUCCEEDED``** — a ``GatePassed`` that outlived
+      its task's failure (``_commit_gate`` is two writes, H4) is not a pass;
+    - the task's spec names **this** program.
+
+    The last one is the program scope. Before it, a gate passed by an older
+    program satisfied the current one: the planner issues a fresh gate task per
+    program (its idempotency key digests the program id), so the older task was
+    never the task this program's contract names — the predicate was reading a
+    verdict about a different contract. A gate task that carries no
+    ``program_id``, or an unparseable spec, contributes nothing: it cannot
+    prove it belongs to this program, and completion is fail-closed.
     """
     rows = conn.execute(
         """SELECT t.spec_json
            FROM events e
            JOIN tasks t ON t.task_id = e.task_id
-           WHERE e.project_id = ? AND e.event_type = 'GatePassed'""",
+           WHERE e.project_id = ?
+             AND e.event_type = 'GatePassed'
+             AND t.project_id = e.project_id
+             AND t.task_type IN ('GATE', 'HUMAN_GATE')
+             AND t.status = 'SUCCEEDED'""",
         (project_id,),
     ).fetchall()
     passed: set[str] = set()
@@ -207,7 +252,11 @@ def _passed_gate_requirements(
             spec = json.loads(r["spec_json"] or "{}")
         except (TypeError, ValueError):
             continue
-        gate = spec.get("gate_requirement") if isinstance(spec, dict) else None
+        if not isinstance(spec, dict):
+            continue
+        if spec.get("program_id") != program_id:
+            continue
+        gate = spec.get("gate_requirement")
         if isinstance(gate, str) and gate:
             passed.add(gate)
     return passed
@@ -356,6 +405,67 @@ def _refuted_hypothesis_refs(
     return {r["hypothesis_ref"] for r in rows}
 
 
+def _obligation_list(
+    program: dict, key: str, denials: list[CompletionDenial],
+) -> list:
+    """The program's obligation list under ``key``, or ``[]`` plus a denial.
+
+    OPS-5T: a derived obligation list that is not a list cannot be enumerated,
+    and "cannot be enumerated" is a denial, never an empty obligation set — an
+    empty set is what a completed program looks like.
+    """
+    value = program.get(key) or []
+    if isinstance(value, list):
+        return value
+    denials.append(CompletionDenial(
+        PROGRAM_CORRUPT, "project",
+        "every derived obligation of the program must be enumerable",
+        f"the program's {key} is {type(value).__name__}, not a list — its "
+        "obligations cannot be enumerated, so completion cannot be verified",
+        "recompile the program so its derived obligations are well-formed, "
+        "or supersede the corrupt row"))
+    return []
+
+
+def _read_evidence_requirement(
+    position: int, requirement: Any,
+) -> tuple[str, set[str], str]:
+    """``(claim_ref, required_classes, defect)`` for one derived obligation.
+
+    OPS-5T closes the two shapes the predicate used to swallow. A requirement
+    that is not an object was ``continue``-d — the obligation simply vanished
+    from the verdict. And ``required_artifacts`` was read as
+    ``{c for c in required if isinstance(c, str)}``, so ``["x", 5]`` became
+    ``{x}``: the malformed element disappeared and the requirement could be
+    satisfied by a subset of what it named. Both are the same failure — a
+    malformed obligation reading as *fewer* obligations than the program
+    declares — so both now return a ``defect`` the caller turns into a denial.
+
+    ``required_artifacts: []`` is a defect too. The write path refuses every
+    satisfaction link for a requirement that names no class
+    (``program_obligations``), so such a requirement can never be satisfied;
+    the read path treating it as vacuously satisfied would be the write path
+    and the predicate disagreeing about the same row.
+    """
+    if not isinstance(requirement, dict):
+        return "", set(), f"it is {type(requirement).__name__}, not an object"
+    claim_ref = requirement.get("claim_ref")
+    if not isinstance(claim_ref, str) or not claim_ref:
+        return "", set(), "its claim_ref is not a non-empty string"
+    required = requirement.get("required_artifacts")
+    if not isinstance(required, list):
+        return claim_ref, set(), "its required_artifacts is not a list"
+    if not required:
+        return claim_ref, set(), "its required_artifacts names no artifact class"
+    classes: set[str] = set()
+    for index, item in enumerate(required):
+        if not isinstance(item, str) or not item:
+            return claim_ref, set(), (
+                f"its required_artifacts[{index}] is not a non-empty string")
+        classes.add(item)
+    return claim_ref, classes, ""
+
+
 def can_complete_research(
     conn: sqlite3.Connection, project_id: str,
 ) -> CompletionEligibility:
@@ -397,8 +507,9 @@ def can_complete_research(
         return CompletionEligibility(False, tuple(denials))
 
     program_id = program.get("program_id") or ""
-    evidence_requirements = program.get("evidence_requirements") or []
-    gate_requirements = program.get("gate_requirements") or []
+    evidence_requirements = _obligation_list(
+        program, "evidence_requirements", denials)
+    gate_requirements = _obligation_list(program, "gate_requirements", denials)
 
     covered = _verdict_covered_classes(conn, project_id)
     program_covered = covered.get(program_id, {})
@@ -406,13 +517,22 @@ def can_complete_research(
 
     # 2. Each derived evidence requirement must be validly satisfied: every
     #    required artifact class is covered by a verdict-backed satisfaction
-    #    link, and the hypothesis is not refuted.
-    for req in evidence_requirements:
-        if not isinstance(req, dict):
+    #    link, and the hypothesis is not refuted. A malformed obligation is a
+    #    denial (the program is corrupt), never a silently dropped one.
+    for position, req in enumerate(evidence_requirements):
+        claim_ref, required_set, defect = _read_evidence_requirement(
+            position, req)
+        if defect:
+            denials.append(CompletionDenial(
+                PROGRAM_CORRUPT, "project",
+                "every derived evidence requirement must be a well-formed "
+                "obligation of the program",
+                f"the program's evidence_requirements[{position}] is "
+                f"malformed — {defect} — so the obligation it states cannot be "
+                "verified",
+                "recompile the program so its derived obligations are "
+                "well-formed, or supersede the corrupt row"))
             continue
-        claim_ref = req.get("claim_ref") or ""
-        required = req.get("required_artifacts") or []
-        required_set = {c for c in required if isinstance(c, str)}
 
         if claim_ref in refuted:
             denials.append(CompletionDenial(
@@ -436,11 +556,21 @@ def can_complete_research(
                 "satisfaction links with PASS validation verdicts"))
 
     # 3. Every mandatory gate requirement must be evidenced by a GatePassed
-    #    audit event. Gate passage alone is NOT completion, but an unpassed
-    #    mandatory gate is a denial.
-    passed = _passed_gate_requirements(conn, project_id)
-    for gate in gate_requirements:
+    #    audit event on a succeeding gate task of THIS program. Gate passage
+    #    alone is NOT completion, but an unpassed mandatory gate is a denial.
+    #    A requirement that is not a gate name is a malformed obligation, which
+    #    denies rather than being skipped (OPS-5T).
+    passed = _passed_gate_requirements(conn, project_id, program_id)
+    for position, gate in enumerate(gate_requirements):
         if not isinstance(gate, str) or not gate:
+            denials.append(CompletionDenial(
+                PROGRAM_CORRUPT, "project",
+                "every derived gate requirement must be a non-empty gate name",
+                f"the program's gate_requirements[{position}] is "
+                f"{type(gate).__name__}, not a gate name — the obligation it "
+                "states cannot be verified",
+                "recompile the program so its derived obligations are "
+                "well-formed, or supersede the corrupt row"))
             continue
         if gate not in passed:
             denials.append(CompletionDenial(

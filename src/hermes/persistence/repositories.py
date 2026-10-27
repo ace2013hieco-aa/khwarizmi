@@ -2216,6 +2216,38 @@ class ExtractionTaskBindingError(ResearchClaimError):
     """
 
 
+def artifact_is_active(conn: Any, artifact_id: str) -> bool:
+    """True iff the artifact row exists and carries no invalidation marker.
+
+    The **lazy half of the active rule** (the S5 follow-on retires rows eagerly
+    in-transaction): an artifact is active while its row is present and its
+    metadata does not say ``invalidation_marker == "INVALIDATED"``. Fail-closed:
+    a missing row, unreadable JSON or a non-dict metadata value counts as
+    inactive, so a caller reading "active" never has to trust a corrupt row.
+
+    One implementation, two readers: the contradiction repository's party rule
+    (``ContradictionRepository._party_active``) and the HR-08 completion
+    predicate's satisfaction join (OPS-5T). The predicate reuses this rather
+    than writing a second marker check, because a second check is a second
+    definition of "retracted" — and a retracted artifact must not cover a
+    completion requirement under either spelling.
+    """
+    import json as _json
+    row = conn.execute(
+        "SELECT metadata_json FROM artifacts WHERE artifact_id = ?",
+        (artifact_id,)).fetchone()
+    if row is None:
+        return False
+    try:
+        meta = _json.loads(row["metadata_json"]) if (
+            row["metadata_json"]) else {}
+    except ValueError:
+        return False
+    if not isinstance(meta, dict):
+        return False
+    return meta.get("invalidation_marker") != "INVALIDATED"
+
+
 def _is_extract_spec(spec: Any) -> bool:
     """True iff ``spec`` carries the canonical EXTRACT template marker.
 
@@ -3116,21 +3148,11 @@ class ContradictionRepository:
     def _party_active(conn: Any, artifact_id: str) -> bool:
         """A party is active iff its artifact row exists and carries no
         invalidation marker (fail-closed: missing/corrupt rows count as
-        inactive — the lazy half of the active rule)."""
-        import json as _json
-        row = conn.execute(
-            "SELECT metadata_json FROM artifacts WHERE artifact_id = ?",
-            (artifact_id,)).fetchone()
-        if row is None:
-            return False
-        try:
-            meta = _json.loads(row["metadata_json"]) if (
-                row["metadata_json"]) else {}
-        except ValueError:
-            return False
-        if not isinstance(meta, dict):
-            return False
-        return meta.get("invalidation_marker") != "INVALIDATED"
+        inactive — the lazy half of the active rule).
+
+        The rule itself lives in :func:`artifact_is_active`, so the party rule
+        and the completion predicate's satisfaction join cannot drift."""
+        return artifact_is_active(conn, artifact_id)
 
     def open_contradictions(self, project_id: str) -> list[dict]:
         """Operationally active contradictions: OPEN rows whose parties

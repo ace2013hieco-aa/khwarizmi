@@ -39,8 +39,9 @@ Where durability actually happens
 Every durable effect of a stage is an ordinary intent the stage's run proposed
 through the injected ``IntentApplier`` — in production the gateway's one mutation
 path, ``apply_intent`` (``src/hermes/research/gateway.py``). The driver names
-that boundary on every admission (``ADMISSION_BOUNDARY``) and counts what reached
-it per stage; everything else it produces is working state.
+that boundary on every admission (``ADMISSION_BOUNDARY``) and counts, per stage,
+what the spine **recorded** — read off the proposals' own admission records
+(OPS-5T), never off a call counter; everything else it produces is working state.
 
 Claim limits (BIND-5, §8 item 9)
 --------------------------------
@@ -90,7 +91,7 @@ from hermes.agents.runtime.assembly import (
     project_index_envelope,
     task_input_envelope,
 )
-from hermes.agents.runtime.types import TaskContext
+from hermes.agents.runtime.types import Admission, Proposal, TaskContext
 from hermes.agents.runtime.wiring import RuntimeWiring, WiredRun
 from hermes.core.task_status import TaskStatus
 from hermes.methodology import workflows as methodology_plane
@@ -383,8 +384,16 @@ class StageRecord:
 
     ``node_id`` is a derived ``mnode_`` id in the run's in-memory store — never a
     durable reference. ``admission_boundary`` names the existing write boundary
-    the stage's ordinary intents reached; ``intents_applied`` is how many reached
-    it for this stage.
+    the stage's ordinary intents reached.
+
+    ``intents_applied`` is how many of this stage's proposals the spine recorded
+    as a **new row** (OPS-5T). It is counted from the proposals' own admission
+    records, never from a call counter: a refused proposal and a duplicate both
+    reached the write path and neither created a row, so neither is an
+    admission. ``intents_proposed``, ``intents_duplicate`` and
+    ``intents_refused`` make the four numbers add up, and ``refusal_codes``
+    carries the spine's own codes for the refused ones — so a zero-admission
+    stage can say *why* it admitted nothing.
     """
 
     stage: str
@@ -398,6 +407,10 @@ class StageRecord:
     lease_generation: str
     admission_boundary: str
     intents_applied: int
+    intents_proposed: int
+    intents_duplicate: int
+    intents_refused: int
+    refusal_codes: tuple[str, ...]
     aborted: bool
 
     def to_mapping(self) -> dict[str, Any]:
@@ -413,6 +426,10 @@ class StageRecord:
             "lease_generation": self.lease_generation,
             "admission_boundary": self.admission_boundary,
             "intents_applied": self.intents_applied,
+            "intents_proposed": self.intents_proposed,
+            "intents_duplicate": self.intents_duplicate,
+            "intents_refused": self.intents_refused,
+            "refusal_codes": list(self.refusal_codes),
             "aborted": self.aborted,
         }
 
@@ -548,6 +565,30 @@ def parse_workflow(data: Mapping[str, Any]) -> MethodologyConfig | MethodologyRe
                                   source="parse")
 
 
+def _admission_tally(proposals: tuple[Proposal, ...]
+                     ) -> tuple[int, int, int, int]:
+    """``(proposed, applied, duplicate, refused)`` — the spine's answers.
+
+    OPS-5T: this is the only place a stage's durable footprint is counted, and
+    it reads the admission record the runtime wrote on each proposal — the
+    verdict `apply_intent` actually returned — rather than any counter that
+    describes the call. ``applied`` counts ``ADMITTED`` alone: a ``DUPLICATE``
+    is a replay of a row the spine already held (the identity matched, so this
+    run added nothing), and a ``REFUSED`` is a call that wrote nothing at all.
+    Both are counted separately so a zero-admission stage can say which of the
+    two it was, instead of reporting a bare zero.
+    """
+    applied = duplicate = refused = 0
+    for proposal in proposals:
+        if proposal.admission == Admission.ADMITTED.value:
+            applied += 1
+        elif proposal.admission == Admission.DUPLICATE.value:
+            duplicate += 1
+        elif proposal.admission == Admission.REFUSED.value:
+            refused += 1
+    return len(proposals), applied, duplicate, refused
+
+
 def _canonical_citation(ref: str) -> str | None:
     """The canonical ``evidence:<artifact_id>`` an admitted ref cites, or None.
 
@@ -621,7 +662,6 @@ def run_methodology(
     question_id = ""
     predecessor_id = ""
     termination = METHODOLOGY_COMPLETE
-    applied_so_far = 0
     content_cache: dict[str, Mapping[str, Any]] = {}
     evidence_ref = ""
     evidence_proposal: Any = None
@@ -686,9 +726,13 @@ def run_methodology(
             # (OPS-1 R3). A callback that raises must not turn a stage into a
             # failure, so the recorder is responsible for its own safety.
             on_stage(wiring, wired.result)
-        applied = max(0, wired.spine_writes - applied_so_far)
-        applied_so_far = max(applied_so_far, wired.spine_writes)
-
+        # OPS-5T: the stage's durable footprint is what the spine *answered*,
+        # read off the proposals' own admission records. The applier's call
+        # counter is deliberately not consulted here: it says a call reached the
+        # spine, not that a row appeared, and a counter named after an effect
+        # may not be the evidence that the effect happened.
+        proposed, applied, duplicate, refused = _admission_tally(
+            wired.result.proposals)
         if wired.result.state != TaskStatus.SUCCEEDED.value:
             # The runtime's terminal state is authoritative. A stage whose run
             # did not succeed is not recorded and does not extend the chain: the
@@ -742,6 +786,10 @@ def run_methodology(
             lease_generation=lease_generation,
             admission_boundary=ADMISSION_BOUNDARY,
             intents_applied=applied,
+            intents_proposed=proposed,
+            intents_duplicate=duplicate,
+            intents_refused=refused,
+            refusal_codes=wired.result.refusal_codes(),
             aborted=wired.aborted))
         predecessor_id = node_id
 

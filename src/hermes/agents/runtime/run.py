@@ -214,6 +214,7 @@ from hermes.tools.capabilities.types import (
     ToolGrant,
 )
 from hermes.tools.models.router import (
+    MAX_PROPOSAL_BYTES,
     FieldSpec,
     ModelProposal,
     ModelRefusal,
@@ -390,9 +391,17 @@ def output_contract_for(
         # field wording are read here, not hand-typed into the prompt.
         derived_keys=tuple(sorted(AUTHORED_KEYS)),
         field_notes=tuple(field_notes),
-        # OPS-17: the same constant the overflow refusal interpolates
-        # (`_run_phase`), so the stated cap and the refusal cannot disagree.
-        max_proposal_bytes=MAX_PAYLOAD_BYTES,
+        # OPS-5S: the *proposal* cap, which is the bound this plane's overflow
+        # refusal interpolates — not the journal's payload cap. The two were
+        # equal until OPS-5S; keeping them coupled made the stated cap describe
+        # a check the model does not face, and a drift guard
+        # (`test_the_two_cap_constants_agree`) used to pin that equality, which
+        # is how the defect survived four runs.
+        max_proposal_bytes=MAX_PROPOSAL_BYTES,
+        # The other bound a draft faces, and the one the contract never stated:
+        # each proposal's payload must fit the journal's event-payload cap on
+        # its own (`_emit_drafts`). Rendered as guidance; the check stays there.
+        max_payload_bytes=MAX_PAYLOAD_BYTES,
     )
 
 
@@ -977,7 +986,7 @@ class AgentRuntime:
                     media_type=result.overflow.media_type)
             state.refuse(
                 RATIONALE,
-                f"the model proposal exceeded the {MAX_PAYLOAD_BYTES}-byte cap "
+                f"the model proposal exceeded the {MAX_PROPOSAL_BYTES}-byte cap "
                 f"({result.overflow.size_bytes} bytes)"
                 + (f"; body preserved as {reference}" if reference
                    else "; no artifact overflow port is wired, so the body is not "

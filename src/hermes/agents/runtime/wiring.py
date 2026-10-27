@@ -177,8 +177,14 @@ class FencedIntentApplier:
     recording double in a test — one rule holds. An intent is applied only while
     the fence is held; a loss cancels every run watching this applier and then
     raises `LeaseLostRejection`, so the run stops and no write follows the loss.
-    `writes`/`refusals` count what actually reached the spine, which is what
-    makes "no partial rows after a loss" checkable.
+
+    `writes`/`refusals` are a **transport count**, and OPS-5T makes them one that
+    cannot be mistaken for an effect count. `writes` counts the intents the spine
+    *answered without refusing* — an admitted row or an idempotent duplicate —
+    and `refusals` counts the intents the fence or the spine refused. The two
+    partition every call, which is what makes "no partial rows after a loss"
+    checkable. Neither is evidence that a durable row appeared: the admission
+    record on each proposal is, and that is what a completion gate must read.
     """
 
     def __init__(self, *, fence: LeaseFence, inner: IntentApplier) -> None:
@@ -206,8 +212,17 @@ class FencedIntentApplier:
             for token in tuple(self._tokens):
                 token.cancel(self._fence.detail)
             self._fence.require(intent)  # raises LeaseLostRejection (LOCK)
+        try:
+            result = self._inner(intent)
+        except IntentRejectedError:
+            # OPS-5T: a refusal is not a write. Counting the call before the
+            # apply made every refused intent look like an effect, so a run
+            # whose every proposal was refused still reported spine writes and
+            # passed the completion gate built on them.
+            self.refusals += 1
+            raise
         self.writes += 1
-        return self._inner(intent)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +234,10 @@ class WiredRun:
     is not a complete run, either because the lease generation it was dispatched
     under was lost before it finished, or because its attribution never matched
     the fence and nothing was dispatched at all. `spine_writes`/`spine_refusals`
-    are what the fenced applier actually let through.
+    are the transport count the fenced applier kept: intents the spine answered
+    without refusing, and intents it (or the fence) refused. They say what
+    reached the spine, never what it durably changed — the admission record on
+    each proposal says that (OPS-5T).
     """
 
     result: ProposalSet

@@ -300,14 +300,31 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
         return "\n".join(parts)
     cap = contract.get("max_proposal_bytes")
     if isinstance(cap, int) and not isinstance(cap, bool) and cap > 0:
-        # OPS-17: the runtime's refusal interpolates this same constant, and the
-        # live composition wires no artifact overflow port, so an over-cap body
-        # is neither preserved nor parsed. The statement is guidance; the check
-        # stays where it was.
+        # OPS-17 stated the cap; OPS-5S made the statement true. The number is
+        # now the whole-proposal cap (the rationale is counted once, not twice)
+        # and it is given in the unit a model can actually estimate while it
+        # writes: characters. The runtime's refusal interpolates the same
+        # constant, and the live composition wires no artifact overflow port, so
+        # an over-cap body is neither preserved nor parsed. The statement is
+        # guidance; the check stays where it was.
         parts.append(
-            f"The whole reply must be at most {cap} bytes. A proposal over the "
-            "cap is refused, and no artifact overflow port is wired today, so "
-            "an over-cap body is neither preserved nor parsed.")
+            f"The whole reply must be at most {cap} bytes — about {cap} "
+            "characters of English text, and fewer if you use non-ASCII "
+            "characters. A proposal over the cap is refused, and no artifact "
+            "overflow port is wired today, so an over-cap body is neither "
+            "preserved nor parsed.")
+    payload_cap = contract.get("max_payload_bytes")
+    if (isinstance(payload_cap, int) and not isinstance(payload_cap, bool)
+            and payload_cap > 0):
+        # OPS-5S: the second bound, and the one no contract sentence ever
+        # carried. It is enforced per draft (`run._emit_drafts`) against the
+        # journal's event-payload cap, so a reply can pass the sentence above
+        # and still have every draft refused.
+        parts.append(
+            f"Each proposal's payload must fit the journal's {payload_cap}-byte "
+            "cap on its own; the runtime derives the identity keys after that, "
+            "so leave room for them. A payload over the cap refuses that "
+            "proposal.")
     parts.append(
         "Reply with exactly one JSON object and nothing else: no prose and no "
         "code fences. Its fields:")

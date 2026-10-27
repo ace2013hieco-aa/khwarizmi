@@ -197,6 +197,16 @@ _PROVIDER_PATHS: Final[Mapping[str, str]] = {
     "openrouter": "/api/v1/chat/completions",
 }
 
+#: The output budget a provider needs when its model reasons before answering.
+#: A reasoning model spends `max_tokens` on hidden reasoning first; at 4096 it
+#: can return `content: ""` with `finish_reason: "length"` and never emit a
+#: draft (the plane names that `EMPTY_COMPLETION`). Measured on tokenharbor's
+#: deepseek-v4.1-flash: 8 KiB was exhausted mid-reasoning, 16 KiB and 32 KiB
+#: both finished. Only providers listed here depart from the default.
+_PROVIDER_MAX_OUTPUT_TOKENS: Final[Mapping[str, int]] = {
+    "tokenharbor": 32_768,
+}
+
 
 class CompositionError(Exception):
     """The composition cannot run as configured. Names every problem at once."""
@@ -633,7 +643,9 @@ def specs_from_tiers(
                     provider_id=provider_id, dialect=dialect,
                     model_id=model_id, api_key_env=api_key_env,
                     host=_PROVIDER_HOSTS.get(provider_id, ""),
-                    path=_PROVIDER_PATHS.get(provider_id, ""))
+                    path=_PROVIDER_PATHS.get(provider_id, ""),
+                    **({"max_output_tokens": _PROVIDER_MAX_OUTPUT_TOKENS[provider_id]}
+                       if provider_id in _PROVIDER_MAX_OUTPUT_TOKENS else {}))
                 if not spec.host and provider_id != spec.dialect:
                     raise ValueError(
                         f"provider {provider_id!r} has no code-owned endpoint "
