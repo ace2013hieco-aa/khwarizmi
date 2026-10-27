@@ -134,6 +134,7 @@ __all__ = [
     "DECISION_SHAPED_KEYS",
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "DEFAULT_TIMEOUT_SECONDS",
+    "EMPTY_COMPLETION",
     "LOCK",
     "MALFORMED_PAYLOAD",
     "MAX_PROPOSAL_BYTES",
@@ -201,6 +202,22 @@ REFUSAL_CODES: frozenset[str] = frozenset({
 #: model answering the same illegal question is not a fix — it is a second
 #: breach.
 TERMINAL_REFUSALS: frozenset[str] = frozenset({LOCK, PROPOSAL, ROLE})
+
+#: The hazard class of one provider *answer*: a well-formed 200 whose `content`
+#: is empty because the model spent the whole output budget on hidden reasoning
+#: (`finish_reason == "length"`). OPS-5U.
+#:
+#: It is deliberately **not** `MALFORMED_200`. The body parsed, the envelope was
+#: valid and the model answered — what is missing is the draft. The provider
+#: edge raises it as a `TransientProviderError` carrying this class, so the
+#: retry is the plane's ordinary transient retry and the *class* is what the
+#: ledger, the run report and the walk below read — never the message text
+#: (`ModelPlaneError`: "callers classify by class and `hazard_class`").
+#:
+#: It is not a refusal code either: `REFUSAL_CODES` above is unchanged, and the
+#: refusal a walk that never gets a draft ends in carries `MALFORMED_PAYLOAD` —
+#: the reply is not the payload the contract requires.
+EMPTY_COMPLETION = "EMPTY_COMPLETION"
 
 #: The whole-proposal cap (OPS-5S): the canonical bytes of the reply this plane
 #: hands on — `structured` + `rationale` + `tool_calls`, the rationale counted
@@ -1900,8 +1917,10 @@ class ModelRouter:
         notes: list[str] = []
         last_transport: ProviderError | None = None
         last_refusal: _Refusal | None = None
+        last_candidate: _Candidate | None = None
         for candidate in candidates:
             for attempt in range(1, attempts_per_candidate + 1):
+                last_candidate = candidate
                 call = self._build_call(candidate, request,
                                         stream=require_stream)
                 # Bound before the call so the refusal path below can attach the
@@ -1950,6 +1969,27 @@ class ModelRouter:
                     break
         if last_refusal is not None:
             raise last_refusal
+        if last_transport is not None and _ran_out_of_drafts(last_transport):
+            # OPS-5U — the walk ended with every attempt answering a 200 that
+            # carried no draft. That is a *reply-shaped* failure: the model
+            # answered, the answer was empty, and the retry budget is what is
+            # exhausted (not the provider). So it leaves the plane as
+            # refusal-as-data under the one frozen code that fits — the reply
+            # is not the payload the contract requires — instead of the
+            # availability error an unreachable model earns. The detail is the
+            # provider's own sentence (it names the budget and the remedy) plus
+            # what the plane did about it, so a stage that ends here says what
+            # to raise rather than "every candidate failed". The refusal is
+            # accounted against the attempt that ended the walk, so no row is
+            # invented for a decision no provider call corresponds to.
+            raise _Refusal(
+                MALFORMED_PAYLOAD,
+                _out_of_drafts_detail(last_transport, attempts_per_candidate,
+                                      candidates=len(candidates)),
+                retryable=False,
+                provider_id=str(getattr(last_transport, "provider_id", "")),
+                model_id=last_candidate.model_id if last_candidate else "",
+                account=(self._ledger[-1] if self._ledger else None))
         raise ProviderUnavailableError(
             "every candidate model in the fallback chain failed",
             hazard_class="UNAVAILABLE", recordable=False,
@@ -2505,6 +2545,36 @@ def _bounded_failure_class(value: str | None) -> str | None:
 def _bounded_failure_detail(value: str) -> str:
     """The failure's message, flattened to one line and capped."""
     return " ".join(str(value).split())[:MAX_FAILURE_DETAIL_CHARS]
+
+
+def _ran_out_of_drafts(exc: ProviderError) -> bool:
+    """Did the walk end on a no-draft answer that the retry budget exhausted?
+
+    True only for a `TransientProviderError` whose hazard class is
+    `EMPTY_COMPLETION` (OPS-5U). Every other way a walk can end — a 500, a 429
+    storm, a permanent status, a terminal refusal — keeps the shape it has
+    today, including `ProviderUnavailableError`. The class is read, never the
+    message text.
+    """
+    return (isinstance(exc, TransientProviderError)
+            and str(getattr(exc, "hazard_class", "")) == EMPTY_COMPLETION)
+
+
+def _out_of_drafts_detail(exc: ProviderError, attempts: int, *,
+                          candidates: int) -> str:
+    """The terminal sentence for a walk that never got a draft.
+
+    ``str(exc)`` is the provider edge's own sentence: it names the code, the
+    budget and the remedy, and an operator must still see it. The suffix is
+    what the *plane* did about it — it spent ``attempts`` per candidate, so the
+    reader can tell "one empty sample" from "every sample in the budget was
+    empty", which are different incidents.
+    """
+    scope = (f"{attempts} attempt(s)" if candidates <= 1
+             else f"{attempts} attempt(s) on each of {candidates} "
+                  f"candidate(s)")
+    return (f"{exc} — all {scope} returned no draft; the plane stops here "
+            f"rather than asking the same budget again (OPS-5U)")
 
 
 def _failure_of(exc: ProviderError) -> tuple[str, int | None, str]:

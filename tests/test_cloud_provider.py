@@ -471,12 +471,21 @@ class TestOpenAIDialect:
         assert "response_format" not in json.loads(spec.body)
 
     @pytest.mark.parametrize("empty", [None, "", "   "])
-    def test_empty_content_at_the_output_budget_is_a_named_refusal(
+    def test_empty_content_at_the_output_budget_is_a_retryable_refusal(
             self, empty: str | None) -> None:
-        """Reasoning models spend the budget and return no draft — name it."""
+        """Reasoning models spend the budget and return no draft — name *and* retry it.
+
+        OPS-5U: this was `PermanentProviderError` / `MALFORMED_200`, so one bad
+        sample killed a run (`EMPTY_COMPLETION` was the permanent verdict for
+        "the model answered a well-formed 200 with nothing in it"). The body
+        parsed and the envelope was valid; the draft is what is missing, and
+        reasoning length differs per sample — so it is raised in the transient
+        channel under its own honest class and the plane's retry budget is spent
+        on it. The sentence keeps the diagnosis and the remedy.
+        """
         provider = _provider(ScriptedTransport(
             _openai_reply(empty, finish_reason="length")), dialect="openai")
-        with pytest.raises(PermanentProviderError) as info:
+        with pytest.raises(TransientProviderError) as info:
             provider.invoke(_call(provider, provider_id="openai",
                                   model_id="test-gpt"))
         message = str(info.value)
@@ -484,8 +493,10 @@ class TestOpenAIDialect:
         assert "output budget" in message
         assert "max_output_tokens" in message
         assert "completion_tokens=3" in message
-        assert info.value.hazard_class == "MALFORMED_200"
-        assert not isinstance(info.value, TransientProviderError)
+        assert info.value.hazard_class == "EMPTY_COMPLETION"
+        assert info.value.http_status == 200
+        assert info.value.recordable is True
+        assert not isinstance(info.value, PermanentProviderError)
 
     def test_empty_content_with_stop_is_not_a_budget_refusal(self) -> None:
         """A stop with no content is a different fact; the seam stays raw."""

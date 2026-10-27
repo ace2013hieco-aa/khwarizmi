@@ -148,7 +148,7 @@ _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
     "openai": frozenset({"api.openai.com", "oxionai.com",
                          "integrate.api.nvidia.com", "api.apinex.bond",
                          "openrouter.ai", "api.apmix.ai",
-                         "tokenharbor.ai"}),
+                         "tokenharbor.ai", "anyrouter.dev"}),
 }
 
 #: The code-owned hosted-model registry (OPS-1 Decision A2): the policy surface
@@ -166,6 +166,7 @@ _MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
     "openrouter": ("openai", "OPENROUTER_API_KEY"),
     "apmix": ("openai", "APMIX_API_KEY"),
     "tokenharbor": ("openai", "TOKENHARBOR_API_KEY"),
+    "anyrouter": ("openai", "ANYROUTER_API_KEY"),
 }
 
 #: The endpoint binding for a provider whose id is not its dialect (OPS-6:
@@ -181,6 +182,7 @@ _PROVIDER_HOSTS: Final[Mapping[str, str]] = {
     "openrouter": "openrouter.ai",
     "apmix": "api.apmix.ai",
     "tokenharbor": "tokenharbor.ai",
+    "anyrouter": "anyrouter.dev",
 }
 
 #: The code-owned request paths a dialect may use. A gateway that serves the
@@ -205,6 +207,7 @@ _PROVIDER_PATHS: Final[Mapping[str, str]] = {
 #: both finished. Only providers listed here depart from the default.
 _PROVIDER_MAX_OUTPUT_TOKENS: Final[Mapping[str, int]] = {
     "tokenharbor": 32_768,
+    "anyrouter": 32_768,
 }
 
 

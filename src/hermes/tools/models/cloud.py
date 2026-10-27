@@ -54,6 +54,7 @@ from typing import Any, Final, Protocol, TypeAlias
 from hermes.security.egress import EgressPolicy, EgressRefused, VettedTarget
 from hermes.tools.models.router import (
     CREDENTIAL_ONLY_POLICY,
+    EMPTY_COMPLETION,
     ChunkKind,
     CredentialResolver,
     ModelCall,
@@ -133,6 +134,34 @@ def _transient(provider_id: str, status: int,
         f"HTTP {status} from the model provider (retryable)",
         provider_id=provider_id, hazard_class=hazard, recordable=True,
         http_status=status, error_class=error_class)
+
+
+def _no_draft(provider_id: str, completion: int) -> TransientProviderError:
+    """A 200 that carried no draft — a failed sample, and therefore retryable.
+
+    A reasoning model spends ``max_tokens`` on hidden reasoning before it
+    answers, so a budget exhausted mid-reasoning produces a well-formed 200
+    whose ``content`` is empty and whose ``finish_reason`` is ``length``. The
+    envelope parsed, the model answered: what is missing is the *draft*, and
+    reasoning length differs per sample, so the same request at the same budget
+    frequently produces one on the next call. That is sampling variance, not a
+    malformed request, so this is raised in the retryable channel (OPS-5U) and
+    the plane spends its ordinary retry budget on it.
+
+    The hazard class is `EMPTY_COMPLETION`, not `MALFORMED_200`: the body was
+    well-formed and the class must say what actually happened. The sentence is
+    the one an operator needs when the retries run out — it names the budget
+    and the remedy — and the provider's HTTP status stays ``200``, because the
+    answer being *inside* a 200 is the whole point.
+    """
+    return TransientProviderError(
+        f"{EMPTY_COMPLETION}: the reply had no content and finish_reason="
+        f"'length' — the output budget (max_output_tokens) was exhausted "
+        f"before any text (completion_tokens={completion}); retried as a "
+        f"failed sample, not a bad request; if every attempt returns empty, "
+        f"raise the model's output budget (reasoning tokens count against it)",
+        provider_id=provider_id, hazard_class=EMPTY_COMPLETION,
+        recordable=True, http_status=200)
 
 
 def _bounded_error_class(raw: Any) -> str:
@@ -707,16 +736,14 @@ class OpenAIChatDialect:
         # reasoning tokens and return `content: null` with
         # `finish_reason: "length"` — a well-formed 200 that says the budget,
         # not the model, produced no draft. Handing "" to the contract parser
-        # would retry the same budget and report the wrong cause, so this is a
-        # named, non-retryable refusal that names the budget to raise.
+        # would report the wrong cause, and calling it permanent would kill the
+        # run on one bad sample: the same request frequently produces a draft
+        # on the next one (OPS-5U). So it is named *and* retried — within the
+        # plane's existing retry budget, on the same candidate — and a walk
+        # that exhausts that budget ends in a refusal that names the budget
+        # (`router.py:_ran_out_of_drafts`).
         if not (content or "").strip() and finish == "length":
-            raise _permanent(
-                provider_id, "EMPTY_COMPLETION",
-                "the reply had no content and finish_reason='length' — the "
-                "output budget (max_output_tokens) was exhausted before any "
-                f"text (completion_tokens={completion}); raise the model's "
-                "output budget (reasoning tokens count against it)",
-                hazard="MALFORMED_200")
+            raise _no_draft(provider_id, completion)
         return ModelResponse(
             text=content or "",
             usage=TokenUsage(_count(usage.get("prompt_tokens")),
