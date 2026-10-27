@@ -37,7 +37,11 @@ ladder row:
   completion; the conflict set is re-derived at read time (stored OPEN
   rows plus a fresh pure-detector pass over the current classification
   rows), so a conflict admitted after the last detector pass cannot be
-  invisible (no completion blind window).
+  invisible (no completion blind window);
+- the stored program/hypothesis refs — canonicalised through the project's
+  program rows (OPS-5Q), so the bare and ``research_program:<hash>``
+  spellings of one program cannot hide a conflict; an unresolvable ref is
+  a denial, never a silent grouping.
 
 The predicate is pure and project-scoped: it performs read-only queries
 against the project's own rows, uses no clock and no randomness, writes
@@ -63,6 +67,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 
+from hermes.core.program_refs import canonical_program_scope
 from hermes.persistence.repositories import _research_program_row_to_dict
 
 
@@ -98,6 +103,7 @@ class CompletionEligibility:
 # ── denial codes (closed vocabulary) ──
 NO_PROGRAM = "NO_PROGRAM"
 PROGRAM_CORRUPT = "PROGRAM_CORRUPT"
+PROGRAM_REF_UNRESOLVED = "PROGRAM_REF_UNRESOLVED"
 HYPOTHESIS_REFUTED = "HYPOTHESIS_REFUTED"
 REQUIREMENT_UNSATISFIED = "REQUIREMENT_UNSATISFIED"
 GATE_NOT_PASSED = "GATE_NOT_PASSED"
@@ -118,6 +124,32 @@ def _current_program(conn: sqlite3.Connection, project_id: str) -> dict | None:
     if row is None:
         return None
     return _research_program_row_to_dict(row)
+
+
+def _project_programs(
+    conn: sqlite3.Connection, project_id: str,
+) -> list[dict]:
+    """Every parseable program row in the project, deterministically ordered.
+
+    The canonicalisation context for both admitted program-ref spellings
+    (OPS-5Q): a bare ``<program_id>`` and a
+    ``research_program:<content_hash>`` ref resolve through these rows. A
+    corrupt row cannot name a program and is skipped; a classification
+    citing it then fails canonicalisation and blocks completion (fail
+    closed), never silently names a different program.
+    """
+    rows = conn.execute(
+        "SELECT * FROM research_programs WHERE project_id = ? "
+        "ORDER BY version, program_id",
+        (project_id,),
+    ).fetchall()
+    programs: list[dict] = []
+    for row in rows:
+        try:
+            programs.append(_research_program_row_to_dict(row))
+        except ValueError:
+            continue
+    return programs
 
 
 def _verdict_covered_classes(
@@ -183,29 +215,29 @@ def _passed_gate_requirements(
 
 def _open_program_contradictions(
     conn: sqlite3.Connection, project_id: str, program_id: str,
+    programs: list[dict], fresh: list[dict],
 ) -> list[str]:
     """Contradiction IDs blocking completion for this program.
 
     The blocking set is re-derived at read time, never trusted from
     storage alone: stored rows with status OPEN (the recorded, not-yet-
-    adjudicated conflicts) PLUS freshly recomputed conflicts — the pure
-    production detector re-run over the current digest-valid
-    classification rows — so a conflict that appears after the last
-    detector pass cannot be invisible (the P1-10 blind window). A
-    recomputed pair re-blocks only when no contradiction row for its
-    identity exists: a pair already adjudicated (RESOLVED) or retired
-    (SUPERSEDED) stays non-blocking, mirroring the stored OPEN-only
-    rule.
+    adjudicated conflicts) PLUS ``fresh`` — the pure production detector
+    re-run over the current digest-valid classification rows — so a
+    conflict that appears after the last detector pass cannot be
+    invisible (the P1-10 blind window). A recomputed pair re-blocks only
+    when no contradiction row for its identity exists: a pair already
+    adjudicated (RESOLVED) or retired (SUPERSEDED) stays non-blocking,
+    mirroring the stored OPEN-only rule.
 
     A contradiction touches the program unless proven otherwise: either
-    party's classification metadata naming this program suffices (both
-    parties share it by the detection rule), and an unreadable party
-    row fails closed (deny — a contradiction whose parties cannot be
-    verified must block completion, matching the predicate's corrupt-
-    program posture). Only rows with both parties verified live and
-    foreign to this program are excluded, as are rows with an
-    invalidated party (retired; the S5 follow-on supersedes eagerly).
-    Deterministic (contradiction_id ASC).
+    party's canonical program scope names this program suffices (both
+    parties share it by the detection rule), and an unreadable party row
+    or an uncanonicalisable ref fails closed (deny — a contradiction
+    whose parties cannot be verified must block completion, matching the
+    predicate's corrupt-program posture). Only rows with both parties
+    verified live and foreign to this program are excluded, as are rows
+    with an invalidated party (retired; the S5 follow-on supersedes
+    eagerly). Deterministic (contradiction_id ASC).
     """
     stored = conn.execute(
         "SELECT contradiction_id, party_a, party_b, status "
@@ -219,14 +251,14 @@ def _open_program_contradictions(
         if row["status"] != "OPEN":
             continue
         if _contradiction_touches_program(
-                conn, project_id, program_id,
+                conn, project_id, program_id, programs,
                 row["party_a"], row["party_b"]):
             touching.append(row["contradiction_id"])
-    for candidate in _fresh_program_conflicts(conn, project_id):
+    for candidate in fresh:
         if candidate["contradiction_id"] in stored_ids:
             continue
         if _contradiction_touches_program(
-                conn, project_id, program_id,
+                conn, project_id, program_id, programs,
                 candidate["party_a"], candidate["party_b"]):
             touching.append(candidate["contradiction_id"])
     return sorted(touching)
@@ -234,13 +266,14 @@ def _open_program_contradictions(
 
 def _contradiction_touches_program(
     conn: sqlite3.Connection, project_id: str, program_id: str,
-    party_a: str, party_b: str,
+    programs: list[dict], party_a: str, party_b: str,
 ) -> bool:
     """True unless both parties verify as live and foreign to the
     program. Evaluation order is fixed: (1) any unreadable party row
     fails closed (touching — corruption itself must block completion);
     (2) any invalidation-marked party retires the pair (not touching);
-    (3) otherwise touching iff either party names this program."""
+    (3) otherwise touching iff either party's canonical program scope
+    names this program. An uncanonicalisable ref fails closed (touching)."""
     metas = []
     for party in (party_a, party_b):
         prow = conn.execute(
@@ -258,11 +291,19 @@ def _contradiction_touches_program(
         metas.append(meta)
     if any(m.get("invalidation_marker") == "INVALIDATED" for m in metas):
         return False
-    return any(m.get("program_ref") == program_id for m in metas)
+    for meta in metas:
+        scope = canonical_program_scope(
+            meta.get("program_ref"), meta.get("hypothesis_ref"), programs)
+        if scope is None:
+            return True  # cannot prove foreign → touching (fail closed)
+        if scope[0] == program_id:
+            return True
+    return False
 
 
 def _fresh_program_conflicts(
-    conn: sqlite3.Connection, project_id: str,
+    conn: sqlite3.Connection, project_id: str, programs: list[dict],
+    diagnostics: dict | None = None,
 ) -> list[dict]:
     """The pure production detector re-run over the CURRENT
     digest-valid classification rows (the P1-10 blind-window closure).
@@ -271,9 +312,11 @@ def _fresh_program_conflicts(
     candidate-row derivation (``detector_candidate_rows`` over the
     ``classifications_digest`` of the project's rows — the exact inputs
     the controller's detector pass consumes) and the pure N1 pair rule
-    (``detect_classification_conflicts``), never a reimplementation.
-    Output is sorted by ``contradiction_id``; the per-pass pair budget
-    is the production detector's own (``DEFAULT_MAX_PAIRS``).
+    (``detect_classification_conflicts``), never a reimplementation. The
+    project's program rows are the canonicalisation context (OPS-5Q);
+    unresolved refs are reported in ``diagnostics``. Output is sorted by
+    ``contradiction_id``; the per-pass pair budget is the production
+    detector's own (``DEFAULT_MAX_PAIRS``).
     """
     from hermes.persistence.failure_classifications import (
         FailureClassificationRepository,
@@ -291,7 +334,8 @@ def _fresh_program_conflicts(
             project_id))
     rows = detector_candidate_rows(
         conn, project_id, digest.get("items", []))
-    return detect_classification_conflicts(rows)
+    return detect_classification_conflicts(
+        rows, programs=programs, diagnostics=diagnostics)
 
 
 def _refuted_hypothesis_refs(
@@ -327,6 +371,8 @@ def can_complete_research(
     Returns a ``CompletionEligibility``; ``eligible`` is True iff no denial
     was found. Every denial is structured and explainable.
     """
+    from hermes.research.contradictions import DETECTOR_UNCANONICALISED
+
     denials: list[CompletionDenial] = []
 
     # 1. The project must have a current compiled epistemic contract. Without
@@ -406,13 +452,32 @@ def can_complete_research(
                 "resolve the gate through the ratified operator/handler "
                 "verdict path so the GatePassed event is recorded"))
 
-    # 4. No open classification conflict may touch the program's
-    # classifications — stored OPEN rows AND conflicts freshly
-    # recomputed over the current classification rows (no blind
-    # window): an unresolved conflict routes to adjudication
-    # (§6.1 style), never to completion.
+    # 4. Every classification's stored refs must resolve to a project
+    #    program and its registered hypothesis; an unresolvable ref is
+    #    unverifiable input and denies completion (fail closed). Then no
+    #    open classification conflict may touch the program's
+    #    classifications — stored OPEN rows AND conflicts freshly
+    #    recomputed over the canonical scope (no blind window): an
+    #    unresolved conflict routes to adjudication (§6.1 style), never
+    #    to completion.
+    programs = _project_programs(conn, project_id)
+    conflict_diagnostics: dict = {}
+    fresh = _fresh_program_conflicts(
+        conn, project_id, programs, conflict_diagnostics)
+    for item in conflict_diagnostics.get(
+            DETECTOR_UNCANONICALISED, {}).get("rows", []):
+        artifact_id = str(item.get("artifact_id") or "")
+        denials.append(CompletionDenial(
+            PROGRAM_REF_UNRESOLVED, artifact_id,
+            "every classification's program_ref and hypothesis_ref must "
+            "resolve to a project program and its registered hypothesis",
+            f"classification {artifact_id!r} cites program_ref "
+            f"{item.get('program_ref')!r} / hypothesis_ref "
+            f"{item.get('hypothesis_ref')!r}, which cannot be "
+            "canonicalised — completion cannot be verified",
+            "repair the classification's refs or supersede the row"))
     for contradiction_id in _open_program_contradictions(
-            conn, project_id, program_id):
+            conn, project_id, program_id, programs, fresh):
         denials.append(CompletionDenial(
             OPEN_CONTRADICTION, contradiction_id,
             "no open classification conflict may touch the program's "

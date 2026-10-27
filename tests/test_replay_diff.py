@@ -100,8 +100,11 @@ class TestPairCap:
 
     def test_detector_version_bumped_for_selection_change(self):
         # v3: pair selection changed to round-robin fairness (v2 was the
-        # global sequential cap). Identity (cx_ pair hash) is unchanged.
-        assert CONTRADICTION_DETECTOR_VERSION == "cx-detect-v3"
+        # global sequential cap). v4 (OPS-5Q): the group key canonicalises
+        # the program ref through the project's program rows, so the bare
+        # program_id and research_program:<content_hash> spelling of one
+        # program share a key. Identity (cx_ pair hash) is unchanged.
+        assert CONTRADICTION_DETECTOR_VERSION == "cx-detect-v4"
 
 
 class TestFairness:

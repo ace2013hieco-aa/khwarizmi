@@ -379,6 +379,41 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
                 "The payload object is closed. No legal payload keys are "
                 "available because the declared kinds are not applicable in "
                 "this phase.")
+    required_fields = contract.get("payload_required_fields")
+    if isinstance(required_fields, Mapping) and isinstance(declared, list):
+        # OPS-5P: the fields the validator requires, with their vocabulary.
+        # The values come from the gateway's set (the same membership check
+        # the validator runs); the shape/note are its constants too. Unlike
+        # the optional value/shape lines below, omission is refused, so the
+        # sentence says required rather than offering a default.
+        for kind in declared:  # pyright: ignore[reportUnknownVariableType]
+            per_key = required_fields.get(str(kind))
+            if not isinstance(per_key, Mapping):
+                continue
+            for raw_key in sorted(per_key, key=str):
+                rule = per_key[raw_key]
+                if not isinstance(rule, Mapping):
+                    continue
+                values = rule.get("values")
+                shape = str(rule.get("shape") or "")
+                note = str(rule.get("note") or "")
+                if isinstance(values, list) and values:
+                    clause = (
+                        "is required (there is no default); it must be one "
+                        "of: " + ", ".join(
+                            str(item) for item in values))  # pyright: ignore[reportUnknownVariableType]
+                elif shape:
+                    clause = (
+                        "is required (there is no default); it must be "
+                        f"{shape}")
+                else:
+                    clause = "is required (there is no default)"
+                sentence = (
+                    f'For {kind}, the payload key "{raw_key}" {clause}.')
+                if note:
+                    sentence += f" {note}"
+                sentence += " Any other value is refused."
+                parts.append(sentence)
     value_sets = contract.get("payload_values")
     if isinstance(value_sets, Mapping) and isinstance(declared, list):
         # OPS-13: one line per (key, value set), naming the kinds that accept it.

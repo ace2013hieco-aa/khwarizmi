@@ -45,6 +45,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from hermes.core import Clock, utc_now
+from hermes.core.program_refs import program_ref_key
 from hermes.core.task_status import TaskStatus
 from hermes.persistence.source_outcomes import (
     _source_artifact_resolves,
@@ -450,9 +451,9 @@ class FailureClassificationRepository:
         ``research_program:<content_hash>`` ref) to a project-scoped
         ``research_programs`` row, or None (the V6-FINAL-02 provenance
         pattern)."""
-        program_id = program_ref
-        if program_ref.startswith("research_program:"):
-            program_id = program_ref[len("research_program:"):]
+        program_id = program_ref_key(program_ref)
+        if program_id is None:
+            return None
         row = self._conn.execute(
             "SELECT * FROM research_programs "
             "WHERE project_id = ? AND program_id = ?",

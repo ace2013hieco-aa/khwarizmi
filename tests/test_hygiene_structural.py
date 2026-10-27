@@ -39,7 +39,7 @@ EXPECTED_REFUSAL_CODE_COUNTS = {
     "NOT_WIRED": 1,
     "OPERATOR": 5,
     "PROJECT_NOT_FOUND": 3,
-    "PROPOSAL": 43,
+    "PROPOSAL": 44,  # OPS-5Q +1 (unresolvable contradiction party scope)
     "PROVENANCE": 15,
     "ROLE": 8,
     "SCOPE_NOT_GOVERNED": 2,
@@ -138,13 +138,14 @@ def test_gateway_refusal_code_census_is_exact() -> None:
         f"string-built or non-raise refusals defeat the census: {anomalies}")
     assert counts == EXPECTED_REFUSAL_CODE_COUNTS
     # COND-TYPE +1 site; GAP-1 P2-10 +1 site; AUDIT-TXN +1 site (the
-    # pre-dispatch audit-payload gate in apply_intent).
-    assert sum(counts.values()) == 269
+    # pre-dispatch audit-payload gate in apply_intent); OPS-5Q +1 site
+    # (unresolvable contradiction party scope).
+    assert sum(counts.values()) == 270
 
 
 def test_proposal_refusal_code_count_is_deterministic() -> None:
     counts, _ = _refusal_calls(_tree(GATEWAY))
-    assert counts["PROPOSAL"] == 43
+    assert counts["PROPOSAL"] == 44
 
 
 def test_refusal_code_symbols_are_stable_module_constants() -> None:

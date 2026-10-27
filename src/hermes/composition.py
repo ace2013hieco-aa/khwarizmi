@@ -765,6 +765,30 @@ def live_contract_rules() -> tuple[
     return available, payload_keys, payload_values, payload_shapes
 
 
+def live_required_payload_fields() -> dict[str, dict[str, dict[str, Any]]]:
+    """The gateway's required payload fields and their rendered clauses.
+
+    OPS-5P: EVIDENCE_TRANSITION's states and ref form are built by the
+    gateway from its own validator constants (``RATIFIED_EVIDENCE_STATES``
+    and the ref prefixes), so the contract states the vocabulary the
+    validator checks. Read at call time; plain prompt data, never a
+    validator.
+    """
+    from .research.gateway import intent_payload_required_fields
+
+    return {
+        kind.value: {
+            key: {
+                "values": sorted(rule.values) if rule.values else [],
+                "shape": rule.shape,
+                "note": rule.note,
+            }
+            for key, rule in sorted(fields.items())
+        }
+        for kind, fields in intent_payload_required_fields().items()
+    }
+
+
 def build_model_binding(
     cfg: HermesConfig,
     providers: Sequence[ModelProvider],
@@ -778,6 +802,8 @@ def build_model_binding(
     payload_keys: Mapping[str, Sequence[str]] | None = None,
     payload_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
     payload_shapes: Mapping[str, Mapping[str, str]] | None = None,
+    payload_required_fields: Mapping[
+        str, Mapping[str, Mapping[str, Any]]] | None = None,
 ) -> ModelBinding:
     """Bind the router to the configured tiers; the binding is the model port.
 
@@ -786,6 +812,8 @@ def build_model_binding(
     ``available_kinds``/``payload_keys``/``payload_values``/``payload_shapes``
     are the OPS-12/OPS-13/OPS-14 contract guidance from the gateway's own
     constants; they are absent unless the caller supplies them.
+    ``payload_required_fields`` is the OPS-5P required-field guidance
+    (``live_required_payload_fields``), absent unless supplied.
     """
     policy = ModelPlanePolicy.from_config_tiers(
         {"s": cfg.model_tiers.s, "m": cfg.model_tiers.m, "c": cfg.model_tiers.c})
@@ -803,7 +831,8 @@ def build_model_binding(
         available_kinds=available_kinds,
         payload_keys=payload_keys,
         payload_values=payload_values,
-        payload_shapes=payload_shapes)
+        payload_shapes=payload_shapes,
+        payload_required_fields=payload_required_fields)
 
 
 def build_controller(
@@ -954,7 +983,8 @@ def build_live_composition(
         cfg, providers, credentials=credentials,
         task_tiers=task_tiers, default_tier=default_tier,
         available_kinds=available_kinds, payload_keys=payload_keys,
-        payload_values=payload_values, payload_shapes=payload_shapes)
+        payload_values=payload_values, payload_shapes=payload_shapes,
+        payload_required_fields=live_required_payload_fields())
     supervisor = Supervisor()
     recorder = RecordingModelPort(binding)
     capability_port = CapabilityInvoker(

@@ -32,12 +32,18 @@ import hashlib
 import json
 from typing import Any, Iterator, Mapping, Sequence
 
+from hermes.core.program_refs import (
+    canonical_program_scope,
+    program_ref_key,
+)
+
 __all__ = [
     "CONTRADICTION_DETECTOR_VERSION",
     "CONTRADICTION_SCHEMA_VERSION",
     "CONTRADICTION_TYPE_CLASSIFICATION_CONFLICT",
     "DEFAULT_MAX_PAIRS",
     "DETECTOR_TRUNCATED",
+    "DETECTOR_UNCANONICALISED",
     "MAX_OPEN_CONTRADICTIONS",
     "ContradictionError",
     "canonical_pair",
@@ -57,6 +63,7 @@ CONTRADICTION_TYPE_CLASSIFICATION_CONFLICT = "CLASSIFICATION_CONFLICT"
 # late groups are not starved); truncated groups are listed per group.
 DEFAULT_MAX_PAIRS = 500
 DETECTOR_TRUNCATED = "DETECTOR_TRUNCATED"
+DETECTOR_UNCANONICALISED = "DETECTOR_UNCANONICALISED"
 
 # EXT-6 / R4 — cumulative OPEN-contradiction ceiling (project-scoped).
 #
@@ -106,7 +113,10 @@ MAX_OPEN_CONTRADICTIONS = 1000
 # identity is unaffected (version is provenance, not identity).
 # v3: pair selection changed from sorted-group sequential (first groups
 # starve later ones under the cap) to sorted-group round-robin fairness.
-CONTRADICTION_DETECTOR_VERSION = "cx-detect-v3"
+# v4 (OPS-5Q): the group key canonicalises the program ref through the
+# project's program rows, so the bare program_id and the
+# research_program:<content_hash> spelling of one program share a key.
+CONTRADICTION_DETECTOR_VERSION = "cx-detect-v4"
 
 
 class ContradictionError(ValueError):
@@ -174,6 +184,7 @@ def detect_classification_conflicts(
     *,
     max_pairs: int = DEFAULT_MAX_PAIRS,
     diagnostics: dict[str, Any] | None = None,
+    programs: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Pure CLASSIFICATION_CONFLICT detector over candidate rows.
 
@@ -183,6 +194,17 @@ def detect_classification_conflicts(
     admitted classifications by the caller; this function applies the
     pair rule only: same project/program/hypothesis, different
     failure_class, neither invalidated, non-empty evidence overlap.
+
+    ``programs`` is the project's program rows
+    (``{program_id, content_hash, hypotheses}``). When supplied, each
+    row's program/hypothesis pair is canonicalised through it, so the
+    bare ``<program_id>`` and ``research_program:<content_hash>``
+    spellings of one program share a group key. A pair that cannot be
+    resolved is not grouped — fail closed, never a guessed key — and is
+    reported as ``DETECTOR_UNCANONICALISED`` in ``diagnostics``. When
+    omitted, the legacy key is used after stripping one
+    ``research_program:`` prefix; the content-hash spelling cannot be
+    unified without the rows.
 
     Pair budget: at most ``max_pairs`` pairs are emitted. The budget is
     shared across groups by round-robin over groups in sorted key order
@@ -202,10 +224,12 @@ def detect_classification_conflicts(
     if max_pairs < 1:
         raise ContradictionError("max_pairs must be >= 1")
     by_group: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    uncanonicalised: list[dict[str, Any]] = []
     for row in rows:
         try:
-            key = (str(row["project_id"]), str(row["program_ref"]),
-                   str(row["hypothesis_ref"]))
+            project_id = str(row["project_id"])
+            raw_program_ref = row["program_ref"]
+            raw_hypothesis_ref = row["hypothesis_ref"]
             if row.get("invalidated"):
                 continue
             if not row.get("artifact_id") or not row.get("failure_class"):
@@ -213,7 +237,26 @@ def detect_classification_conflicts(
         except (KeyError, TypeError) as exc:
             raise ContradictionError(
                 f"candidate row is malformed: {exc}") from None
-        by_group.setdefault(key, []).append(row)
+        if programs is None:
+            program_key = program_ref_key(raw_program_ref)
+            hypothesis_key = (
+                raw_hypothesis_ref
+                if isinstance(raw_hypothesis_ref, str) and raw_hypothesis_ref
+                else None)
+        else:
+            scope = canonical_program_scope(
+                raw_program_ref, raw_hypothesis_ref, programs)
+            program_key, hypothesis_key = (
+                scope if scope is not None else (None, None))
+        if program_key is None or hypothesis_key is None:
+            uncanonicalised.append({
+                "artifact_id": str(row.get("artifact_id") or ""),
+                "program_ref": raw_program_ref,
+                "hypothesis_ref": raw_hypothesis_ref,
+            })
+            continue
+        by_group.setdefault(
+            (project_id, program_key, hypothesis_key), []).append(row)
     # Dict artifact_id -> row per group (sort-once + index pairs: each
     # artifact is looked up once via by_id, no per-pair group scan).
     # Groups in sorted key order so the pair cap cuts deterministically
@@ -343,6 +386,15 @@ def detect_classification_conflicts(
         # the key means nothing was cut. Per-group emission is available
         # to the caller via the returned pairs alone.
         diagnostics.pop(DETECTOR_TRUNCATED, None)
+    if diagnostics is not None:
+        if uncanonicalised:
+            diagnostics[DETECTOR_UNCANONICALISED] = {
+                "count": len(uncanonicalised),
+                "rows": sorted(
+                    uncanonicalised, key=lambda item: item["artifact_id"]),
+            }
+        else:
+            diagnostics.pop(DETECTOR_UNCANONICALISED, None)
     return [found[k] for k in sorted(found)]
 
 

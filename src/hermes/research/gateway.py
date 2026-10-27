@@ -59,6 +59,10 @@ from hermes.core.intents import (
     IntentRejectedError,
 )
 from hermes.core.node import AgentProfile, NodeContract, NodeType
+from hermes.core.program_refs import (
+    canonical_program_scope,
+    program_ref_key,
+)
 from hermes.core.task_status import TaskStatus
 from hermes.persistence.event_validation import EventValidationError, validate_event
 from hermes.persistence.repositories import (
@@ -550,10 +554,7 @@ def _validate_propose_research_program(
         # or a 'research_program:<id>' ref (canonical comparison).
         # _canonical_or_none is defined in this module (used by CURATE_KNOWLEDGE).
         cls_program_ref = cls_meta.get("program_ref")
-        cls_program_id = cls_program_ref
-        if (isinstance(cls_program_ref, str)
-                and cls_program_ref.startswith("research_program:")):
-            cls_program_id = cls_program_ref[len("research_program:"):]
+        cls_program_id = program_ref_key(cls_program_ref) or ""
         if _canonical_or_none(cls_program_id) != _canonical_or_none(
                 parent_program_id):
             raise _reject(
@@ -754,10 +755,7 @@ def _validate_emit_parallel_regime_program(
             f"PROPOSE_PARALLEL_REGIME_TEST")
     # (d) classification-program-hypothesis binding
     cls_program_ref = cls_meta.get("program_ref")
-    cls_program_id = cls_program_ref
-    if (isinstance(cls_program_ref, str)
-            and cls_program_ref.startswith("research_program:")):
-        cls_program_id = cls_program_ref[len("research_program:"):]
+    cls_program_id = program_ref_key(cls_program_ref) or ""
     if _canonical_or_none(cls_program_id) != _canonical_or_none(parent_program_id):
         raise _reject(
             intent.kind, CLASSIFICATION_REF,
@@ -1434,6 +1432,70 @@ INTENT_PAYLOAD_SHAPES: Mapping[IntentKind, Mapping[str, str]] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class RequiredPayloadField:
+    """One required payload field's contract guidance (OPS-5P).
+
+    ``values`` is the exact set the validator membership-checks (``None``
+    when the field is a ref, not an enumeration); ``shape`` and ``note`` are
+    the field's stated form and meaning. The contract renders all three.
+    """
+
+    values: frozenset[str] | None = None
+    shape: str = ""
+    note: str = ""
+
+
+def intent_payload_required_fields() -> dict[
+        IntentKind, dict[str, RequiredPayloadField]]:
+    """The required payload fields, built from the validator's vocabulary.
+
+    OPS-5P: ``EVIDENCE_TRANSITION``'s ``from_state``/``to_state`` are
+    evidence verdicts, not stages, and the validator refuses an omitted or
+    equal pair; ``evidence_artifact_ref`` takes the artifact ref, not the
+    ``source_payload:<content_hash>`` content ref. Every value and form is
+    read from the validator's own constants at call time — the ratified
+    states, the two evidence ref prefixes ``canonical_evidence_ref`` accepts,
+    and the content-ref form the field must not take — so a vocabulary
+    change moves the rendered contract without a second hand-typed list.
+    """
+    from hermes.research.capability_supply import (
+        SOURCE_PAYLOAD_HANDLE_PREFIX,
+        SOURCE_REF_SEPARATOR,
+    )
+    from hermes.research.evidence_transitions import (
+        EVIDENCE_HANDLE_REF_PREFIX,
+        EVIDENCE_REF_PREFIX,
+        RATIFIED_EVIDENCE_STATES,
+    )
+
+    state_note = (
+        "from_state and to_state are the evidence verdicts before and after "
+        "this transition — a verdict about the claim, not a position in the "
+        "research chain and not a stage name; the pair must differ (an equal "
+        "pair is refused), and no transition may leave REFUTED (the terminal "
+        "state).")
+    artifact_shape = (
+        f"the artifact ref '{EVIDENCE_REF_PREFIX}<artifact_id>' (the "
+        f"observation handle '{EVIDENCE_HANDLE_REF_PREFIX}<artifact_id>' is "
+        f"also accepted and normalised to it)")
+    artifact_note = (
+        f"The content ref "
+        f"'{SOURCE_PAYLOAD_HANDLE_PREFIX}{SOURCE_REF_SEPARATOR}"
+        f"<content_hash>' is not accepted in evidence_artifact_ref; no "
+        f"payload field of EVIDENCE_TRANSITION takes it.")
+    return {
+        IntentKind.EVIDENCE_TRANSITION: {
+            "evidence_artifact_ref": RequiredPayloadField(
+                shape=artifact_shape, note=artifact_note),
+            "from_state": RequiredPayloadField(
+                values=RATIFIED_EVIDENCE_STATES, note=state_note),
+            "to_state": RequiredPayloadField(
+                values=RATIFIED_EVIDENCE_STATES, note=state_note),
+        },
+    }
+
+
 def _validate_evidence_transition(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
     audit: AuditRecord | None = None,
@@ -1462,6 +1524,10 @@ def _validate_evidence_transition(
         raise _reject(
             intent.kind, MALFORMED_PAYLOAD,
             f"unknown payload keys {unknown} for EVIDENCE_TRANSITION")
+    from hermes.research.capability_supply import (
+        SOURCE_PAYLOAD_HANDLE_PREFIX,
+        SOURCE_REF_SEPARATOR,
+    )
     from hermes.research.evidence_transitions import (
         EVIDENCE_HANDLE_REF_PREFIX,
         EVIDENCE_REF_PREFIX,
@@ -1477,8 +1543,11 @@ def _validate_evidence_transition(
             intent.kind, MALFORMED_PAYLOAD,
             f"payload.evidence_artifact_ref must be "
             f"'{EVIDENCE_REF_PREFIX}<artifact_id>' (or the observation handle "
-            f"'{EVIDENCE_HANDLE_REF_PREFIX}<artifact_id>'); got "
-            f"{_bounded_rejected(raw_ref)}")
+            f"'{EVIDENCE_HANDLE_REF_PREFIX}<artifact_id>'); the field takes "
+            f"the artifact ref, not the content ref "
+            f"'{SOURCE_PAYLOAD_HANDLE_PREFIX}{SOURCE_REF_SEPARATOR}"
+            f"<content_hash>' (no payload field of EVIDENCE_TRANSITION takes "
+            f"that form); got {_bounded_rejected(raw_ref)}")
     artifact_id = evidence_artifact_ref[len(EVIDENCE_REF_PREFIX):]
     if not artifact_id:
         raise _reject(
@@ -1493,16 +1562,24 @@ def _validate_evidence_transition(
             f"{intent.project_id!r}")
     from_state = payload.get("from_state")
     to_state = payload.get("to_state")
+
+    def _state_reason(field: str, value: Any) -> str:
+        if value is None:
+            return (
+                f"payload.{field} is required and must be one of the "
+                f"ratified evidence states "
+                f"({sorted(RATIFIED_EVIDENCE_STATES)})")
+        return (
+            f"payload.{field} {value!r} is not a ratified evidence state "
+            f"({sorted(RATIFIED_EVIDENCE_STATES)}) — an evidence state is a "
+            f"verdict about the claim, not a stage name")
+
     if from_state not in RATIFIED_EVIDENCE_STATES:
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            f"payload.from_state {from_state!r} is not a ratified "
-            f"evidence state ({sorted(RATIFIED_EVIDENCE_STATES)})")
+        raise _reject(intent.kind, MALFORMED_PAYLOAD,
+                      _state_reason("from_state", from_state))
     if to_state not in RATIFIED_EVIDENCE_STATES:
-        raise _reject(
-            intent.kind, MALFORMED_PAYLOAD,
-            f"payload.to_state {to_state!r} is not a ratified "
-            f"evidence state ({sorted(RATIFIED_EVIDENCE_STATES)})")
+        raise _reject(intent.kind, MALFORMED_PAYLOAD,
+                      _state_reason("to_state", to_state))
     if from_state == to_state:
         raise _reject(intent.kind, MALFORMED_PAYLOAD,
                       f"payload.from_state == payload.to_state "
@@ -2339,9 +2416,9 @@ def _resolve_program_in_project(
     ``research_programs`` row, or None (the failure_classifications
     ``_resolve_program`` precedent)."""
     from hermes.persistence.repositories import _json_loads
-    pid = program_ref
-    if program_ref.startswith("research_program:"):
-        pid = program_ref[len("research_program:"):]
+    pid = program_ref_key(program_ref)
+    if pid is None:
+        return None
     row = conn.execute(
         "SELECT * FROM research_programs "
         "WHERE project_id = ? AND program_id = ?",
@@ -2762,10 +2839,7 @@ def _validate_curate_knowledge(
             f"classification {cls_row['artifact_id']!r} targets hypothesis "
             f"{cls_meta.get('hypothesis_ref')!r}, not {hypothesis_ref!r}")
     cls_program_ref = cls_meta.get("program_ref")
-    cls_pid = cls_program_ref
-    if isinstance(cls_program_ref, str) and cls_program_ref.startswith(
-            "research_program:"):
-        cls_pid = cls_program_ref[len("research_program:"):]
+    cls_pid = program_ref_key(cls_program_ref) or ""
     if cls_pid not in (program_id, str(program.get("content_hash") or "")):
         raise _reject(
             kind, PROVENANCE,
@@ -3271,12 +3345,30 @@ def _validate_record_contradiction(
             kind, EVIDENCE_REF,
             "contradiction parties must resolve to digest-valid "
             f"classification artifacts in project {intent.project_id!r}")
-    if facts_a["program_ref"] != facts_b["program_ref"]:
+    # OPS-5Q: compare the canonical program/hypothesis scope, not the raw
+    # stored spelling. Both admitted program spellings of one program are
+    # one target; an unresolvable ref fails closed (no pair).
+    programs: list[dict] = []
+    for facts in (facts_a, facts_b):
+        program = _resolve_program_in_project(
+            conn, intent.project_id, facts["program_ref"])
+        if program is not None:
+            programs.append(program)
+    scope_a = canonical_program_scope(
+        facts_a["program_ref"], facts_a["hypothesis_ref"], programs)
+    scope_b = canonical_program_scope(
+        facts_b["program_ref"], facts_b["hypothesis_ref"], programs)
+    if scope_a is None or scope_b is None:
+        raise _reject(
+            kind, PROPOSAL,
+            "contradiction party program/hypothesis refs cannot be "
+            "canonicalised — the pair rule cannot be verified")
+    if scope_a[0] != scope_b[0]:
         raise _reject(
             kind, PROPOSAL,
             "contradiction parties target different programs — not one "
             "classification conflict")
-    if facts_a["hypothesis_ref"] != facts_b["hypothesis_ref"]:
+    if scope_a[1] != scope_b[1]:
         raise _reject(
             kind, PROPOSAL,
             "contradiction parties target different hypotheses — not one "
@@ -4286,7 +4378,7 @@ def _validate_provenance(
     requirement_refs: list[str] = []
     for entry in node.provenance:
         if entry.startswith("research_program:"):
-            program_id = entry[len("research_program:"):]
+            program_id = program_ref_key(entry) or ""
             if not program_id:
                 raise _reject(
                     intent.kind, PROVENANCE,

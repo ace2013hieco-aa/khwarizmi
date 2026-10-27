@@ -1397,6 +1397,8 @@ class ModelRouter:
         payload_keys: Mapping[str, Sequence[str]] | None = None,
         payload_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
         payload_shapes: Mapping[str, Mapping[str, str]] | None = None,
+        payload_required_fields: Mapping[
+            str, Mapping[str, Mapping[str, Any]]] | None = None,
         credentials: CredentialResolver | None = None,
         translator: ToolCallTranslator | None = None,
         sleep: Callable[[float], None] | None = None,
@@ -1439,6 +1441,14 @@ class ModelRouter:
                          for key, shape in shapes.items()}
              for kind, shapes in payload_shapes.items()}
             if payload_shapes is not None else None)
+        # OPS-5P: the required payload fields and their rendered clauses,
+        # injected by the composition root from the gateway's validator-derived
+        # structure. Guidance only; the validator keeps every check.
+        self._payload_required_fields = (
+            {str(kind): {str(key): dict(rule)
+                         for key, rule in fields.items()}
+             for kind, fields in payload_required_fields.items()}
+            if payload_required_fields is not None else None)
         self._credentials = credentials
         self._translator: ToolCallTranslator = translator or NeutralToolCallTranslator()
         self._sleep = sleep if sleep is not None else _default_sleep(clock)
@@ -1828,6 +1838,11 @@ class ModelRouter:
             mapping["payload_shapes"] = {
                 kind: dict(shapes)
                 for kind, shapes in sorted(self._payload_shapes.items())}
+        if self._payload_required_fields is not None:
+            mapping["payload_required_fields"] = {
+                kind: {key: dict(rule) for key, rule in fields.items()}
+                for kind, fields in sorted(
+                    self._payload_required_fields.items())}
         return mapping
 
     # ── execution ──

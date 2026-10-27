@@ -45,6 +45,10 @@ from hermes.core.graph import (
     re_review_candidates,
 )
 from hermes.core.modes import OperationalMode
+from hermes.core.program_refs import (
+    canonical_program_scope,
+    program_ref_key,
+)
 from hermes.core.task_status import (
     TaskStatus,
     TaskTransitionError,
@@ -2454,6 +2458,7 @@ class Controller:
         from hermes.research.contradictions import (
             CONTRADICTION_DETECTOR_VERSION,
             DETECTOR_TRUNCATED,
+            DETECTOR_UNCANONICALISED,
             ContradictionError,
             contradiction_id_of,
             detect_classification_conflicts,
@@ -2463,8 +2468,9 @@ class Controller:
         diagnostics: dict = {}
         try:
             rows = self._detector_candidate_rows()
+            programs = self._project_programs()
             found = detect_classification_conflicts(
-                rows, diagnostics=diagnostics)
+                rows, diagnostics=diagnostics, programs=programs)
             recorded_keys = recorded_pair_keys(
                 self._conn, self._project_id)
         except Exception as exc:  # noqa: BLE001 — detector failure
@@ -2474,6 +2480,13 @@ class Controller:
                 key="contradiction:detector-failed")
             return {"rejected": True, "code": "DETECTOR",
                     "detail": f"contradiction detector failed: {exc}"}
+        unresolved = diagnostics.get(DETECTOR_UNCANONICALISED)
+        if unresolved is not None:
+            self._note_once(
+                f"{DETECTOR_UNCANONICALISED}: {unresolved['count']} "
+                f"classification row(s) cite a program/hypothesis ref that "
+                f"does not canonicalise — not paired; completion blocks",
+                key="contradiction:uncanonicalised")
         truncated = diagnostics.get(DETECTOR_TRUNCATED)
         if truncated is not None:
             groups = truncated.get("truncated_groups", [])
@@ -3529,12 +3542,14 @@ class Controller:
             conn.execute("ROLLBACK")
             raise
 
-    def _load_obligation_context(
-        self,
-    ) -> tuple[list[dict], dict[str, dict[str, frozenset[str]]]]:
-        """One read per tick: the project's immutable program rows (parsed)
-        and the per-requirement satisfaction links (IDR-038 §3.1). Both are
-        read-only stored facts — the derivation never writes (Q-02 §8)."""
+    def _project_programs(self) -> list[dict]:
+        """The project's immutable program rows (parsed), fail-closed.
+
+        One read; a corrupt row is skipped and noted, never a fact source
+        and never a crash. The same list is the program-ref
+        canonicalisation context (OPS-5Q) and the ladder/obligation
+        context.
+        """
         rows = self._fenced.execute(
             "SELECT * FROM research_programs WHERE project_id = ?",
             (self._project_id,),
@@ -3552,6 +3567,15 @@ class Controller:
                     f"skipped by the Q-02 obligation derivation "
                     f"(fail-closed to baseline)",
                     key=f"obligation:corrupt-program:{r['program_id']}")
+        return programs
+
+    def _load_obligation_context(
+        self,
+    ) -> tuple[list[dict], dict[str, dict[str, frozenset[str]]]]:
+        """One read per tick: the project's immutable program rows (parsed)
+        and the per-requirement satisfaction links (IDR-038 §3.1). Both are
+        read-only stored facts — the derivation never writes (Q-02 §8)."""
+        programs = self._project_programs()
         satisfactions = self._satisfaction_repo.satisfaction_types_by_requirement(
             self._project_id)
         return programs, satisfactions
@@ -3611,8 +3635,8 @@ class Controller:
         dims: dict = {}
         basis: tuple[str, ...] = ()
         program_ids = [
-            p[len("research_program:"):] for p in
-            self._program_refs_from_provenance(task)]
+            key for p in self._program_refs_from_provenance(task)
+            if (key := program_ref_key(p)) is not None]
         if program_ids and program_rows is not None:
             linked = [
                 row for row in program_rows if row.get("program_id") in program_ids]
@@ -3692,8 +3716,8 @@ class Controller:
         task always carries its links (or an explicit note).
         """
         program_ids = [
-            p[len("research_program:"):] for p in
-            self._program_refs_from_provenance(task)]
+            key for p in self._program_refs_from_provenance(task)
+            if (key := program_ref_key(p)) is not None]
         claim_refs = [
             c[len("evidence_requirement:"):] for c in
             self._requirement_refs_from_provenance(task)]
@@ -3927,22 +3951,22 @@ class Controller:
                 failure_class = None
             if failure_class is None:
                 continue  # non-ratified class — never decisive
-            h_ref = meta.get("hypothesis_ref")
+            raw_h_ref = meta.get("hypothesis_ref")
             program_ref = meta.get("program_ref")
-            if not isinstance(h_ref, str) or not h_ref:
+            if not isinstance(raw_h_ref, str) or not raw_h_ref:
                 continue
             if not isinstance(program_ref, str) or not program_ref:
                 continue
+            scope = canonical_program_scope(program_ref, raw_h_ref, programs)
+            if scope is None:
+                continue  # unresolvable program/hypothesis — nothing applies
+            prog_id, h_ref = scope
             if not certifies_decisive_falsification(
                     failure_class, h_ref, meta.get("constraint_ref")):
                 continue  # not a decisive falsification citation
-            prog_id = program_ref
-            if program_ref.startswith("research_program:"):
-                prog_id = program_ref[len("research_program:"):]
             program = next(
                 (p for p in programs
-                 if str(p.get("program_id") or "") == prog_id
-                 or str(p.get("content_hash") or "") == prog_id),
+                 if str(p.get("program_id") or "") == prog_id),
                 None)
             if program is None:
                 continue  # foreign program — nothing applies
@@ -4291,13 +4315,13 @@ class Controller:
             return None
         if not isinstance(program_ref, str) or not program_ref:
             return None
-        prog_id = program_ref
-        if program_ref.startswith("research_program:"):
-            prog_id = program_ref[len("research_program:"):]
+        scope = canonical_program_scope(program_ref, h_ref, programs)
+        if scope is None:
+            return None  # unresolvable program/hypothesis — nothing selects
+        prog_id, h_ref = scope
         program = next(
             (p for p in programs
-             if str(p.get("program_id") or "") == prog_id
-             or str(p.get("content_hash") or "") == prog_id),
+             if str(p.get("program_id") or "") == prog_id),
             None)
         if program is None:
             return None

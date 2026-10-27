@@ -335,6 +335,8 @@ def bind_model_port(
     payload_keys: Mapping[str, Sequence[str]] | None = None,
     payload_values: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
     payload_shapes: Mapping[str, Mapping[str, str]] | None = None,
+    payload_required_fields: Mapping[
+        str, Mapping[str, Mapping[str, Any]]] | None = None,
 ) -> ModelBinding:
     """Build the router *and* its binding, so credentials have one entry point.
 
@@ -353,6 +355,7 @@ def bind_model_port(
         payload_keys=payload_keys,
         payload_values=payload_values,
         payload_shapes=payload_shapes,
+        payload_required_fields=payload_required_fields,
         credentials=credentials,
     )
     return ModelBinding(router=router, policy=task_policy, clock=clock,
