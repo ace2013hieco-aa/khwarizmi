@@ -66,6 +66,7 @@ from hermes.tools.models.router import (
     ProviderChunk,
     RecordedModelProvider,
     TokenUsage,
+    _unwrap_code_fence,
     dump_model_fixtures,
     load_model_fixtures,
     model_fixture_id_of,
@@ -1761,3 +1762,30 @@ def _field_names(cls: type) -> set[str]:
     from dataclasses import fields
 
     return {spec.name for spec in fields(cls)}
+
+
+class TestCodeFenceUnwrap:
+    """A model that fences its JSON has still answered the contract."""
+
+    def test_a_complete_json_fence_is_unwrapped(self) -> None:
+        f = "`" * 3
+        assert _unwrap_code_fence(f + "json\n{\"a\": 1}\n" + f) == '{"a": 1}'
+        assert _unwrap_code_fence(f + "\n{\"a\": 1}\n" + f) == '{"a": 1}'
+        assert _unwrap_code_fence(f + "JSON\n{\"a\": 1}\n" + f) == '{"a": 1}'
+
+    def test_an_unfenced_reply_is_untouched(self) -> None:
+        assert _unwrap_code_fence('{"a": 1}') == '{"a": 1}'
+
+    def test_prose_around_the_fence_still_refuses(self) -> None:
+        """Burying the object in commentary is a shape failure, not a fence."""
+        f = "`" * 3
+        text = "Here you go:/n" + f + "json\n{\"a\": 1}\n" + f
+        assert _unwrap_code_fence(text) == text
+
+    def test_an_unterminated_fence_still_refuses(self) -> None:
+        f = "`" * 3
+        text = f + "json\n{\"a\": 1}"
+        assert _unwrap_code_fence(text) == text
+
+    def test_an_empty_reply_is_untouched(self) -> None:
+        assert _unwrap_code_fence("") == ""

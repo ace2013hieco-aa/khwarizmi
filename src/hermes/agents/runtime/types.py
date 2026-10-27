@@ -226,15 +226,39 @@ def delegation_id_of(run_id: str, parent_task_id: str, child_task_id: str) -> st
 
 
 def tool_idempotency_key_of(run_id: str, tick: int, index: int,
-                            capability_id: str) -> str:
-    """A capability call's idempotency key, derived by rule.
+                            capability_id: str, profile: str,
+                            arguments: Mapping[str, Any]) -> str:
+    """A capability call's idempotency key: the ACT, not its slot (OPS-5N).
 
-    Because it is derived (not random), a resumed run replays the *same* call
-    key and the capability plane's ledger answers from its record instead of
-    executing a second side effect.
+    Six parts, and every one of them is what the call *is*: the run, the tick,
+    the batch position, the capability, the acting profile and the declared
+    arguments. The old four-part form named only a position in a transcript, so
+    a Controller retry that re-entered tick 1 with a fresh model sample handed
+    a different request to the same key — and the plane, which compares the
+    request, refused it `IDEMPOTENCY_CONFLICT`. The repair mechanism was being
+    refused by the attempt it meant to correct.
+
+    Because the key is derived (not random), a *byte-identical* re-issue
+    recomputes the same key and the plane's ledger answers from its record
+    instead of executing a second side effect. That is a **within-process**
+    guarantee: the ledger is process-local derived state, so a restart starts
+    empty and re-executes; durable replay would require seeding it from the
+    journal.
+
+    The arguments are digested **raw**, not in the plane's redacted record form.
+    Redaction is name-based and substring-matched (`redact.py`), so a future
+    field such as `sort_key` would collapse two different requests into one key
+    and replay the first act's answer for the second — a different act must
+    never receive a recorded reply.
+
+    The plane's recorded request digest is a function of a subset of these
+    fields, so **equal key ⇒ equal request**: the ledger's conflict branch can
+    no longer fire on this path, and stays as the defence for any caller that
+    mints its own keys.
     """
     return digest_of({"run_id": run_id, "tick": int(tick), "index": int(index),
-                      "capability_id": capability_id})
+                      "capability_id": capability_id, "profile": profile,
+                      "arguments": dict(arguments)})
 
 
 # ═══════════════════════ inputs ═══════════════════════

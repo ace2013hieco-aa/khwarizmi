@@ -265,8 +265,8 @@ def test_tick_2_differs_from_tick_1_by_exactly_the_tick_1_observations() -> None
     assert document["tick"] == 1
     # The ref is the call's *derived* identity, never an authored one.
     assert observed[0].ref == document["invocation_ref"]
-    assert observed[0].ref == tool_idempotency_key_of(result.run_id, 1, 0,
-                                                      "search")
+    assert observed[0].ref == tool_idempotency_key_of(
+        result.run_id, 1, 0, "search", "RESEARCHER", {"query": "a"})
 
 
 def test_the_composition_is_load_bearing(monkeypatch: pytest.MonkeyPatch) -> None:

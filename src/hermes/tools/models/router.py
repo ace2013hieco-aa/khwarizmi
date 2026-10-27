@@ -705,6 +705,36 @@ def _canonical_bytes(value: Any) -> bytes:
                       ensure_ascii=False, default=str).encode("utf-8")
 
 
+def _unwrap_code_fence(text: str) -> str:
+    """Return the payload of a complete ```-fenced block, else the text unchanged.
+
+    Models routinely answer a JSON contract inside a markdown fence —
+    ````` ```json\n{…}\n``` ````` — even when asked for an object and given
+    `response_format: json_object`. The fence is a rendering habit, not a
+    contract violation: the object inside it is exactly what was asked for, so
+    unwrapping it is a normalisation, not a relaxation of the shape checks that
+    follow.
+
+    Deliberately narrow. Only a **complete** fence is unwrapped: the stripped
+    text must start with ``` and end with ```. Prose around the block, a
+    trailing fence with no opening one, or an unterminated block are all left
+    alone and still refuse `MALFORMED_PAYLOAD` — a reply that buries its object
+    in commentary is a shape failure and should stay one.
+    """
+    stripped = text.strip()
+    if not (stripped.startswith("```") and stripped.endswith("```")):
+        return text
+    if len(stripped) < 6:
+        return text
+    inner = stripped[3:-3]
+    # Drop the language tag line (`json`, `JSON`, or empty) that follows the
+    # opening fence; the closing fence never carries one.
+    newline = inner.find("\n")
+    if newline != -1 and inner[:newline].strip().lower() in ("", "json"):
+        inner = inner[newline + 1:]
+    return inner.strip() or text
+
+
 def parse_model_ref(ref: str) -> tuple[str, str]:
     """Parse a config model ref `"provider:model"` into its two parts.
 
@@ -2075,7 +2105,7 @@ class ModelRouter:
                            "model returned no output for a structured contract",
                            retryable=True, contract_feedback=True)
         try:
-            parsed = json.loads(text)
+            parsed = json.loads(_unwrap_code_fence(text))
         except (TypeError, ValueError):
             raise _Refusal(MALFORMED_PAYLOAD,
                            "model output is not valid JSON",

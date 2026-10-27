@@ -147,7 +147,8 @@ _DIALECT_HOSTS: Final[Mapping[str, frozenset[str]]] = {
     "anthropic": frozenset({"api.anthropic.com"}),
     "openai": frozenset({"api.openai.com", "oxionai.com",
                          "integrate.api.nvidia.com", "api.apinex.bond",
-                         "openrouter.ai"}),
+                         "openrouter.ai", "api.apmix.ai",
+                         "tokenharbor.ai"}),
 }
 
 #: The code-owned hosted-model registry (OPS-1 Decision A2): the policy surface
@@ -163,6 +164,8 @@ _MODEL_REGISTRY: Final[Mapping[str, tuple[str, str]]] = {
     "nvidia": ("openai", "NVIDIA_API_KEY"),
     "apinex": ("openai", "APINEX_API_KEY"),
     "openrouter": ("openai", "OPENROUTER_API_KEY"),
+    "apmix": ("openai", "APMIX_API_KEY"),
+    "tokenharbor": ("openai", "TOKENHARBOR_API_KEY"),
 }
 
 #: The endpoint binding for a provider whose id is not its dialect (OPS-6:
@@ -176,6 +179,8 @@ _PROVIDER_HOSTS: Final[Mapping[str, str]] = {
     "nvidia": "integrate.api.nvidia.com",
     "apinex": "api.apinex.bond",
     "openrouter": "openrouter.ai",
+    "apmix": "api.apmix.ai",
+    "tokenharbor": "tokenharbor.ai",
 }
 
 #: The code-owned request paths a dialect may use. A gateway that serves the
@@ -574,9 +579,14 @@ class CloudModelSpec:
         if self.dialect == "anthropic":
             return (AnthropicMessagesDialect(host=self.host) if self.host
                     else AnthropicMessagesDialect())
+        # Explicit keyword arguments, not `**{"path": ...}`: pyright cannot
+        # type a string-keyed unpack against a dataclass's mixed field types
+        # and reported the `path` value against `json_mode` (bool). Same
+        # construction, same defaults, type-checkable.
         if self.host or self.path:
-            return OpenAIChatDialect(host=self.host or "api.openai.com",
-                                     **({"path": self.path} if self.path else {}))
+            host = self.host or "api.openai.com"
+            return (OpenAIChatDialect(host=host, path=self.path)
+                    if self.path else OpenAIChatDialect(host=host))
         return OpenAIChatDialect()
 
 

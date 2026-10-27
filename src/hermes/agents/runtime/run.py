@@ -1347,6 +1347,14 @@ class AgentRuntime:
             state.refuse(MALFORMED_PAYLOAD, "a tool call needs a capability_id",
                          tick=tick)
             return True
+        # OPS-5N: the key names the act, so the declared arguments are part of
+        # it. Computed once here and used by every exit path below, so a
+        # refusal and the call it refuses are attributed to the same act. A
+        # malformed argument shape still gets a key — the shape is judged where
+        # it is judged, and the ref stays an attribution rather than a promise.
+        raw_arguments = item.get(TOOL_CALL_ARGUMENTS_KEY)
+        key_arguments = (dict(raw_arguments)
+                         if isinstance(raw_arguments, Mapping) else {})
         self._emit(kind="TOOL_REQUESTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"capability_id": capability_id})
@@ -1364,8 +1372,9 @@ class AgentRuntime:
             state.feedback.append(_tool_feedback(
                 tick, index, capability_id, outcome="TOOL_SKIPPED",
                 refusal_code=refusal.code, detail=refusal.detail,
-                invocation_ref=tool_idempotency_key_of(run_id, tick, index,
-                                                       capability_id)))
+                invocation_ref=tool_idempotency_key_of(
+                    run_id, tick, index, capability_id, spec.agent_profile,
+                    key_arguments)))
             return True
         if self._capabilities is None:
             refusal = state.refuse(
@@ -1377,8 +1386,9 @@ class AgentRuntime:
             state.feedback.append(_tool_feedback(
                 tick, index, capability_id, outcome="TOOL_SKIPPED",
                 refusal_code=refusal.code, detail=refusal.detail,
-                invocation_ref=tool_idempotency_key_of(run_id, tick, index,
-                                                       capability_id)))
+                invocation_ref=tool_idempotency_key_of(
+                    run_id, tick, index, capability_id, spec.agent_profile,
+                    key_arguments)))
             return True
         arguments = item.get(TOOL_CALL_ARGUMENTS_KEY) or {}
         if not isinstance(arguments, Mapping):
@@ -1388,8 +1398,9 @@ class AgentRuntime:
         request = InvokeRequest(
             capability_id=capability_id,
             arguments=dict(arguments),
-            idempotency_key=tool_idempotency_key_of(run_id, tick, index,
-                                                    capability_id),
+            idempotency_key=tool_idempotency_key_of(
+                run_id, tick, index, capability_id, spec.agent_profile,
+                key_arguments),
             lease_generation=context.lease_generation,
             profile=spec.agent_profile,
             rationale=str(item.get("rationale") or spec.role),

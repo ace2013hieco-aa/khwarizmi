@@ -547,7 +547,8 @@ def test_a_draft_carries_the_evidence_it_was_drafted_on() -> None:
     checkpoint = runtime.checkpoint(result.run_id)
     assert checkpoint is not None
     assert len(checkpoint.feedback) == 1
-    expected = tool_idempotency_key_of(result.run_id, 1, 0, "source_search")
+    expected = tool_idempotency_key_of(result.run_id, 1, 0, "source_search",
+                                       "RESEARCHER", {"query": "x"})
     assert checkpoint.feedback[0].invocation_ref == expected
 
     # Tick 1 drafted before any call ran: nothing had informed it yet.
