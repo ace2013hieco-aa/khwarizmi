@@ -263,7 +263,10 @@ class TestHermeticReplay:
         ctrl = _controller(db, wiring, store)
         search_id = _admit_search(db, provider)
         ctrl.run(max_ticks=8)
-        assert TaskRepository(db).get_status(search_id) is TaskStatus.SUCCEEDED
+        status = TaskRepository(db).get_status(search_id)
+        assert status is TaskStatus.SUCCEEDED, (
+            f"{provider} search ended {status}: "
+            f"{TaskRepository(db).get(search_id).get('outputs')}")
         refs = _refs_for(db, search_id)
         fetch_id = _admit_fetch(db, search_id, provider, refs)
         ctrl.run(max_ticks=8)
@@ -779,10 +782,14 @@ class TestOverallDeadline:
 #: `PROVIDERS`: on a runner that reaches openalex but not NCBI — which is what
 #: CI turned out to be — it answered "live is available" and then failed the
 #: pubmed cases.
+#: Each probe performs the provider's own **search**, not a generic ping: a
+#: runner that answers `einfo` but rate-limits `esearch` is a runner the pubmed
+#: test cannot use, and an endpoint that says "alive" without saying "usable"
+#: is how the first fix left CI red.
 _LIVE_PROBES = {
-    "openalex": "https://api.openalex.org/works?per-page=1",
-    "pubmed": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi"
-              "?retmode=json",
+    "openalex": "https://api.openalex.org/works?per-page=1&search=crispr",
+    "pubmed": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+              "?db=pubmed&term=crispr&retmax=1&retmode=json",
 }
 
 
