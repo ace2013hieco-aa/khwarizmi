@@ -790,11 +790,11 @@ class TestOverallDeadline:
 #: about. The guard used to probe openalex and then run every provider in
 #: `PROVIDERS`: on a runner that reaches openalex but not NCBI — which is what
 #: CI turned out to be — it answered "live is available" and then failed the
-#: pubmed cases.
+#: pubmed cases. Five syncs to the investor-facing repo were red on that.
 #: Each probe performs the provider's own **search**, not a generic ping: a
 #: runner that answers `einfo` but rate-limits `esearch` is a runner the pubmed
 #: test cannot use, and an endpoint that says "alive" without saying "usable"
-#: is how the first fix left CI red.
+#: is how two syncs stayed red after the first fix.
 _LIVE_PROBES = {
     "openalex": "https://api.openalex.org/works?per-page=1&search=crispr",
     "pubmed": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
