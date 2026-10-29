@@ -189,6 +189,18 @@ def _controller(db, wiring, store):
         artifact_store=store, clock=lambda: CLOCK)
 
 
+def _failure_reason(db, task_id: str) -> str:
+    """The journal's last word on a task — the reason a status change carried.
+
+    `outputs` is empty for a task that failed before it produced anything, so
+    the diagnostic has to read the journal, not the row.
+    """
+    rows = db.execute(
+        "SELECT reason FROM events WHERE payload_json LIKE ? "
+        "ORDER BY event_id DESC LIMIT 1", (f"%{task_id}%",)).fetchall()
+    return str(rows[0][0]) if rows else ""
+
+
 def _admit_search(db, provider):
     result = apply_intent(db, Intent(
         kind=IntentKind.INSERT_TASK, proposed_by="DIRECTOR",
@@ -832,7 +844,7 @@ class TestLiveEndToEnd:
         status = TaskRepository(db).get_status(search_id)
         assert status is TaskStatus.SUCCEEDED, (
             f"{provider} search ended {status}: "
-            f"{TaskRepository(db).get(search_id).get('outputs')}")
+            f"{_failure_reason(db, search_id) or 'no journal reason'}")
         rows = _interactions(db, search_id)
         assert rows, "search interaction not journaled"
         assert all(r["provider_id"] == provider for r in rows)
@@ -872,7 +884,7 @@ class TestLiveEndToEnd:
         status = TaskRepository(db).get_status(search_id)
         assert status is TaskStatus.SUCCEEDED, (
             f"{provider} search ended {status}: "
-            f"{TaskRepository(db).get(search_id).get('outputs')}")
+            f"{_failure_reason(db, search_id) or 'no journal reason'}")
         from hermes.tools.providers.replay import interaction_to_fixture
 
         fixtures = {}
