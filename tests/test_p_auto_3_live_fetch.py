@@ -263,10 +263,7 @@ class TestHermeticReplay:
         ctrl = _controller(db, wiring, store)
         search_id = _admit_search(db, provider)
         ctrl.run(max_ticks=8)
-        status = TaskRepository(db).get_status(search_id)
-        assert status is TaskStatus.SUCCEEDED, (
-            f"{provider} search ended {status}: "
-            f"{TaskRepository(db).get(search_id).get('outputs')}")
+        assert TaskRepository(db).get_status(search_id) is TaskStatus.SUCCEEDED
         refs = _refs_for(db, search_id)
         fetch_id = _admit_fetch(db, search_id, provider, refs)
         ctrl.run(max_ticks=8)
@@ -832,7 +829,10 @@ class TestLiveEndToEnd:
         # surface downstream, sanitized egress allowlist enforced.
         search_id = _admit_search(db, provider)
         ctrl.run(max_ticks=8)
-        assert TaskRepository(db).get_status(search_id) is TaskStatus.SUCCEEDED
+        status = TaskRepository(db).get_status(search_id)
+        assert status is TaskStatus.SUCCEEDED, (
+            f"{provider} search ended {status}: "
+            f"{TaskRepository(db).get(search_id).get('outputs')}")
         rows = _interactions(db, search_id)
         assert rows, "search interaction not journaled"
         assert all(r["provider_id"] == provider for r in rows)
@@ -869,7 +869,10 @@ class TestLiveEndToEnd:
         ctrl = _controller(db, wiring, store)
         search_id = _admit_search(db, provider)
         ctrl.run(max_ticks=8)
-        assert TaskRepository(db).get_status(search_id) is TaskStatus.SUCCEEDED
+        status = TaskRepository(db).get_status(search_id)
+        assert status is TaskStatus.SUCCEEDED, (
+            f"{provider} search ended {status}: "
+            f"{TaskRepository(db).get(search_id).get('outputs')}")
         from hermes.tools.providers.replay import interaction_to_fixture
 
         fixtures = {}
