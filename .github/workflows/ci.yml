@@ -229,7 +229,15 @@ jobs:
 
       # Same command as the Windows `test` job; scripts/run_tests.py is
       # already layout-portable (it derives site-packages from sysconfig).
+      # Live-network cases are skipped here and run on the isolated runner,
+      # which has the egress this shared runner does not: the pubmed search
+      # fails from ubuntu-latest while the same case passes on the isolated
+      # runner and on a developer machine. A live test that cannot reach its
+      # provider is not a signal about the code, and a badge that is red for
+      # it trains people to ignore the badge.
       - name: Run the full test suite with coverage
+        env:
+          HERMES_SKIP_LIVE_FETCH: "1"
         run: .venv/bin/python scripts/run_tests.py -v --cov=hermes --cov-report=html:htmlcov --cov-report=term
 
       - name: Upload coverage report
