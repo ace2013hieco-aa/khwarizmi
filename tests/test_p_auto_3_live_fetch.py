@@ -774,15 +774,31 @@ class TestOverallDeadline:
 # ═══════════════════ 3. live tests (marked, skippable offline) ═══════════════════
 
 
-def _live_available() -> bool:
+#: One probe per provider, because a provider is the unit this guard decides
+#: about. The guard used to probe openalex and then run every provider in
+#: `PROVIDERS`: on a runner that reaches openalex but not NCBI — which is what
+#: CI turned out to be — it answered "live is available" and then failed the
+#: pubmed cases.
+_LIVE_PROBES = {
+    "openalex": "https://api.openalex.org/works?per-page=1",
+    "pubmed": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/einfo.fcgi"
+              "?retmode=json",
+}
+
+
+def _live_available(provider: str) -> bool:
     import os
     import urllib.request
 
     if os.environ.get("HERMES_SKIP_LIVE_FETCH"):
         return False
+    url = _LIVE_PROBES.get(provider)
+    if url is None:
+        # A provider with no probe cannot be shown reachable, so it is not
+        # run live. Fail-closed: the hermetic layer above covers it.
+        return False
     try:
-        urllib.request.urlopen(
-            "https://api.openalex.org/works?per-page=1", timeout=5)
+        urllib.request.urlopen(url, timeout=5)
         return True
     except Exception:  # noqa: BLE001 — any network failure skips live
         return False
@@ -798,8 +814,9 @@ class TestLiveEndToEnd:
     @pytest.mark.parametrize("provider", PROVIDERS)
     def test_live_search_then_fetch_per_provider(self, db, tmp_path,
                                                  provider):
-        if not _live_available():
-            pytest.skip("live network unavailable (or skipped by env)")
+        if not _live_available(provider):
+            pytest.skip(f"{provider}: live network unavailable "
+                        f"(or skipped by env)")
         store = _store(db, tmp_path)
         wiring = _wiring(db, store, mode="live")
         ctrl = _controller(db, wiring, store)
@@ -837,8 +854,9 @@ class TestLiveEndToEnd:
                                               provider):
         """The live run's interactions convert to replay fixtures that
         load_fixtures accepts (the corpus layer stays regenerable)."""
-        if not _live_available():
-            pytest.skip("live network unavailable (or skipped by env)")
+        if not _live_available(provider):
+            pytest.skip(f"{provider}: live network unavailable "
+                        f"(or skipped by env)")
         store = _store(db, tmp_path)
         wiring = _wiring(db, store, mode="live")
         ctrl = _controller(db, wiring, store)
