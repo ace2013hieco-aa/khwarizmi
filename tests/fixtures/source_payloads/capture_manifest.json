@@ -1,0 +1,73 @@
+{
+  "schema": "hermes-capture-manifest/v1",
+  "captured_utc_date": "2026-10-30",
+  "rule": "No extractor without a captured response. Each file is the exact response body; the content type is the response header's media type. The sha256 pins the bytes the extractor was written against.",
+  "records": [
+    {
+      "fixture": "crossref_work_ligo_116061102.json",
+      "provider": "crossref",
+      "purpose": "content record",
+      "request_url": "https://api.crossref.org/works/10.1103/PhysRevLett.116.061102",
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-10-30T17:17:59Z",
+      "size_bytes": 197034,
+      "sha256": "f1dbc0894cd16ae5bcd395b26c4fd68e3f272751bcf0ee0a059982e068c67e6c"
+    },
+    {
+      "fixture": "arxiv_entry_ligo_160203837.xml",
+      "provider": "arxiv",
+      "purpose": "content record",
+      "request_url": "https://export.arxiv.org/api/query?id_list=1602.03837&max_results=1",
+      "http_status": 200,
+      "content_type": "application/atom+xml; charset=utf-8",
+      "captured_at_utc": "2026-10-30T17:18:00Z",
+      "size_bytes": 3040,
+      "sha256": "33b9d5220ebed12d5199cd266e7d80098f628fabd4befca35c0a73bd1ed78521"
+    },
+    {
+      "fixture": "inspirehep_record_muon_g2_813721.json",
+      "provider": "inspirehep",
+      "purpose": "content record",
+      "request_url": "https://inspirehep.net/api/literature/813721?format=json",
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-10-30T17:20:17Z",
+      "size_bytes": 129403,
+      "sha256": "c0ab985288e7b1ebb10019a8c720600d904a0b8482973f731e10bc6853d84c6c"
+    },
+    {
+      "fixture": "inspirehep_search_muon_g2_813721.json",
+      "provider": "inspirehep",
+      "purpose": "adapter search row",
+      "request_url": "https://inspirehep.net/api/literature?q=t%20muon%20g-2&size=1&sort=mostcited",
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-10-30T17:20:18Z",
+      "size_bytes": 209385,
+      "sha256": "dc75e1ecfb3e98db7a288125269449ca1391e2a73cada4014110f27a299dfefb"
+    },
+    {
+      "fixture": "semanticscholar_paper_ligo_116061102.json",
+      "provider": "semantic-scholar",
+      "purpose": "content record",
+      "request_url": "https://api.semanticscholar.org/graph/v1/paper/DOI:10.1103/PhysRevLett.116.061102?fields=title,abstract,year,venue,externalIds,citationCount,publicationDate",
+      "http_status": 200,
+      "content_type": "application/json",
+      "captured_at_utc": "2026-10-30T17:18:17Z",
+      "size_bytes": 2237,
+      "sha256": "e14c9dda8814a09ad0ab3ecf8caf6f8239e2e58bc450fa3351ddec639f1e1e19"
+    },
+    {
+      "fixture": "europepmc_search_isaric_1985.json",
+      "provider": "europepmc",
+      "purpose": "content record",
+      "request_url": "https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:10.1136/bmj.m1985&format=json&resultType=core&pageSize=1",
+      "http_status": 200,
+      "content_type": "application/json;charset=UTF-8",
+      "captured_at_utc": "2026-10-30T17:20:10Z",
+      "size_bytes": 18855,
+      "sha256": "a487882530733c9c074cc351b5259bf66a3badd69d395f1236a11fb6336a0a5d"
+    }
+  ]
+}

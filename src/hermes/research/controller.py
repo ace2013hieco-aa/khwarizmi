@@ -30,7 +30,7 @@ import math
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from hermes.artifacts.store import ArtifactIntegrityError
 from hermes.core import utc_now
@@ -113,6 +113,7 @@ from hermes.research.verdict_decisions import (
     HumanDecisionConflict,
     record_human_decision_once,
 )
+from hermes.tools.capabilities.content import read_content
 from hermes.tools.providers.docling_provider import (
     DoclingDocument,
 )
@@ -126,6 +127,42 @@ from hermes.tools.providers.docling_provider import (
 # on-disk artifact. Terminal (a retry re-reads the same bytes).
 ARTIFACT_INTEGRITY_REFUSED = "ARTIFACT_INTEGRITY_REFUSED"
 
+
+def _content_text(raw: bytes | None, declared: str = "") -> str | None:
+    """The stored text of one payload, or None when no prose was read.
+
+    OPS-5Z5: the one reader the claim-ground seams use. A partial read (a
+    title whose abstract could not be reconstructed) still returns the fields
+    it did read — a quote from the title is checkable. A fallback or an
+    unreadable artifact returns None, which the G9 quote check treats as "no
+    stored text" and refuses — never the serialization, which would check a
+    quote against inverted-index tokens and metadata keys.
+
+    OPS-5Z Group C: ``declared`` is the format the fetch path recorded with
+    the bytes. The reader dispatches on it; it never infers the shape.
+    """
+    if raw is None:
+        return None
+    read = read_content(raw, format=declared)
+    if not read.is_content:
+        return None
+    return read.text
+
+
+def _span_in_content(raw: bytes, declared: str, span_ref: object) -> bool:
+    """Does ``span_ref`` occur in the payload's *content* (OPS-5Z5)?
+
+    A span the model could have been shown resolves; a span in the serialized
+    record (an index token, a metadata key) does not. A fallback or an
+    unreadable artifact resolves nothing — the span cannot be verified, so it
+    is dangling (fail closed).
+    """
+    read = read_content(raw, format=declared)
+    if not read.is_content:
+        return False
+    return isinstance(span_ref, str) and span_ref in read.text
+
+
 RECONCILE_DIGEST_VERSION = "4"  # Director-facing digest: v1 sections + the
                               # pending-proposals replay (IDR-040 §3 — the
                               # propose-observe loop: undecided proposals are
@@ -137,6 +174,30 @@ RECONCILE_DIGEST_VERSION = "4"  # Director-facing digest: v1 sections + the
                               # refutation re-review candidates (the Q-04
                               # blast radius seeded by applied REFUTED
                               # transitions — IDR-041 AC-2)
+
+
+def _handler_depth_details(result: Any) -> dict[str, Any] | None:
+    """The depth payload a HandlerResult reports, or ``None`` for no depth.
+
+    OPS-5Y: a key is written only for a non-default value, and a handler that
+    reports no depth yields ``None`` — so every existing ``TaskStatusChanged``
+    event payload stays byte-identical. The keys are the ones
+    ``scripts/depth_report.py`` reads.
+    """
+    details: dict[str, Any] = {}
+    if getattr(result, "stage_depth", 0):
+        details["stages_recorded"] = int(result.stage_depth)
+    if getattr(result, "stages_declared", 0):
+        details["stages_declared"] = int(result.stages_declared)
+    if getattr(result, "stage_reached", ""):
+        details["stage_reached"] = str(result.stage_reached)
+    if getattr(result, "refusal_code", ""):
+        details["refusal_code"] = str(result.refusal_code)
+    if getattr(result, "backing_class", ""):
+        details["backing_class"] = str(result.backing_class)
+    if getattr(result, "grounding", ""):
+        details["grounding"] = str(result.grounding)
+    return details or None
 
 
 class LockLostError(RuntimeError):
@@ -3245,6 +3306,7 @@ class Controller:
             # pre-claim admission and can no longer understate real egress.
             self._record_spent_tokens(
                 task_id, max(0, result.provider_requests))
+            depth = _handler_depth_details(result)
             status = result.status
             if status == "completed":
                 # S6-B2 — completion is STRUCTURALLY verified, never the
@@ -3287,7 +3349,7 @@ class Controller:
                 self._record_requirement_satisfactions(task)
                 self._task_repo.transition_status(
                     task_id, TaskStatus.SUCCEEDED, caused_by="controller",
-                    reason=f"handler '{template}' completed")
+                    reason=f"handler '{template}' completed", details=depth)
                 self._loops.observe_success(task_id)
                 out.succeeded.append(task_id)
             else:
@@ -3296,7 +3358,8 @@ class Controller:
                 # decides, never an unbounded loop.
                 reason = getattr(result, "reason", "") or (
                     f"handler '{template}' reported a typed failure")
-                disposition = self._retry_or_fail(task_id, reason)
+                disposition = self._retry_or_fail(task_id, reason,
+                                                  details=depth)
                 if disposition == "retried":
                     out.retried.append(task_id)
                 else:
@@ -5323,7 +5386,8 @@ class Controller:
 
     # ── EXTRACT execution (Decision 2; IDR29-02 error split) ──
 
-    def _retry_or_fail(self, task_id: str, reason: str) -> str:
+    def _retry_or_fail(self, task_id: str, reason: str, *,
+                       details: Mapping[str, Any] | None = None) -> str:
         """Apply the retry policy: attempts remain → FAILED then RETRYING
         (the ratified state machine has no RUNNING→RETRYING edge — the chain
         is RUNNING → FAILED → RETRYING); exhausted → FAILED.
@@ -5333,12 +5397,18 @@ class Controller:
         ``repeat_threshold`` streak quarantines here — the task parks FAILED
         with a human-visible note even when attempts remain.
 
+        ``details`` (OPS-5Y) is the dispatch's depth payload; every terminal
+        FAILED transition carries it, so the eventual failed row says how far
+        the last dispatch got. The intermediate RETRYING transition carries no
+        payload — it is not a dispatch's record.
+
         Returns "retried" or "failed".
         """
         if self._loops.is_quarantined(task_id):
             self._task_repo.transition_status(
                 task_id, TaskStatus.FAILED, caused_by="controller",
-                reason=f"{reason} ({self._loops.reason_for(task_id)})")
+                reason=f"{reason} ({self._loops.reason_for(task_id)})",
+                details=details)
             self._note_once(
                 f"retry refused for {task_id}: "
                 f"{self._loops.reason_for(task_id)}",
@@ -5348,7 +5418,8 @@ class Controller:
         if quarantine_code:
             self._task_repo.transition_status(
                 task_id, TaskStatus.FAILED, caused_by="controller",
-                reason=f"{reason} ({self._loops.reason_for(task_id)})")
+                reason=f"{reason} ({self._loops.reason_for(task_id)})",
+                details=details)
             self._note_once(
                 f"poison task quarantined: {self._loops.reason_for(task_id)}",
                 key=f"p-auto-4:quarantined:{task_id}")
@@ -5357,14 +5428,14 @@ class Controller:
         if row["attempt"] < row["max_retries"]:
             self._task_repo.transition_status(
                 task_id, TaskStatus.FAILED, caused_by="controller",
-                reason=reason)
+                reason=reason, details=details)
             self._task_repo.transition_status(
                 task_id, TaskStatus.RETRYING, caused_by="controller",
                 reason="retry scheduled")
             return "retried"
         self._task_repo.transition_status(
             task_id, TaskStatus.FAILED, caused_by="controller",
-            reason=f"{reason} (attempts exhausted)")
+            reason=f"{reason} (attempts exhausted)", details=details)
         return "failed"
 
     def _run_with_heartbeat_refresh(
@@ -5437,6 +5508,7 @@ class Controller:
         untrusted = UntrustedContentView(
             _load_search_results=self._repos.load_search_results,
             _read_payload=self._repos.read_payload,
+            _read_payload_format=self._repos.read_payload_format,
         )
         # HR-05 (span dereference): a claim's span_ref must resolve within
         # the cited source's stored full text. Only text-bearing
@@ -5479,9 +5551,14 @@ class Controller:
             except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                 # Not a docling record or failed to parse — fall through to substring check
                 pass
-            # Fallback: simple substring check for other source_payload types
-            text = raw.decode("utf-8", errors="replace")
-            return isinstance(span_ref, str) and span_ref in text
+            # Fallback: the span must appear in the source's *content* — the
+            # same rendering the envelope and the claim gate read (OPS-5Z5).
+            # Resolving against the serialized record let a span the model
+            # could never have been shown resolve (an inverted-index token,
+            # a metadata key), and refused spans taken from the reconstructed
+            # abstract.
+            return _span_in_content(raw, repos.read_payload_format(source_ref),
+                                    span_ref)
 
         def _context_resolve(dimension: str, value: str) -> bool:
             # claim-ground G11: dataset_ref → a dataset_manifests row in this
@@ -5515,7 +5592,14 @@ class Controller:
             raw = repos.read_payload(source_ref)
             if raw is None:
                 return None
-            return raw.decode("utf-8", errors="replace")
+            # OPS-5Z5: the stored text is the artifact's *content* — the one
+            # rendering every other reader uses — not its serialization. A
+            # quote of the reconstructed abstract was refused because the
+            # bytes held an inverted index; a quote of a metadata key passed
+            # because the bytes held JSON. A read that fell back has no
+            # content to check a quote against: None refuses it as
+            # unverifiable (claims.py G9) instead of checking JSON.
+            return _content_text(raw, repos.read_payload_format(source_ref))
 
         def _experiment_admitted(source_ref: str) -> bool:
             # claim-ground G12: no pre_registered_experiment store exists in

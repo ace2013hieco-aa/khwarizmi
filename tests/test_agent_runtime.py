@@ -992,6 +992,35 @@ class TestBoundedRun:
         assert result.proposals == ()
         assert result.state == TaskStatus.SUCCEEDED.value
 
+    def test_a_refused_draft_does_not_end_a_no_proposals_stage(self) -> None:
+        """A refused objection is not a clean pass.
+
+        `no_proposals` counts admissions, so a critic whose first draft the
+        spine refused looked identical to a critic with nothing to object to:
+        the stage ended SUCCEEDED, zero proposals admitted, and the note queued
+        for the refusal was never read. The model proposed; it was turned away.
+        """
+        model = ScriptedModel([_draft("INSERT_TASK", rationale="not mine"),
+                               _silent()])
+        result = _runtime(model).run("critic", _ctx())
+        # The refused tick buys the next one; the silent tick is the real end.
+        assert model.calls_for("critic") == 2
+        assert result.termination == Termination.NO_PROPOSALS.value
+        assert result.proposals == ()
+
+    def test_a_refused_tool_call_does_not_buy_a_tick(self) -> None:
+        """The refusal delta must cover the model phase, not the tool phase.
+
+        Read at the termination call it also covered tool and delegation
+        refusals, so a malformed `tool_calls` — refused, with no note queued —
+        extended a `no_proposals` stage. That is the opposite of the rule's own
+        comment: only a real invocation buys the next tick.
+        """
+        model = ScriptedModel([_proposal({"tool_calls": [{"arguments": {}}]})])
+        result = _runtime(model).run("critic", _ctx())
+        assert model.calls_for("critic") == 1
+        assert result.termination == Termination.NO_PROPOSALS.value
+
     def test_an_unknown_profile_refuses_without_a_model_call(self) -> None:
         model = ScriptedModel([_draft()])
         result = _runtime(model).run("ghost", _ctx())
@@ -1172,7 +1201,46 @@ class TestProposalAuthority:
         assert result.refusal_codes() == (MALFORMED_PAYLOAD,)
 
     def test_draft_keys_are_the_closed_schema(self) -> None:
-        assert frozenset({"kind", "rationale", "payload"}) == DRAFT_KEYS
+        assert frozenset({"kind", "rationale", "payload", "statement"}) == (
+            DRAFT_KEYS)
+
+    def test_a_draft_statement_reaches_the_proposal(self) -> None:
+        result, _applier = self._run_one(_proposal({
+            "kind": "INSERT_TASK", "rationale": "because",
+            "statement": "  the asserted content  ", "payload": {}}))
+        assert result.refusal_codes() == ()
+        proposal = _own(result)[0]
+        assert proposal.statement == "the asserted content"
+        assert proposal.to_mapping()["statement"] == "the asserted content"
+
+    def test_a_supplied_but_blank_statement_refuses(self) -> None:
+        result, _applier = self._run_one(_proposal({
+            "kind": "INSERT_TASK", "rationale": "r", "statement": "   ",
+            "payload": {}}))
+        assert result.refusal_codes() == (MALFORMED_PAYLOAD,)
+
+    def test_an_oversized_statement_refuses(self) -> None:
+        result, _applier = self._run_one(_proposal({
+            "kind": "INSERT_TASK", "rationale": "r",
+            "statement": "x" * 2001, "payload": {}}))
+        assert result.refusal_codes() == (MALFORMED_PAYLOAD,)
+
+    def test_a_draft_without_a_statement_keeps_its_previous_digest(self) -> None:
+        # The pre-OPS-5Y digest formula, pinned: no statement key, no change.
+        result, _applier = self._run_one(_draft(payload={"spec": {"a": 1}}))
+        proposal = _own(result)[0]
+        expected = digest_of({
+            "profile": proposal.profile,
+            "agent_profile": proposal.agent_profile,
+            "kind": proposal.intent.kind.value,
+            "project_id": proposal.intent.project_id,
+            "payload": dict(proposal.intent.payload),
+            "justification": proposal.intent.justification,
+            "rationale": proposal.rationale,
+            "artifact_ref": proposal.artifact_ref,
+        })
+        assert proposal.draft_digest() == expected
+        assert "statement" not in proposal.to_mapping()
 
     def test_derived_insert_task_identity_is_stable_across_runs(self) -> None:
         applier = FakeApplier()

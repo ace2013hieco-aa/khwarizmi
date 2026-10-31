@@ -38,7 +38,10 @@ from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
 from hermes.persistence.repositories import ArtifactRepository, ProjectRepository
 from hermes.research.capability_supply import (
+    FALSIFICATION_CAPABILITY_IDS,
+    FALSIFICATION_TOOL_SET_ID,
     REFUSAL_OUTCOME_KIND,
+    RESEARCH_CAPABILITY_IDS,
     RESEARCH_EGRESS_TOOL_SET_ID,
     SUPPLIED_CAPABILITY_IDS,
     build_research_egress_supply,
@@ -212,21 +215,33 @@ def _source_payload_artifacts(conn) -> list[dict[str, Any]]:
 # ═══════════════ the supplied set ═══════════════
 
 
-def test_the_supplied_set_is_exactly_the_two_research_egress_capabilities(
+def test_the_supplied_set_is_the_egress_pair_and_the_falsification_trio(
         rig) -> None:
     supply = rig.supply
-    assert SUPPLIED_CAPABILITY_IDS == ("source_fetch", "source_search")
+    assert SUPPLIED_CAPABILITY_IDS == (
+        "contradiction_scan", "evidence_inspect", "source_fetch",
+        "source_search", "statistic_check")
     assert supply.tool_set.set_id == RESEARCH_EGRESS_TOOL_SET_ID
-    assert supply.tool_set.capability_ids == SUPPLIED_CAPABILITY_IDS
+    assert supply.tool_set.capability_ids == RESEARCH_CAPABILITY_IDS
+    assert {declared.set_id for declared in supply.tool_sets} == {
+        RESEARCH_EGRESS_TOOL_SET_ID, FALSIFICATION_TOOL_SET_ID}
     assert supply.registry.capability_ids() == SUPPLIED_CAPABILITY_IDS
     assert supply.registry.drift_report() == ()
     assert set(supply.implementations) == {
         tool.tool_id for tool in supply.tools}
     assert set(supply.implementations) == set(SUPPLIED_CAPABILITY_IDS)
-    for tool in supply.tools:
-        assert tool.network is True
-        assert tool.sandboxed is False
-        assert tool.environment == IN_PROCESS_ENVIRONMENT
+    by_id = {tool.tool_id: tool for tool in supply.tools}
+    for tool_id in RESEARCH_CAPABILITY_IDS:
+        assert by_id[tool_id].network is True
+        assert by_id[tool_id].sandboxed is False
+        assert by_id[tool_id].environment == IN_PROCESS_ENVIRONMENT
+    for tool_id in FALSIFICATION_CAPABILITY_IDS:
+        # The falsifiers reach no network and declare no filesystem scope: an
+        # artifact ref is resolved by the store, never by a caller's path.
+        assert by_id[tool_id].network is False
+        assert by_id[tool_id].filesystem_scope == ""
+        assert by_id[tool_id].sandboxed is False
+        assert by_id[tool_id].environment == IN_PROCESS_ENVIRONMENT
     for capability in supply.capabilities:
         assert capability.kind is CapabilityKind.TOOL
 

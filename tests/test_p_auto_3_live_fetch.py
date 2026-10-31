@@ -75,6 +75,10 @@ from hermes.tools.providers.base import (
     RequestSpec,
     WalkRequest,
 )
+from hermes.tools.providers.content import (
+    CONTENT_REFUSAL_CODES,
+    fetch_content_refusal,
+)
 from hermes.tools.providers.http import ProviderHTTPTransport
 from hermes.tools.providers.normalize import RetrievalHints
 from hermes.tools.providers.paginate import fetch_batch, walk
@@ -189,6 +193,22 @@ def _controller(db, wiring, store):
         artifact_store=store, clock=lambda: CLOCK)
 
 
+def _latest_fetch_outcome(db) -> dict:
+    """The newest recorded fetch outcome, as the repository persisted it."""
+    row = db.execute(
+        "SELECT metadata_json FROM artifacts "
+        "WHERE artifact_type = 'source_fetch_outcome' "
+        "ORDER BY created_at DESC LIMIT 1").fetchone()
+    assert row is not None, "no source_fetch_outcome artifact was recorded"
+    return json.loads(row["metadata_json"])
+
+
+def _failed_source_codes(db) -> list[str]:
+    return [str(item.get("code", ""))
+            for item in _latest_fetch_outcome(db).get("per_source", [])
+            if item.get("resolution") == "failed"]
+
+
 def _failure_reason(db, task_id: str) -> str:
     """The journal's last word on a task — the reason a status change carried.
 
@@ -285,7 +305,23 @@ class TestHermeticReplay:
         payloads = db.execute(
             "SELECT COUNT(*) c FROM artifacts "
             "WHERE artifact_type = 'source_payload'").fetchone()["c"]
-        assert payloads >= 1
+        if provider == "pubmed":
+            # The recorded PubMed fetch is the 5,590-byte cookie wall (status
+            # 203 live, replayed as 200). OPS-5Z3 refuses it before an artifact
+            # exists; the outcome still records the named refusal.
+            assert payloads == 0
+            codes = _failed_source_codes(db)
+            assert codes and set(codes) == {"NON_CONTENT_PAYLOAD"}
+        else:
+            assert payloads >= 1
+        # No stored source_payload may be a consent/challenge page.
+        for row in db.execute(
+                "SELECT content_hash FROM artifacts "
+                "WHERE artifact_type = 'source_payload'"):
+            body = store.read(row["content_hash"])
+            assert body is not None
+            assert fetch_content_refusal(
+                status=200, media_type="text/html", body=body) is None
 
     def test_replay_is_deterministic(self, db, tmp_path, provider):
         """Two replay runs over the same fixtures produce identical
@@ -328,10 +364,21 @@ class TestHermeticReplay:
         fetch_id = _admit_fetch(db, search_id, provider, refs)
         ctrl.run(max_ticks=8)
         assert TaskRepository(db).get_status(fetch_id) is TaskStatus.SUCCEEDED
+        if provider == "pubmed":
+            # The recorded PubMed body is the cookie wall: there is no payload
+            # to envelope. The refusal is asserted in the test above.
+            assert db.execute(
+                "SELECT COUNT(*) c FROM artifacts "
+                "WHERE artifact_type = 'source_payload'").fetchone()["c"] == 0
+            assert "NON_CONTENT_PAYLOAD" in _failed_source_codes(db)
+            return
         repo = SourceOutcomeRepository(db, store, lambda: CLOCK)
         view = UntrustedContentView(
             _load_search_results=repo.load_search_results,
-            _read_payload=repo.read_payload_bytes)
+            _read_payload=repo.read_payload_bytes,
+            # OPS-5Z Group C: the payload's declared format travels with the
+            # row; the view dispatches on it instead of inferring a shape.
+            _read_payload_format=repo.read_payload_format)
         # Search free text is enveloped too (title/venue/query).
         results = view.search_results(search_id)
         assert results and all(
@@ -352,13 +399,17 @@ class TestHermeticReplay:
 
 
 class TestSanitizedEgress:
-    def test_allowlist_covers_exactly_the_two_providers(self):
-        # D5 — the two keyless APIs (+ each provider's own canonical
-        # content host, the record source_url target). No third party.
+    def test_allowlist_covers_the_reviewed_provider_surface(self):
+        # D5's two keyless providers (+ each provider's own canonical content
+        # host, the record source_url target), plus the five content-source
+        # hosts captured for OPS-5Z6. Every entry carries its review record
+        # in ``ALLOWLIST_ENTRIES``; a host absent here is not dialable.
         hosts = set(ALLOWLIST_HOSTS)
         assert hosts == {
             "api.openalex.org", "openalex.org",
             "eutils.ncbi.nlm.nih.gov", "pubmed.ncbi.nlm.nih.gov",
+            "api.crossref.org", "export.arxiv.org", "inspirehep.net",
+            "api.semanticscholar.org", "www.ebi.ac.uk",
         }
 
     def test_non_allowlisted_host_refused_before_any_io(self, db, tmp_path):
@@ -369,7 +420,7 @@ class TestSanitizedEgress:
         gate = wiring.transport._inner
         for url in ("http://api.openalex.org/works",        # wrong scheme
                     "https://evil.example.com/steal",       # unknown host
-                    "https://api.crossref.org/works",       # another provider
+                    "https://api.core.ac.uk/works",         # another provider
                     # FIX-USERINFO — the audited userinfo bypass: the host
                     # is evil.example, not the allowlisted userinfo prefix
                     "https://api.openalex.org:foo@evil.example/works",
@@ -863,10 +914,24 @@ class TestLiveEndToEnd:
         fetch_rows = _interactions(db, fetch_id)
         assert fetch_rows, "fetch interaction not journaled"
         assert all(r["task_id"] == fetch_id for r in fetch_rows)
-        payloads = db.execute(
-            "SELECT COUNT(*) c FROM artifacts "
-            "WHERE artifact_type = 'source_payload'").fetchone()["c"]
-        assert payloads >= 1
+        payload_rows = db.execute(
+            "SELECT content_hash FROM artifacts "
+            "WHERE artifact_type = 'source_payload'").fetchall()
+        if payload_rows:
+            # A payload exists only if the response was a source, never a
+            # consent/challenge page (the live PubMed response is currently a
+            # 203 wall on some days and a real page on others).
+            for row in payload_rows:
+                body = store.read(row["content_hash"])
+                assert body is not None
+                assert fetch_content_refusal(
+                    status=200, media_type="text/html", body=body) is None
+        else:
+            assert any(code in CONTENT_REFUSAL_CODES
+                       for code in _failed_source_codes(db)), (
+                f"{provider}: no payload and no named content refusal")
+        if provider == "openalex":
+            assert payload_rows, "the OpenAlex live fetch stored no payload"
 
     @pytest.mark.parametrize("provider", PROVIDERS)
     def test_live_run_records_replay_fixtures(self, db, tmp_path,

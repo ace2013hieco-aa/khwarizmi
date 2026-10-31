@@ -196,8 +196,8 @@ def observation_hash_of_search_result(result: "SearchResult") -> str:
 # single definition of "web-derived"; no other module may hardcode ids.
 SOURCE_PROVIDER_ALLOWLIST = frozenset({
     "pubmed", "pmc", "europepmc", "arxiv", "biorxiv", "medrxiv",
-    "openalex", "crossref", "semantic-scholar", "core", "unpaywall",
-    "brave", "exa", "tavily", "searxng",
+    "openalex", "crossref", "semantic-scholar", "inspirehep", "core",
+    "unpaywall", "brave", "exa", "tavily", "searxng",
 })
 
 # The web-search provenance class (IDR-046 D1) — exactly the four
@@ -460,7 +460,16 @@ class SearchResult:
 
 @dataclass(frozen=True)
 class SourceArtifact:
-    """The raw fetched payload, content-addressed and immutable (contract §2.3)."""
+    """The raw fetched payload, content-addressed and immutable (contract §2.3).
+
+    ``content_format`` is the shape the *adapter* declared for these bytes at
+    fetch time (a ``ContentFormat`` token: ``openalex``, ``crossref``,
+    ``pubmed``, ``html`` or ``text``). The reader must never infer it from the
+    bytes: the system knew which provider it called, and a shape nobody
+    modelled is reported unreadable rather than mined as prose. Empty means
+    the adapter declared none (a JSON/XML record this repository does not
+    extract).
+    """
 
     artifact_id: str  # "art_" + sha256(raw_bytes)[:24]
     content_hash: str
@@ -469,6 +478,7 @@ class SourceArtifact:
     retrieved_from: str
     access_timestamp_utc: str
     raw_bytes_ref: str  # content-addressed store ref (S12 manifest for large corpora)
+    content_format: str = ""
 
 
 @dataclass(frozen=True)
@@ -528,11 +538,17 @@ class NoFullText:
 
 @dataclass(frozen=True)
 class FetchFailure:
-    """PS-01 — a per-source fetch failure (never silent)."""
+    """PS-01 — a per-source fetch failure (never silent).
+
+    ``code`` names a refusal the capability layer can carry back to the model
+    as data rather than a fatal tool failure. It is empty for every ordinary
+    fetch failure, so the existing failure shape is unchanged.
+    """
 
     source: SearchResult
     failure_class: str  # PARTIAL_CONTENT | MALFORMED_200 | EMPTY_RESULT | THROTTLED | TIMEOUT | …
     reason: str  # NO_FULL_TEXT is NOT a failure — it is NoFullText
+    code: str = ""  # named content-refusal code, when this is one
 
 
 @dataclass(frozen=True)

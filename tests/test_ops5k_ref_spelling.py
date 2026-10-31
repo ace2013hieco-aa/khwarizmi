@@ -311,7 +311,22 @@ def test_the_contract_states_every_enforced_shape() -> None:
 
 
 def test_the_shape_map_is_the_validator_shape_family() -> None:
-    expected = {IntentKind.INSERT_TASK: dict(EXPECTED_SHAPES)}
+    expected = {
+        IntentKind.INSERT_TASK: dict(EXPECTED_SHAPES),
+        # OPS-5Z Group E: the round's nested shapes are validated by
+        # `hermes.research.verification`; the contract states the same
+        # top-level family the validator enforces.
+        IntentKind.REQUEST_ADDITIONAL_EXPERIMENT: {
+            "claims": ("a list of exactly two claim objects "
+                       "(ref, statement, source_ref)"),
+            "conflict": ("the contradiction_scan conflict object "
+                         "(kind, left, right, subject, date, detail)"),
+            "mode": "one of the two modes derived from the claims' sources",
+            "targets": ("a list of one (verify-one) or two, one per claim "
+                        "(parallel-two), fetch targets "
+                        "(claim_ref, provider, url)"),
+        },
+    }
     assert expected == INTENT_PAYLOAD_SHAPES
 
 

@@ -104,21 +104,40 @@ each touched surface (P6/N9/P7/tick-loop slices); a red gate stops
 the change. Docs-only changes still require the full suite green
 (to prove no behavior change).
 
-## Current architecture map (orientation)
+The suite is not green on every machine — five tests fail only under a full run and pass in isolation
+(SQLite threading, Windows symlink privileges). So the gate is **no new failures**, against a recorded
+baseline:
 
-CLI (`cli.py`) → Controller tick/loop (`controller.py:486,597`) →
-intent intents (`core/intents.py`) → `apply_intent` gateway →
-validators → repositories (own transactions) → SQLite + journal.
-Providers sit behind `RecordedTransport`; replay serves fixtures
-with a refusing inner transport. Details: `docs/ARCHITECTURE.md`.
-Structural program closed (DG-6): S-1/S-2/S-3/S-4/G-1 extracted +
-certified; module concentration accepted; see `docs/STATE.md`.
+```bash
+.venv/Scripts/python.exe scripts/suite_baseline.py --baseline docs/SUITE-BASELINE.json
+```
 
-## Historical records
+Exit 1 means a failure the baseline does not know. `--update` records the current set; `--allow` accepts one
+new failure with a reason. See `docs/SUITE-BASELINE.md` — a baseline that never shrinks has become a hiding
+place, so the queued fix is to make those five deterministic and record zero.
 
-Certification evidence (P6/N9/P7/tick-loop, audits, phase reports)
-lives in `docs/archive/` — read it as history, never as the current
-contract. `docs/idr/` holds architecture decision records. Design
-gates/audits from closed slices live in `docs/archive/`; active
-design reference stays at root or `docs/` until Phase 1 navigation
-says otherwise. `docs/STATE.md` records what is certified *now*.
+### Running the suite from a worktree
+
+The venv installs `hermes` editable against **one** checkout. A run from any other worktree would
+otherwise import that checkout's `src/` — and so would the subprocesses the tests spawn
+(`python -m hermes.eval.platform_cli`, for one) — so the run would report on a tree nobody is editing.
+
+`scripts/run_tests.py` now puts **this checkout's** `src` first and exports it on `PYTHONPATH` for the
+children, so `python scripts/run_tests.py` means the same thing in a worktree as on the main checkout. On
+the checkout the venv already points at, it changes nothing.
+
+Two symptoms if you bypass the runner and call `pytest` directly from a worktree — both the harness, not
+your change:
+
+- `test_the_suite_imports_this_tree_not_another_checkout` fails, naming the other checkout.
+- `test_eval_plane.py::TestCredentialGuardTeeth` fails, because the guard it neutralizes in this tree is
+  not the guard the subprocess runs.
+
+If you do call `pytest` directly, put the worktree's source first yourself:
+
+```bash
+PYTHONPATH="$PWD/src" .venv/Scripts/python.exe -m pytest ...
+```
+
+Without it a green run proves nothing about the worktree, and a red one blames code that never executed.
+

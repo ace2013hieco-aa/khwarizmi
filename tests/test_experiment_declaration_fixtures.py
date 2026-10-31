@@ -25,7 +25,7 @@ from hermes.core.intents import IntentKind
 
 # ── baseline lock (§0.3: 21 kinds, no experiment kind) ──
 
-_EXPECTED_KIND_COUNT = 21
+_EXPECTED_KIND_COUNT = 22  # OPS-5Z Group E adds RECORD_VERIFICATION_OUTCOME
 
 
 def test_intent_vocabulary_has_no_experiment_kind():

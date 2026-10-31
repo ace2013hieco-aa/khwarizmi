@@ -469,7 +469,7 @@ class TestPersistence:
 class TestRegistry:
     def test_allowlist_covered(self):
         assert set(PROVIDER_REGISTRY) == set(SOURCE_PROVIDER_ALLOWLIST)
-        assert len(PROVIDER_REGISTRY) == 15
+        assert len(PROVIDER_REGISTRY) == 16
 
     def test_resolve_unknown_refused(self):
         with pytest.raises(ProviderValidationError):

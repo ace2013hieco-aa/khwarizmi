@@ -109,8 +109,9 @@ def test_every_profile_states_the_form_rule_and_the_delegation_keys() -> None:
         # in this build, so the note states that it is refused instead of
         # describing it as an option.
         forms = (
-            f'The top-level "{SINGLE_PROPOSAL_FIELD}" field is required: the '
-            "single-proposal form is the only proposal form in this build, and "
+            f'The top-level "{SINGLE_PROPOSAL_FIELD}" field is required when '
+            "the reply proposes: the single-proposal form is the only proposal "
+            "form in this build, and "
             f'a reply carrying a non-empty "{MULTI_PROPOSAL_FIELD}" array is '
             "refused.")
         assert forms in rendered

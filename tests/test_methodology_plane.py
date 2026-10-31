@@ -30,6 +30,7 @@ nothing here asserts the standing of any result.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,8 +50,10 @@ from hermes.methodology.substrate import (
     CIRCULAR_REASONING,
     EVIDENCE_DOES_NOT_RESOLVE,
     MALFORMED_PAYLOAD,
+    MINTED_NODE_KINDS,
     NEW_NODE_KINDS,
     PREMATURE_CONCLUSION,
+    PRIOR_ART_UNBACKED,
     PROVENANCE,
     RATIONALE,
     REF_NAMESPACES,
@@ -60,6 +63,7 @@ from hermes.methodology.substrate import (
     SUBSTRATE_REFUSAL_CODES,
     UNSUPPORTED_CLAIM,
     ChainReconstruction,
+    RefBacking,
     SubstrateFormatError,
     SubstrateNode,
     SubstrateRefusal,
@@ -81,6 +85,7 @@ from hermes.methodology.swap_test import (
     ENGINEERING_INVESTIGATION_DOCUMENT,
     chain_inputs,
     engineering_investigation,
+    fixture_provenance,
     run_swap_probe,
 )
 from hermes.methodology.workflows import (
@@ -188,6 +193,44 @@ class GroundedModel:
             structured=structured)
 
 
+def _request_stage(request: Any) -> str:
+    """The stage this request's payload names, or ``""``."""
+    for part in request.prompt:
+        if part.origin != "runtime.payload":
+            continue
+        try:
+            document = json.loads(part.text)
+        except ValueError:
+            continue
+        if isinstance(document, dict) and "stage" in document:
+            return str(document["stage"])
+    return ""
+
+
+class ExperimentProseModel(GroundedModel):
+    """GroundedModel, plus the EXPERIMENT stage's own prose.
+
+    The fixture supplies HYPOTHESIS/PREDICTION/CLAIM through ``stage_content``;
+    the experiment is left to the model, so this model proves the proposal's
+    ``statement`` becomes the node's ``test``.
+    """
+
+    def invoke(self, request: Any) -> ModelProposal:
+        if _request_stage(request) == "EXPERIMENT":
+            self.calls.append(request)
+            return ModelProposal(
+                provider_id="scripted", model_id="scripted", tier="research",
+                profile=request.profile,
+                lease_generation=request.lease_generation,
+                structured={
+                    "kind": "INSERT_TASK",
+                    "rationale": "the discriminating run",
+                    "statement": "Run the measurement with the intervention on.",
+                    "payload": {},
+                })
+        return super().invoke(request)
+
+
 @dataclass(frozen=True, slots=True)
 class _Applied:
     """The shape `run._apply` reads off an injected Orchestration API result."""
@@ -211,10 +254,19 @@ class AdmittingApplier:
 
 
 def _fresh(project_id: str = PROJECT_ID, *, refs: Mapping[str, str] = REFS,
-           retracted: tuple[str, ...] = ()) -> SubstrateStore:
+           retracted: tuple[str, ...] = (),
+           evidence_backing: str = "FETCHED") -> SubstrateStore:
+    """A store with every fixture ref admitted, and a named backing for each.
+
+    The evidence ref defaults to FETCHED (the fixture's source_payload stand-in)
+    so a supported claim records; every other ref is ROW. Tests that need an
+    all-ROW evidence pass ``evidence_backing="ROW"``.
+    """
     store = SubstrateStore()
-    for ref in refs.values():
-        store.admit_ref(ref, project_id)
+    for kind, ref in refs.items():
+        origin = evidence_backing if kind == "EVIDENCE" else "ROW"
+        store.admit_ref(ref, project_id,
+                        backing=RefBacking(origin=origin, witness="RESOLVER"))
     for ref in retracted:
         store.retract(ref)
     return store
@@ -235,37 +287,65 @@ def _id_or_fail(store: SubstrateStore, node: SubstrateNode) -> str:
 
 
 def _build_chain(store: SubstrateStore, *, project_id: str = PROJECT_ID,
-                 supported: bool = True) -> dict[str, str]:
-    """A full, well-formed chain in ``store`` — the reconstruction fixture."""
+                 supported: bool = True, stop_at: str = "CONCLUSION",
+                 observation_admitted: tuple[str, ...] = ()
+                 ) -> dict[str, str]:
+    """A full, well-formed chain in ``store`` — the reconstruction fixture.
+
+    OPS-5Y: HYPOTHESIS, PREDICTION and CLAIM are minted — each carries its own
+    statement and ``origin: "MINTED"``, and none carries an ``external_ref``.
+    EVIDENCE remains the one citation, backed by the refs ``_fresh`` admitted.
+    ``stop_at`` cuts the fixture after the named stage (the N9 and citation
+    probes need the chain *before* EVIDENCE or CLAIM).
+    """
     ids: dict[str, str] = {}
     ids["QUESTION"] = _id_or_fail(store, _node(
         "QUESTION", task="t1", project_id=project_id,
         content={"question": "does the effect hold across the sample?"}))
     ids["HYPOTHESIS"] = _id_or_fail(store, _node(
         "HYPOTHESIS", task="t2", project_id=project_id,
-        content={"external_ref": REFS["HYPOTHESIS"],
+        content={"statement": "the effect holds across the sample",
+                 "origin": "MINTED",
                  "predecessors": (ids["QUESTION"],)}))
     ids["PREDICTION"] = _id_or_fail(store, _node(
         "PREDICTION", task="t3", project_id=project_id,
-        content={"external_ref": REFS["PREDICTION"],
+        content={"statement": "a larger sample shows the same effect",
+                 "origin": "MINTED",
                  "predecessors": (ids["HYPOTHESIS"],)}))
     ids["EXPERIMENT"] = _id_or_fail(store, _node(
         "EXPERIMENT", task="t4", project_id=project_id,
-        content={"predecessors": (ids["PREDICTION"],)}))
+        content={"test": "run the measurement on a larger sample",
+                 "predecessors": (ids["PREDICTION"],)}))
+    observation_content: dict[str, Any] = {
+        "predecessors": (ids["EXPERIMENT"],),
+        # An observation must cite the artifact it observed. This fixture
+        # claimed to be "a full, well-formed chain" while its OBSERVATION cited
+        # nothing — which is the hole the substrate now refuses, so the fixture
+        # was describing a chain that could not have been built.
+        "cited_refs": (REFS["EVIDENCE"],)}
+    if observation_admitted:
+        observation_content["admitted_refs"] = observation_admitted
     ids["OBSERVATION"] = _id_or_fail(store, _node(
         "OBSERVATION", task="t5", project_id=project_id,
-        content={"predecessors": (ids["EXPERIMENT"],)}))
+        content=observation_content))
+    if stop_at == "OBSERVATION":
+        return ids
     ids["EVIDENCE"] = _id_or_fail(store, _node(
         "EVIDENCE", task="t6", project_id=project_id,
         content={"external_ref": REFS["EVIDENCE"],
                  "predecessors": (ids["OBSERVATION"],)}))
+    if stop_at == "EVIDENCE":
+        return ids
     claim_content: dict[str, Any] = {
-        "external_ref": REFS["CLAIM"],
+        "statement": "the observed sample supports the effect",
+        "origin": "MINTED",
         "predecessors": (ids["EVIDENCE"],)}
     if supported:
         claim_content["admitted_refs"] = (REFS["EVIDENCE"],)
     ids["CLAIM"] = _id_or_fail(store, _node(
         "CLAIM", task="t7", project_id=project_id, content=claim_content))
+    if stop_at == "CLAIM":
+        return ids
     ids["CRITIQUE"] = _id_or_fail(store, _node(
         "CRITIQUE", task="t8", project_id=project_id,
         content={"subject_ref": ids["CLAIM"],
@@ -329,17 +409,20 @@ def _repo_codes() -> tuple[set[str], set[str]]:
 
 
 class TestNodeInventory:
-    def test_the_defined_kinds_are_exactly_the_chain_steps_the_repo_is_missing(
+    def test_the_defined_kinds_are_exactly_the_chain_steps_the_run_produces(
             self) -> None:
         assert frozenset(
-            {"QUESTION", "EXPERIMENT", "OBSERVATION", "CRITIQUE",
-             "CONCLUSION"}) == NEW_NODE_KINDS
-        assert frozenset(
-            {"HYPOTHESIS", "PREDICTION", "EVIDENCE", "CLAIM"}) == REFERENCED_NODE_KINDS
+            {"QUESTION", "HYPOTHESIS", "PREDICTION", "EXPERIMENT",
+             "OBSERVATION", "CLAIM", "CRITIQUE", "CONCLUSION"}) == \
+            NEW_NODE_KINDS
+        assert frozenset({"EVIDENCE"}) == REFERENCED_NODE_KINDS
+        assert frozenset({"HYPOTHESIS", "PREDICTION", "CLAIM"}) == \
+            MINTED_NODE_KINDS
 
     def test_the_two_kind_sets_partition_the_chain(self) -> None:
         assert frozenset(CHAIN_KINDS) == NEW_NODE_KINDS | REFERENCED_NODE_KINDS
         assert not NEW_NODE_KINDS & REFERENCED_NODE_KINDS
+        assert MINTED_NODE_KINDS <= NEW_NODE_KINDS
 
     def test_the_transition_map_is_exactly_the_chain(self) -> None:
         for index, kind in enumerate(CHAIN_KINDS[:-1]):
@@ -350,8 +433,13 @@ class TestNodeInventory:
             for predecessor, successors in ALLOWED_TRANSITIONS.items()
             for successor in successors} == REQUIRED_PREDECESSOR
 
-    def test_the_referenced_kinds_each_carry_their_own_ref_namespace(self) -> None:
-        assert set(REF_NAMESPACES) == REFERENCED_NODE_KINDS
+    def test_only_the_citation_kind_carries_a_ref_namespace(self) -> None:
+        # OPS-5Y: REF_NAMESPACES stays the artifact-ref grammar (four
+        # namespaces); EVIDENCE is the only node kind whose identity is a
+        # citation. The three minted kinds cite through `cited_refs`.
+        assert set(REF_NAMESPACES) >= REFERENCED_NODE_KINDS
+        assert set(REF_NAMESPACES) - REFERENCED_NODE_KINDS == {
+            "HYPOTHESIS", "PREDICTION", "CLAIM"}
         assert len(set(REF_NAMESPACES.values())) == len(REF_NAMESPACES)
 
     def test_the_plane_never_imports_the_ontology_it_references(self) -> None:
@@ -435,23 +523,24 @@ class TestIdentity:
         assert recorded.code == MALFORMED_PAYLOAD
         assert "project_id" in recorded.detail
 
-    def test_an_existing_kind_node_cannot_be_minted_only_cited(self) -> None:
+    def test_a_minted_kind_without_a_statement_is_refused(self) -> None:
+        # OPS-5Y: HYPOTHESIS is no longer a citation. It is minted, and the
+        # property that replaces "it must carry someone else's ref" is "it must
+        # carry its own asserted content".
         store = _fresh()
         question_id = _id_or_fail(store, _node("QUESTION",
                                                content={"question": "q?"}))
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"predecessors": (question_id,)}))
+            "HYPOTHESIS", content={"origin": "MINTED",
+                                   "predecessors": (question_id,)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == MALFORMED_PAYLOAD
-        assert "external_ref" in recorded.detail
+        assert "statement" in recorded.detail
 
     def test_a_citation_must_carry_its_own_namespace(self) -> None:
         store = _fresh()
-        question_id = _id_or_fail(store, _node("QUESTION",
-                                               content={"question": "q?"}))
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": REFS["CLAIM"],
-                                   "predecessors": (question_id,)}))
+            "EVIDENCE", content={"external_ref": REFS["CLAIM"]}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == MALFORMED_PAYLOAD
         assert "namespace" in recorded.detail
@@ -483,7 +572,8 @@ class TestProvenance:
     def test_a_non_root_node_without_a_predecessor_is_refused(self) -> None:
         store = _fresh()
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": REFS["HYPOTHESIS"]}))
+            "HYPOTHESIS", content={"statement": "the conjecture",
+                                   "origin": "MINTED"}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == PROVENANCE
         assert "no predecessor" in recorded.detail
@@ -493,7 +583,8 @@ class TestProvenance:
         question_id = _id_or_fail(store, _node("QUESTION",
                                                content={"question": "q?"}))
         recorded = write_node(store, _node(
-            "PREDICTION", content={"external_ref": REFS["PREDICTION"],
+            "PREDICTION", content={"statement": "the prediction",
+                                   "origin": "MINTED",
                                    "predecessors": (question_id,)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == PROVENANCE
@@ -502,7 +593,8 @@ class TestProvenance:
     def test_an_unrecorded_predecessor_is_refused(self) -> None:
         store = _fresh()
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": REFS["HYPOTHESIS"],
+            "HYPOTHESIS", content={"statement": "the conjecture",
+                                   "origin": "MINTED",
                                    "predecessors": ("mnode_absent",)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == PROVENANCE
@@ -516,7 +608,8 @@ class TestProvenance:
             kind="QUESTION", project_id="p2", producing_task_id="t",
             content={"question": "q?"})
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": REFS["HYPOTHESIS"],
+            "HYPOTHESIS", content={"statement": "the conjecture",
+                                   "origin": "MINTED",
                                    "predecessors": (question_id,)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == EVIDENCE_DOES_NOT_RESOLVE
@@ -539,20 +632,25 @@ class TestRefusals:
         question_id = _id_or_fail(store, _node("QUESTION",
                                                content={"question": "q?"}))
         hypothesis_id = _id_or_fail(store, _node(
-            "HYPOTHESIS", content={"external_ref": REFS["HYPOTHESIS"],
+            "HYPOTHESIS", content={"statement": "the conjecture",
+                                   "origin": "MINTED",
                                    "predecessors": (question_id,)}))
         prediction_id = _id_or_fail(store, _node(
-            "PREDICTION", content={"external_ref": REFS["PREDICTION"],
+            "PREDICTION", content={"statement": "the prediction",
+                                   "origin": "MINTED",
                                    "predecessors": (hypothesis_id,)}))
         experiment_id = _id_or_fail(store, _node(
-            "EXPERIMENT", content={"predecessors": (prediction_id,)}))
+            "EXPERIMENT", content={"test": "the discriminating step",
+                                    "predecessors": (prediction_id,)}))
         observation_id = _id_or_fail(store, _node(
-            "OBSERVATION", content={"predecessors": (experiment_id,)}))
+            "OBSERVATION", content={"predecessors": (experiment_id,),
+                                    "cited_refs": (REFS["EVIDENCE"],)}))
         evidence_id = _id_or_fail(store, _node(
             "EVIDENCE", content={"external_ref": REFS["EVIDENCE"],
                                  "predecessors": (observation_id,)}))
         recorded = write_node(store, _node(
-            "CLAIM", content={"external_ref": REFS["CLAIM"],
+            "CLAIM", content={"statement": "the claim",
+                              "origin": "MINTED",
                               "predecessors": (evidence_id,)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == UNSUPPORTED_CLAIM
@@ -580,7 +678,7 @@ class TestRefusals:
 
     def test_cross_project_citation_fails_closed(self) -> None:
         store = _fresh()
-        store.admit_ref("claim:foreign", "p2")
+        store.admit_ref("claim:foreign", "p2", backing=RefBacking("ROW", "RESOLVER"))
         recorded = write_node(store, _node(
             "QUESTION", content={"question": "q?",
                                  "admitted_refs": ("claim:foreign",)}))
@@ -607,11 +705,17 @@ class TestRefusals:
         assert cited_but_inadmissible(store, node) == (REFS["EVIDENCE"],)
 
     def test_n9_a_retracted_claim_breaks_the_supported_claim(self) -> None:
-        store = _fresh(retracted=(REFS["EVIDENCE"],))
+        # The chain records EVIDENCE while its ref is admissible; the source is
+        # then retracted, and the claim that admits it refuses. The claim is
+        # minted (OPS-5Y); support is still the admitted evidence ref.
+        store = _fresh()
+        ids = _build_chain(store, stop_at="EVIDENCE")
+        store.retract(REFS["EVIDENCE"])
         recorded = write_node(store, _node(
-            "CLAIM", content={"external_ref": REFS["CLAIM"],
+            "CLAIM", content={"statement": "the claim",
+                              "origin": "MINTED",
                               "admitted_refs": (REFS["EVIDENCE"],),
-                              "predecessors": ("mnode_x",)}))
+                              "predecessors": (ids["EVIDENCE"],)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == RETRACTED_CITATION
 
@@ -622,10 +726,12 @@ class TestRefusals:
         # predecessor. The fail-closed floor reports it and refuses every
         # further write onto the store.
         first = _node("HYPOTHESIS",
-                      content={"external_ref": REFS["HYPOTHESIS"],
+                      content={"statement": "the conjecture",
+                               "origin": "MINTED",
                                "predecessors": ("mnode_second",)})
         second = _node("PREDICTION",
-                       content={"external_ref": REFS["PREDICTION"],
+                       content={"statement": "the prediction",
+                                "origin": "MINTED",
                                 "predecessors": ("mnode_first",)})
         cyclic = SubstrateStore(nodes={"mnode_first": first,
                                        "mnode_second": second})
@@ -663,12 +769,13 @@ class TestRefusals:
         assert frozenset({
             MALFORMED_PAYLOAD, RATIONALE, PROVENANCE,
             EVIDENCE_DOES_NOT_RESOLVE, UNSUPPORTED_CLAIM,
-            PREMATURE_CONCLUSION, CIRCULAR_REASONING, RETRACTED_CITATION}) == SUBSTRATE_REFUSAL_CODES
+            PREMATURE_CONCLUSION, CIRCULAR_REASONING, RETRACTED_CITATION,
+            PRIOR_ART_UNBACKED}) == SUBSTRATE_REFUSAL_CODES
 
     def test_the_planes_own_codes_do_not_redefine_a_repo_code(self) -> None:
         gateway_codes, controller_codes = _repo_codes()
         own = {UNSUPPORTED_CLAIM, PREMATURE_CONCLUSION, CIRCULAR_REASONING,
-               RETRACTED_CITATION}
+               RETRACTED_CITATION, PRIOR_ART_UNBACKED}
         assert not own & gateway_codes
         assert not own & controller_codes
         others: dict[str, list[str]] = {code: [] for code in own}
@@ -689,15 +796,14 @@ class TestRefusals:
     # ── P1 (items 4+6): a citation's own external_ref is resolved ──
 
     def test_a_hallucinated_external_ref_is_refused(self) -> None:
-        # A citation of a ref nobody observed resolves nowhere: the write
-        # boundary resolves the citation's own ref, so it fails closed instead
-        # of being recorded.
+        # EVIDENCE is the one citation kind: its own external_ref must resolve
+        # under admission semantics, so a ref nobody observed fails closed
+        # instead of being recorded.
         store = _fresh()
-        question_id = _id_or_fail(store, _node("QUESTION",
-                                               content={"question": "q?"}))
+        ids = _build_chain(store, stop_at="OBSERVATION")
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": "hypothesis:never-seen/h1",
-                                   "predecessors": (question_id,)}))
+            "EVIDENCE", content={"external_ref": "evidence:never-seen",
+                                 "predecessors": (ids["OBSERVATION"],)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == EVIDENCE_DOES_NOT_RESOLVE
         assert "does not resolve" in recorded.detail
@@ -706,12 +812,11 @@ class TestRefusals:
         # Identical bytes owned by another project: the citation's own ref is
         # resolved in *this* project and fails closed across projects.
         store = _fresh()
-        store.admit_ref("hypothesis:foreign/h1", "p2")
-        question_id = _id_or_fail(store, _node("QUESTION",
-                                               content={"question": "q?"}))
+        store.admit_ref("evidence:foreign", "p2", backing=RefBacking("ROW", "RESOLVER"))
+        ids = _build_chain(store, stop_at="OBSERVATION")
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": "hypothesis:foreign/h1",
-                                   "predecessors": (question_id,)}))
+            "EVIDENCE", content={"external_ref": "evidence:foreign",
+                                 "predecessors": (ids["OBSERVATION"],)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == EVIDENCE_DOES_NOT_RESOLVE
         assert "project-scoped" in recorded.detail
@@ -719,15 +824,14 @@ class TestRefusals:
     def test_a_retracted_external_ref_is_refused(self) -> None:
         # N9 on the citation's own ref: a retracted ref is never admitted as
         # support, and it is nowhere invisible on the position that carries it.
-        store = _fresh(retracted=(REFS["HYPOTHESIS"],))
-        question_id = _id_or_fail(store, _node("QUESTION",
-                                               content={"question": "q?"}))
+        store = _fresh(retracted=(REFS["EVIDENCE"],))
+        ids = _build_chain(store, stop_at="OBSERVATION")
         recorded = write_node(store, _node(
-            "HYPOTHESIS", content={"external_ref": REFS["HYPOTHESIS"],
-                                   "predecessors": (question_id,)}))
+            "EVIDENCE", content={"external_ref": REFS["EVIDENCE"],
+                                 "predecessors": (ids["OBSERVATION"],)}))
         assert isinstance(recorded, SubstrateRefusal)
         assert recorded.code == RETRACTED_CITATION
-        assert is_admissible(store, PROJECT_ID, REFS["HYPOTHESIS"]) is False
+        assert is_admissible(store, PROJECT_ID, REFS["EVIDENCE"]) is False
 
     # ── P2 item 3: a node may not admit its own external ref ──
 
@@ -790,10 +894,16 @@ class TestRefusals:
 
     @pytest.mark.parametrize("kind,extra",
                              [("QUESTION", {"question": "q?"}),
+                              ("HYPOTHESIS", {"statement": "s",
+                                              "origin": "MINTED"}),
+                              ("PREDICTION", {"statement": "p",
+                                              "origin": "MINTED"}),
                               ("EXPERIMENT", {}),
                               ("OBSERVATION", {}),
                               ("CRITIQUE",
                                {"subject_ref": "mnode_x"}),
+                              ("CLAIM", {"statement": "c",
+                                         "origin": "MINTED"}),
                               ("CONCLUSION",
                                {"question_ref": "mnode_x"})])
     def test_a_locally_defined_kind_with_a_nonempty_external_ref_is_refused(
@@ -835,6 +945,14 @@ class TestRefusals:
             ids = _build_chain(store)
             pred = ids["PREDICTION"] if kind == "EXPERIMENT" else ids["EXPERIMENT"]
             body = {"predecessors": (pred,)}
+            if kind == "EXPERIMENT":
+                # The pin is about external_ref, not content — but an
+                # experiment must still say what it would run.
+                body["test"] = "the discriminating step"
+            if kind == "OBSERVATION":
+                # The pin is about external_ref, not content — but an
+                # observation must still cite what it observed.
+                body["cited_refs"] = (REFS["EVIDENCE"],)
         elif kind == "CRITIQUE":
             ids = _build_chain(store)
             body = {"subject_ref": ids["CLAIM"],
@@ -888,7 +1006,158 @@ class TestRefusals:
         assert "namespace" in recorded.detail
 
 
-# ═══════════════════════ 5. contradiction detection ═══════════════════════
+# ═══════════════════════ 5. the minted kinds (OPS-5Y) ═══════════════════════
+
+
+class TestMintedKinds:
+    """HYPOTHESIS, PREDICTION and CLAIM carry inline content, never a citation."""
+
+    def test_each_minted_kind_records_inline_content(self) -> None:
+        store = _fresh()
+        ids = _build_chain(store)
+        for kind in ("HYPOTHESIS", "PREDICTION", "CLAIM"):
+            node = store.nodes[ids[kind]]
+            assert node.content["origin"] == "MINTED"
+            assert isinstance(node.content["statement"], str)
+            assert node.content["statement"].strip()
+            assert "external_ref" not in node.content
+
+    def test_a_minted_kind_needs_the_minted_origin(self) -> None:
+        store = _fresh()
+        question_id = _id_or_fail(store, _node("QUESTION",
+                                               content={"question": "q?"}))
+        for origin in ("", "FETCHED", "PRIOR_ART"):
+            recorded = write_node(store, _node(
+                "HYPOTHESIS", task=f"t-{origin or 'absent'}",
+                content={"statement": "the conjecture", "origin": origin,
+                         "predecessors": (question_id,)}))
+            assert isinstance(recorded, SubstrateRefusal)
+            assert recorded.code == MALFORMED_PAYLOAD
+            assert "origin" in recorded.detail
+
+    def test_a_conjecture_may_not_admit_support(self) -> None:
+        store = _fresh()
+        question_id = _id_or_fail(store, _node("QUESTION",
+                                               content={"question": "q?"}))
+        recorded = write_node(store, _node(
+            "HYPOTHESIS", content={"statement": "the conjecture",
+                                   "origin": "MINTED",
+                                   "admitted_refs": (REFS["EVIDENCE"],),
+                                   "predecessors": (question_id,)}))
+        assert isinstance(recorded, SubstrateRefusal)
+        assert recorded.code == MALFORMED_PAYLOAD
+        assert "admitted_refs" in recorded.detail
+
+    def test_a_claim_may_admit_only_evidence_refs(self) -> None:
+        store = _fresh()
+        ids = _build_chain(store, stop_at="EVIDENCE")
+        recorded = write_node(store, _node(
+            "CLAIM", content={"statement": "the claim", "origin": "MINTED",
+                              "admitted_refs": (REFS["CLAIM"],),
+                              "predecessors": (ids["EVIDENCE"],)}))
+        assert isinstance(recorded, SubstrateRefusal)
+        assert recorded.code == MALFORMED_PAYLOAD
+        assert "evidence:" in recorded.detail
+
+    def test_a_minted_node_may_cite_a_prior_art_ref(self) -> None:
+        store = _fresh()
+        question_id = _id_or_fail(store, _node("QUESTION",
+                                               content={"question": "q?"}))
+        recorded = _id_or_fail(store, _node(
+            "HYPOTHESIS", content={"statement": "the conjecture",
+                                   "origin": "MINTED",
+                                   "cited_refs": (REFS["CLAIM"],),
+                                   "predecessors": (question_id,)}))
+        node = store.nodes[recorded]
+        assert node.cited_refs() == (REFS["CLAIM"],)
+        assert "external_ref" not in node.content
+
+
+# ═══════════════════════ 6. direct support — D(C) (OPS-5Y) ══════════════════
+
+
+class TestDirectSupport:
+    """The claim's own admitted refs and its EVIDENCE predecessor's citation.
+
+    The wider closure is computed only to explain a refusal; it is never the
+    sufficiency test.
+    """
+
+    def _minted_claim(self, ids: Mapping[str, str],
+                      admitted: tuple[str, ...], task: str = "t-claim"
+                      ) -> SubstrateNode:
+        return _node(
+            "CLAIM", task=task,
+            content={"statement": "the observed sample supports the effect",
+                     "origin": "MINTED",
+                     "admitted_refs": admitted,
+                     "predecessors": (ids["EVIDENCE"],)})
+
+    def test_an_all_row_support_graph_is_refused(self) -> None:
+        # Falsifier: every direct ref is ROW-backed. The claim refuses even
+        # though it admits a real, resolving evidence ref.
+        store = _fresh(evidence_backing="ROW")
+        ids = _build_chain(store, stop_at="EVIDENCE")
+        recorded = write_node(store, self._minted_claim(
+            ids, (REFS["EVIDENCE"],)))
+        assert isinstance(recorded, SubstrateRefusal)
+        assert recorded.code == UNSUPPORTED_CLAIM
+        assert "direct support" in recorded.detail
+        assert "capability:source_fetch" in recorded.detail
+        assert f"{REFS['EVIDENCE']} (ROW)" in recorded.detail
+
+    def test_a_fetched_artifact_elsewhere_does_not_launder_row_support(
+            self) -> None:
+        # The review's laundering case: a fetched artifact is an ancestor's
+        # admission. It is in S(C), not in D(C), so the claim still refuses and
+        # the detail names the wider closure as explanation only.
+        fetched_elsewhere = "evidence:z-fetched"
+        store = _fresh(evidence_backing="ROW")
+        store.admit_ref(fetched_elsewhere, PROJECT_ID,
+                        backing=RefBacking("FETCHED", "RESOLVER"))
+        ids = _build_chain(store, stop_at="EVIDENCE",
+                           observation_admitted=(fetched_elsewhere,))
+        recorded = write_node(store, self._minted_claim(
+            ids, (REFS["EVIDENCE"],)))
+        assert isinstance(recorded, SubstrateRefusal)
+        assert recorded.code == UNSUPPORTED_CLAIM
+        assert fetched_elsewhere in recorded.detail
+        assert "wider closure" in recorded.detail
+        assert "reachability is not support" in recorded.detail
+
+    def test_a_fetched_direct_admission_records(self) -> None:
+        # The other half of the falsifier: the same shape with a FETCHED
+        # direct ref records.
+        store = _fresh()  # the evidence ref is FETCHED
+        ids = _build_chain(store, stop_at="EVIDENCE")
+        recorded = write_node(store, self._minted_claim(
+            ids, (REFS["EVIDENCE"],)))
+        assert isinstance(recorded, str), recorded
+
+    def test_the_evidence_predecessor_alone_anchors_the_claim(self) -> None:
+        # D(C) includes the direct EVIDENCE predecessor's citation even when
+        # the claim's admitted set names a different (ROW) ref. Here the
+        # predecessor cites the FETCHED ref, so the claim records.
+        store = _fresh()
+        ids = _build_chain(store, stop_at="EVIDENCE")
+        other = "evidence:other-row"
+        store.admit_ref(other, PROJECT_ID, backing=RefBacking("ROW", "RESOLVER"))
+        recorded = write_node(store, self._minted_claim(ids, (other,)))
+        assert isinstance(recorded, str), recorded
+
+    def test_no_admitted_evidence_is_refused_exactly_as_before(self) -> None:
+        # The D(C) change narrows the invariant; it does not replace the old
+        # no-admitted-evidence refusal (the same code and the same sentence).
+        store = _fresh()
+        ids = _build_chain(store, stop_at="EVIDENCE")
+        recorded = write_node(store, self._minted_claim(ids, ()))
+        assert isinstance(recorded, SubstrateRefusal)
+        assert recorded.code == UNSUPPORTED_CLAIM
+        assert recorded.detail.startswith(
+            "a CLAIM carries no admitted evidence ref")
+
+
+# ═══════════════════════ 7. contradiction detection ═══════════════════════
 
 
 class TestContradictionDetection:
@@ -1055,10 +1324,10 @@ class TestMethodologyConfig:
 
     def test_the_shipped_methodology_loads_and_is_versioned(self) -> None:
         config = literature_review()
-        # OPS-5F: document version 2 is the recorded revision that declares a
-        # per-stage tick budget and each stage's objective. The schema version
-        # stays "1" (both keys are optional and additive).
-        assert config.version == "2"
+        # OPS-5F: document version 2 declared a per-stage tick budget and each
+        # stage's objective. OPS-5Y: version 3 asks the three minted stages for
+        # a statement instead of a citation identity that has no producer.
+        assert config.version == "3"
         assert config.stage_kinds() == CHAIN_KINDS
         assert config.termination.max_stages == len(CHAIN_KINDS)
         assert methodology_identity(config).startswith("mth_")
@@ -1068,7 +1337,7 @@ class TestMethodologyConfig:
         assert config.digest() == config.digest()
         assert config.digest() == digest_of(config.to_mapping())
         other = dict(LITERATURE_REVIEW_DOCUMENT)
-        other["version"] = "3"
+        other["version"] = "4"
         assert parse_methodology(other).digest() != config.digest()
 
     def test_every_stage_names_a_real_governance_action(self) -> None:
@@ -1192,7 +1461,8 @@ class TestMethodologySwap:
 class TestMethodologyRun:
     def _run(self, config: MethodologyConfig, project_id: str = "p-run",
              inputs: MethodologyInputs | None = None, *,
-             model: Any = None, orchestration: Any = None
+             model: Any = None, orchestration: Any = None,
+             provenance: Any = fixture_provenance
              ) -> MethodologyRun | MethodologyRefusal:
         return run_methodology(
             config, project_id, "task-run", "gen-1",
@@ -1201,7 +1471,8 @@ class TestMethodologyRun:
             model=GroundedModel() if model is None else model,
             orchestration=(AdmittingApplier() if orchestration is None
                            else orchestration),
-            profiles=load_profiles())
+            profiles=load_profiles(),
+            provenance_of=provenance)
 
     def test_the_driver_runs_every_stage_through_the_runtime(self) -> None:
         run = self._run(literature_review())
@@ -1217,6 +1488,37 @@ class TestMethodologyRun:
         assert isinstance(result, ChainReconstruction)
         assert result.kinds() == CHAIN_KINDS
         assert result.complete() is True
+
+    def test_the_experiment_records_the_test_the_model_proposed(self) -> None:
+        """OPS-5ZM: the stage's prose arrives on the proposal's `statement`
+        and lands on the node as `test`; the node never carries a minted
+        `statement`/`origin` pair for an experiment."""
+        base = chain_inputs("p-experiment-prose", "does it hold?")
+        inputs = MethodologyInputs(
+            question=base.question,
+            stage_content={kind: dict(content)
+                           for kind, content in base.stage_content.items()
+                           if kind != "EXPERIMENT"})
+        run = self._run(literature_review(),
+                        project_id="p-experiment-prose", inputs=inputs,
+                        model=ExperimentProseModel())
+        assert isinstance(run, MethodologyRun), run
+        experiment = run.store.nodes_of_kind("EXPERIMENT")[0][1]
+        assert experiment.content["test"] == (
+            "Run the measurement with the intervention on.")
+        assert "statement" not in experiment.content
+        assert "origin" not in experiment.content
+
+    def test_a_row_backed_evidence_ref_stops_the_chain_at_claim(self) -> None:
+        # The EVIDENCE node records (a citation may be ROW), and the claim
+        # refuses: support needs a fetched anchor in D(C).
+        run = self._run(
+            literature_review(), project_id="p-row",
+            provenance=lambda project_id, ref: (
+                "ROW" if str(ref).startswith("evidence:") else None))
+        assert isinstance(run, MethodologyRefusal), run
+        assert run.code == UNSUPPORTED_CLAIM
+        assert run.stage == "CLAIM"
 
     def test_the_run_digest_is_deterministic(self) -> None:
         first = self._run(literature_review())
@@ -1253,6 +1555,7 @@ class TestMethodologyRun:
             question=base.question,
             external_refs=base.external_refs,
             admission_refs=base.admission_refs,
+            stage_content=base.stage_content,
             retracted_refs=(AGENT_EVIDENCE,))
         run = self._run(literature_review(), project_id="p-n9", inputs=inputs,
                         model=GroundedModel(AGENT_EVIDENCE))
@@ -1262,11 +1565,16 @@ class TestMethodologyRun:
         assert run.stage == "EVIDENCE"
 
     def test_an_unobserved_prior_art_ref_fails_closed(self) -> None:
+        # A minted node may cite prior art, but the citation must resolve: the
+        # statement is supplied so the shape gate passes and the citation is
+        # what refuses.
+        base = chain_inputs("p-ghost", "does it hold?")
         inputs = MethodologyInputs(
-            question="does it hold?",
+            question=base.question,
             external_refs={"HYPOTHESIS": "hypothesis:h",
                            "PREDICTION": "prediction:p",
-                           "CLAIM": "claim:c"})
+                           "CLAIM": "claim:c"},
+            stage_content=base.stage_content)
         run = self._run(literature_review(), project_id="p-ghost",
                         inputs=inputs)
         assert isinstance(run, MethodologyRefusal)
@@ -1496,7 +1804,7 @@ class TestModuleInvariants:
                 module.__name__, sorted(defined - set(module.__all__)))
 
     def test_refs_guard_raises_on_a_referenced_node_without_a_ref(self) -> None:
-        node = _node("HYPOTHESIS", content={})
+        node = _node("EVIDENCE", content={})
         with pytest.raises(SubstrateFormatError) as raised:
             substrate_module._refs_refusal(_fresh(), node)
         assert "reached _refs_refusal with an empty external_ref" in str(

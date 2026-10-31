@@ -13,8 +13,12 @@ model_policy:
   contract: runtime_proposal_v1
   kind_field: kind
   rationale_field: rationale
-  structured_fields: [proposals, delegations]
-  allows_tool_calls: false
+  # OPS-5Z4: the two declared tools are now supplied, so the verifier must be
+  # able to call them. `tool_calls` is declared here for the same reason: the
+  # runtime refuses the field unless the profile both allows calls and lists
+  # it, and `max_tool_calls: 2` was already a bound no call could ever reach.
+  structured_fields: [proposals, delegations, tool_calls]
+  allows_tool_calls: true
   max_output_tokens: 2048
 
 tools: [evidence_inspect, statistic_check]

@@ -65,6 +65,7 @@ from hermes.research.capability_supply import (
     SearchSelectionRefusal,
     build_research_egress_supply,
     search_handle_of,
+    supplied_capability_risks,
 )
 from hermes.research.gateway import apply_intent
 from hermes.research.live_fetch import (
@@ -562,7 +563,7 @@ class _SearchFetchCite:
 def test_the_live_shaped_run_never_puts_a_row_into_the_prompt(rig) -> None:
     plan = plan_capability_plane(
         load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        risks=supplied_capability_risks())
     model = _SearchFetchCite()
     capabilities = RecordingCapabilityPort(rig.invoker)
     runtime = AgentRuntime(
@@ -784,7 +785,7 @@ def test_a_handle_collision_is_refused_never_remapped(rig, monkeypatch) -> None:
 def test_the_generated_note_states_the_ranked_order_and_the_two_forms(rig) -> None:
     plan = plan_capability_plane(
         load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        risks=supplied_capability_risks())
     note = build_capability_tool_notes(
         plan, rig.supply, item_keys=TOOL_CALL_KEYS)["researcher"]
     assert "source_fetch(provider: string, one of" in note

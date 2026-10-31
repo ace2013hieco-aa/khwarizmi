@@ -34,10 +34,12 @@ from hermes.methodology.workflows import (
 )
 
 __all__ = [
+    "CHAIN_STATEMENTS",
     "ENGINEERING_INVESTIGATION_DOCUMENT",
     "SwapEvidence",
     "chain_inputs",
     "engineering_investigation",
+    "fixture_provenance",
     "run_swap_probe",
 ]
 
@@ -62,7 +64,11 @@ ENGINEERING_INVESTIGATION_DOCUMENT: Mapping[str, Any] = {
         {"stage": "PREDICTION", "profile": "planner"},
         {"stage": "EXPERIMENT", "profile": "experimenter",
          "governance_action": "SANDBOX_RUN"},
-        {"stage": "OBSERVATION", "profile": "experimenter",
+        # `experimenter`'s tools are experiment_execute + artifact_store — no
+        # source_search, no source_fetch. A stage that cannot read a source
+        # cannot observe one: it recorded an empty node while the chain still
+        # "completed". The profile that reads is `researcher`.
+        {"stage": "OBSERVATION", "profile": "researcher",
          "governance_action": "WEB_READ"},
         {"stage": "EVIDENCE", "profile": "verifier"},
         {"stage": "CLAIM", "profile": "verifier"},
@@ -83,27 +89,50 @@ def engineering_investigation() -> MethodologyConfig:
     return parse_methodology(dict(ENGINEERING_INVESTIGATION_DOCUMENT))
 
 
-def chain_inputs(project_id: str, question: str, *, suffix: str = "",
+#: The prose a modelled chain carries in the fixture. OPS-5Y: HYPOTHESIS,
+#: PREDICTION and CLAIM carry the run's own asserted content; the plane's
+#: fixtures supply it through ``stage_content`` (the caller-supplied path),
+#: because their scripted models propose evidence, not prose. OPS-5ZM:
+#: EXPERIMENT carries the test it would run, under the node's own ``test`` key.
+CHAIN_STATEMENTS: Mapping[str, Mapping[str, str]] = {
+    "HYPOTHESIS": {
+        "statement": "The effect holds across the sample."},
+    "PREDICTION": {
+        "statement": "A larger sample will show the same effect."},
+    "EXPERIMENT": {
+        "test": "Run the same measurement on a larger sample."},
+    "CLAIM": {
+        "statement": "The observed sample supports the effect."},
+}
+
+
+def fixture_provenance(project_id: str, ref: str) -> str | None:
+    """The plane fixtures' read-only witness (OPS-5Y).
+
+    The plane's scripted runs have no artifact table. This fixture classifies
+    an ``evidence:`` ref as ``FETCHED`` — the model port that proposes it is the
+    fixture's stand-in for a real fetch — and everything else as unbacked.
+    Production never uses this: the composition injects
+    ``hermes.research.chain_refs.RefProvenanceReader`` over durable rows.
+    """
+    return "FETCHED" if str(ref).startswith("evidence:") else None
+
+
+def chain_inputs(project_id: str, question: str, *,
                  retracted: tuple[str, ...] = ()) -> MethodologyInputs:
     """Grounded inputs for a full chain in ``project_id``.
 
-    OPS-5D: the **prior-art** refs are supplied here (hypothesis, prediction,
-    claim); the evidence position is deliberately absent. The model's admitted
-    ``EVIDENCE_TRANSITION`` supplies that ref; a caller that needs a retraction
-    projection may still pass ``retracted``. The refs that resolve in the
-    project are built once, here, so a caller never has to invent one: a ref
-    that is not registered resolves nowhere and the substrate refuses it.
+    OPS-5Y: the run mints its own HYPOTHESIS, PREDICTION and CLAIM, so no
+    prior-art refs are seeded here; the statements ride ``stage_content``.
+    The evidence position remains absent — the model's admitted
+    ``EVIDENCE_TRANSITION`` supplies that ref (OPS-5D). A caller that needs a
+    retraction projection may still pass ``retracted``. ``project_id`` is kept
+    in the signature because the fixture names its chain by project in the
+    tests' own records, not because a ref depends on it.
     """
-    tag = suffix or project_id
-    refs = {
-        "HYPOTHESIS": f"hypothesis:program-{tag}/h1",
-        "PREDICTION": f"prediction:program-{tag}/h1/p1",
-        "CLAIM": f"claim:claim-{tag}/c1",
-    }
     return MethodologyInputs(
         question=question,
-        external_refs=refs,
-        admission_refs=tuple(refs.values()),
+        stage_content=CHAIN_STATEMENTS,
         retracted_refs=tuple(retracted))
 
 
@@ -174,14 +203,14 @@ def run_swap_probe(
         first_config, project_id, task_id, lease_generation,
         chain_inputs(project_id, "does the effect hold across the sample?"),
         model=model, orchestration=orchestration, profiles=profiles,
-        capabilities=capabilities)
+        capabilities=capabilities, provenance_of=fixture_provenance)
     if isinstance(first, MethodologyRefusal):
         return first
     second = run_methodology(
         second_config, project_id, f"{task_id}-2", lease_generation,
         chain_inputs(project_id, "what mechanism explains the measured drift?"),
         model=model, orchestration=orchestration, profiles=profiles,
-        capabilities=capabilities)
+        capabilities=capabilities, provenance_of=fixture_provenance)
     if isinstance(second, MethodologyRefusal):
         return second
     return SwapEvidence(

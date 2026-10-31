@@ -114,6 +114,7 @@ from hermes.tools.providers.base import (
     WalkMode,
     WalkRequest,
 )
+from hermes.tools.providers.content import fetch_content_refusal
 from hermes.tools.providers.hazards import (
     HazardContext,
     ProviderHazardSpec,
@@ -1230,6 +1231,22 @@ def _fetch_one(
                                evidence_basis=dict(verdict.detected_by)),
                     None, attempt + 1, tuple(attempt_verdicts), "")
         if hazard in ("NONE", "INJECTION_SUSPECT"):
+            # A 2xx is status-eligible, not evidence: a 203 is a transformed
+            # representation and a consent/challenge page can arrive at 200.
+            # Check the raw response BEFORE the adapter hook and BEFORE any
+            # artifact exists. The refusal is named data on the failure, not a
+            # crash; the capability layer turns it into a benign REFUSED
+            # observation (the run continues) instead of storing the bytes.
+            rejection = fetch_content_refusal(
+                status=resp.status,
+                media_type=getattr(resp, "content_type", None),
+                body=resp.body,
+            )
+            if rejection is not None:
+                return ("FAIL", None, None, None,
+                        FetchFailure(source, "EMPTY_RESULT",
+                                     rejection.detail, code=rejection.code),
+                        attempt + 1, tuple(attempt_verdicts), "")
             # FD-01 — the content-validation hook runs BEFORE artifact
             # construction (F11): a rejection is a per-source EMPTY_RESULT
             # failure, never a junk artifact. INJECTION_SUSPECT is advisory —
@@ -1253,6 +1270,11 @@ def _fetch_one(
                 retrieved_from=source.source_url,
                 access_timestamp_utc=_now(clock),
                 raw_bytes_ref="art_" + content_hash[:24],  # A4/FD-05 alias
+                # OPS-5Z Group C: the adapter declares the shape of what it
+                # fetched (by media type), so every reader dispatches on that
+                # declaration instead of sniffing the bytes for a known record.
+                content_format=adapter.fetch_content_format(
+                    resp.content_type),
             )
             fetched = FetchedSource(source=source, artifact=artifact,
                                     hazard_verdict=hazard)

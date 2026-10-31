@@ -38,6 +38,18 @@ the redacted URL (host) and the rule's **named code** as ``failure_class``,
 with ``response_body_hash = NULL``. No new table, no new transaction, no new
 event kind.
 
+Falsification capabilities (OPS-5Z4)
+-----------------------------------
+Three more ids are supplied here, and they are a different kind of thing:
+``evidence_inspect``, ``contradiction_scan`` and ``statistic_check`` are
+read-only, model-free and network-free. They exist because the critic and the
+verifier had no way to look at evidence at all — they reviewed prose against
+prose. Their decisions live in ``hermes.research.inspection``; the executors
+below only resolve an artifact ref through the project-scoped, hash-verified
+store and hand the bytes to the pure extractor. A refusal to read (missing
+row, missing bytes, a hash that no longer re-derives) is a named, benign
+result: the run continues and the model is told what could not be read.
+
 Task linkage
 ------------
 ``provider_interactions.task_id`` is an FK into ``tasks`` and is nullable.
@@ -60,7 +72,22 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from hermes.artifacts.store import ArtifactIntegrityError
 from hermes.persistence.provider_interactions import make_persisting_sink
+from hermes.persistence.repositories import ArtifactRepository, NotFoundError
+from hermes.research.inspection import (
+    MAX_CONFLICTS,
+    MAX_SCAN_CLAIMS,
+    ClaimText,
+    check_derivation,
+    conflicts_between,
+    describe_conflicts,
+    describe_inspection,
+    describe_verdict,
+    facts_document,
+    facts_in,
+    filter_inspection,
+)
 from hermes.research.live_fetch import (
     EgressRefusal,
     allowlist_from_config,
@@ -68,6 +95,7 @@ from hermes.research.live_fetch import (
     preflight_egress,
 )
 from hermes.research.source_handlers import ProviderMachinery
+from hermes.tools.capabilities.content import ContentState, read_content
 from hermes.tools.capabilities.registry import CapabilityRegistry
 from hermes.tools.capabilities.types import (
     IN_PROCESS_ENVIRONMENT,
@@ -81,6 +109,7 @@ from hermes.tools.capabilities.types import (
     ToolSet,
 )
 from hermes.tools.providers.base import WalkRequest
+from hermes.tools.providers.content import CONTENT_REFUSAL_CODES
 from hermes.tools.providers.normalize import (
     RetrievalHints,
     canonicalize_identifiers,
@@ -110,15 +139,20 @@ from hermes.tools.research_sources import (
 __all__ = [
     "DEFAULT_SEARCH_MAX_RESULTS",
     "EVIDENCE_HANDLE_PREFIX",
+    "FALSIFICATION_CAPABILITY_IDS",
+    "FALSIFICATION_REFUSAL_CODES",
+    "FALSIFICATION_TOOL_SET_ID",
     "FETCH_ROW_INDEX_FIELD",
     "FETCH_SEARCH_HANDLE_FIELD",
     "FETCH_TARGET_AMBIGUOUS",
     "FETCH_TARGET_MISSING",
     "FETCH_URL_FIELD",
     "HANDLE_SEPARATOR",
+    "INSPECT_CONTENT_UNREADABLE",
     "MAX_SEARCH_RESULTS",
     "PROVIDER_HOSTS",
     "REFUSAL_OUTCOME_KIND",
+    "RESEARCH_CAPABILITY_IDS",
     "RESEARCH_EGRESS_TOOL_SET_ID",
     "SEARCH_HANDLE_COLLISION",
     "SEARCH_HANDLE_EXPIRED",
@@ -134,23 +168,41 @@ __all__ = [
     "SOURCE_REF_SEPARATOR",
     "SOURCE_SEARCH_SIZE_CAP_BYTES",
     "SUPPLIED_CAPABILITY_IDS",
+    "ContradictionScanExecutor",
+    "EvidenceInspectExecutor",
     "ResearchEgressSupply",
     "SearchHandleCollision",
     "SearchResultRegistry",
     "SearchSelectionRefusal",
+    "StatisticCheckExecutor",
     "artifact_handles",
     "build_research_egress_supply",
+    "falsification_declarations",
     "research_egress_declarations",
     "search_handle_of",
     "source_payload_ref",
+    "supplied_capability_risks",
 ]
 
-#: The supplied set — deliberately exactly the two ids `researcher` declares.
-SUPPLIED_CAPABILITY_IDS: tuple[str, ...] = ("source_fetch", "source_search")
+#: The egress pair — exactly the ids `researcher` declares.
+RESEARCH_CAPABILITY_IDS: tuple[str, ...] = ("source_fetch", "source_search")
 
-#: The one named composition the run's grants open (OPS-5B derives grants from
-#: `agent_profile` over this set; 5A only declares it).
+#: The falsification trio — exactly the ids `critic` and `verifier` declare.
+#: They read only artifacts already in this project, run no model and reach no
+#: network, so their complexity is the analysis, not the reach.
+FALSIFICATION_CAPABILITY_IDS: tuple[str, ...] = (
+    "contradiction_scan", "evidence_inspect", "statistic_check")
+
+#: Everything the plane can actually execute at this base.
+SUPPLIED_CAPABILITY_IDS: tuple[str, ...] = tuple(sorted(
+    RESEARCH_CAPABILITY_IDS + FALSIFICATION_CAPABILITY_IDS))
+
+#: The egress composition the researcher's grant opens (OPS-5B derives grants
+#: from `agent_profile` over the supplied set; 5A only declares it).
 RESEARCH_EGRESS_TOOL_SET_ID = "set.research_egress"
+
+#: The falsification composition the critic's and verifier's grants open.
+FALSIFICATION_TOOL_SET_ID = "set.falsification"
 
 #: Closed provider set. `source_fetch` additionally checks that the actual
 #: request host belongs to the selected provider's own surface.
@@ -284,9 +336,96 @@ def research_egress_declarations(
     )
     tool_set = ToolSet(
         set_id=RESEARCH_EGRESS_TOOL_SET_ID,
-        capability_ids=SUPPLIED_CAPABILITY_IDS,
+        capability_ids=RESEARCH_CAPABILITY_IDS,
         summary="the research egress surface (source_search, source_fetch)")
     return ((search, fetch), capabilities, tool_set)
+
+
+def supplied_capability_risks() -> dict[str, str]:
+    """The declared risk of every supplied capability, from the declarations.
+
+    One source of truth: a test or a composition that needs a risk table to
+    derive a grant reads it here instead of typing a second one that can drift
+    from ``Tool.risk`` / ``Capability.risk``.
+    """
+    _egress_tools, egress, _egress_set = research_egress_declarations()
+    _falsification_tools, falsification, _falsification_set = (
+        falsification_declarations())
+    return {capability.capability_id: str(capability.risk.value)
+            for capability in (*egress, *falsification)}
+
+
+def falsification_declarations(
+) -> tuple[tuple[Tool, ...], tuple[Capability, ...], ToolSet]:
+    """The code-owned declaration table for the three falsification tools.
+
+    All three are ``LOW`` risk, ``network=False`` and carry no filesystem
+    scope: the executor is handed an artifact *ref*, never a path, and the
+    store resolves it inside this project after re-deriving the content hash.
+    That is why a path-shaped argument cannot be used here to reach outside the
+    run's own admitted bytes — the executor refuses it as malformed before any
+    lookup (see ``_REFERENCE``).
+    """
+    inspect = Tool(
+        tool_id="evidence_inspect",
+        summary=("Report the dates, figures (with the subject each binds to) "
+                 "and quoted spans of one admitted artifact, extracted by "
+                 "rule. Reads only this project's stored bytes; no model."),
+        inputs=(
+            InputField(name="ref", type="string", max_bytes=200),
+            InputField(name="subjects", type="array", required=False,
+                       max_bytes=512),
+        ),
+        risk=RiskLevel.LOW,
+        network=False,
+        sandboxed=False,
+        environment=IN_PROCESS_ENVIRONMENT,
+        timeout_seconds=15.0,
+    )
+    scan = Tool(
+        tool_id="contradiction_scan",
+        summary=("Report the pairs among the given claims that cannot both "
+                 "be true: same subject and date with different figures, the "
+                 "same figure on different subjects, or an ordering the "
+                 "figures reverse. No model."),
+        inputs=(
+            InputField(name="statements", type="array", max_bytes=4096),
+            InputField(name="refs", type="array", required=False,
+                       max_bytes=512),
+        ),
+        risk=RiskLevel.LOW,
+        network=False,
+        sandboxed=False,
+        environment=IN_PROCESS_ENVIRONMENT,
+        timeout_seconds=15.0,
+    )
+    statistic = Tool(
+        tool_id="statistic_check",
+        summary=("Recompute a derived figure (a percentage of, a change, a "
+                 "difference, a ratio or a stated total) from the bases it "
+                 "rests on, and report consistent / inconsistent. No model."),
+        inputs=(
+            InputField(name="statement", type="string", max_bytes=2048),
+            InputField(name="base_refs", type="array", required=False,
+                       max_bytes=512),
+        ),
+        risk=RiskLevel.LOW,
+        network=False,
+        sandboxed=False,
+        environment=IN_PROCESS_ENVIRONMENT,
+        timeout_seconds=15.0,
+    )
+    capabilities = tuple(
+        Capability(
+            capability_id=tool.tool_id, tool_id=tool.tool_id,
+            summary=tool.summary, kind=CapabilityKind.TOOL, risk=RiskLevel.LOW)
+        for tool in (inspect, scan, statistic))
+    tool_set = ToolSet(
+        set_id=FALSIFICATION_TOOL_SET_ID,
+        capability_ids=FALSIFICATION_CAPABILITY_IDS,
+        summary="the falsification surface (evidence_inspect, "
+                "contradiction_scan, statistic_check)")
+    return ((inspect, scan, statistic), capabilities, tool_set)
 
 
 # ── the egress journal (the existing provider-interaction sink) ──
@@ -690,6 +829,12 @@ class SourceFetchExecutor(_SupplyBase):
                 }, sort_keys=True, ensure_ascii=False),
                 notes=(f"no full text ({record.no_full_text_kind})",))
         failure = outcome.failed[0] if outcome.failed else None
+        if failure is not None and failure.code in CONTENT_REFUSAL_CODES:
+            # A 203/interstitial is the provider's answer, not the model's
+            # mistake. Carry it back as a benign REFUSED observation — with the
+            # named code in the next tick's feedback — instead of failing the
+            # stage. No payload was constructed, so nothing was stored.
+            return _refused_result("source_fetch", failure.code, failure.reason)
         if failure is None:
             raise ProviderValidationError(
                 "source_fetch: the fetch driver returned no resolution — "
@@ -734,6 +879,10 @@ class SourceFetchExecutor(_SupplyBase):
             "content_digest": payload.artifact.content_hash,
             "source_url_redacted": redacted,
             "media_type": payload.artifact.media_type,
+            # OPS-5Z Group C: the adapter's declared shape for these bytes.
+            # The reader dispatches on this token; it never guesses a format
+            # from an artifact's bytes.
+            "content_format": payload.artifact.content_format,
             "retrieved_at": _now_utc(self._machinery.clock),
             "idempotency_key": context.idempotency_key,
             "lease_generation": context.lease_generation,
@@ -817,6 +966,275 @@ class SourceArtifactConflict(ProviderValidationError):
     """
 
 
+# ── falsification executors ──
+
+#: The only ref shapes these capabilities accept: ``<kind>:<name>`` or
+#: ``<kind>/<name>`` for the two citation kinds, or a bare artifact id / content
+#: hash. A filesystem path cannot match, so no argument can name bytes the
+#: project-scoped lookup did not already own — the executor never accepts a
+#: path and the store derives the path from the recorded hash.
+_REFERENCE = re.compile(
+    r"\A(?:(?P<kind>evidence|source_payload)[:/])?"
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\Z")
+
+INSPECT_REF_MALFORMED = "INSPECT_REF_MALFORMED"
+INSPECT_ARTIFACT_MISSING = "INSPECT_ARTIFACT_MISSING"
+INSPECT_BYTES_UNAVAILABLE = "INSPECT_BYTES_UNAVAILABLE"
+INSPECT_INTEGRITY_REFUSED = "INSPECT_INTEGRITY_REFUSED"
+#: OPS-5Z5: the bytes are present but the content model could not read them
+#: (malformed JSON, no content field, a non-UTF-8 payload). Distinct from
+#: "bytes unavailable": reporting nothing because the read failed is not the
+#: same fact as the source stating nothing.
+INSPECT_CONTENT_UNREADABLE = "INSPECT_CONTENT_UNREADABLE"
+SCAN_CLAIMS_MISSING = "SCAN_CLAIMS_MISSING"
+SCAN_REFS_MISMATCH = "SCAN_REFS_MISMATCH"
+#: More claims than one call can analyse. Refused, never truncated:/n#: a batch of 13 used to report `"claims": 13` while analysing 12,
+#: so a conflict between #1 and #13 came back as "no conflict".
+SCAN_TOO_MANY_CLAIMS = "SCAN_TOO_MANY_CLAIMS"
+STATISTIC_STATEMENT_MISSING = "STATISTIC_STATEMENT_MISSING"
+STATISTIC_BASIS_MISSING = "STATISTIC_BASIS_MISSING"
+
+#: The named refusals the three executors return as data. They are tool-result
+#: codes, not plane codes: the call was allowed, the ref could not be read.
+FALSIFICATION_REFUSAL_CODES: frozenset[str] = frozenset({
+    INSPECT_REF_MALFORMED, INSPECT_ARTIFACT_MISSING,
+    INSPECT_BYTES_UNAVAILABLE, INSPECT_INTEGRITY_REFUSED,
+    INSPECT_CONTENT_UNREADABLE,
+    SCAN_CLAIMS_MISSING, SCAN_REFS_MISMATCH, SCAN_TOO_MANY_CLAIMS,
+    STATISTIC_STATEMENT_MISSING, STATISTIC_BASIS_MISSING,
+})
+
+
+class _FalsificationBase:
+    """The one project-scoped, hash-verified artifact read the trio shares.
+
+    The read is the same one the evidence envelope uses: membership first
+    (``in_project``), then the recorded content hash, then the store's
+    verifying read. A row that is absent, belongs to another project, or whose
+    bytes no longer re-derive the hash is a named refusal — never empty text
+    and never a different document.
+    """
+
+    def __init__(self, *, conn: Any, store: Any, project_id: str,
+                 clock: Any) -> None:
+        self._project_id = project_id
+        self._store = store
+        self._repo = ArtifactRepository(conn, clock)
+
+    def _row(self, kind: str, name: str) -> Mapping[str, Any] | None:
+        if kind == "evidence":
+            return self._row_by_id(name)
+        if kind == "source_payload":
+            return self._row_by_hash(name)
+        by_id = self._row_by_id(name)
+        return by_id if by_id is not None else self._row_by_hash(name)
+
+    def _row_by_id(self, artifact_id: str) -> Mapping[str, Any] | None:
+        if not self._repo.in_project(artifact_id, self._project_id):
+            return None
+        try:
+            return self._repo.get(artifact_id)
+        except NotFoundError:
+            return None
+
+    def _row_by_hash(self, content_hash: str) -> Mapping[str, Any] | None:
+        row = self._repo.get_by_hash(content_hash)
+        if row is None or row.get("project_id") != self._project_id:
+            return None
+        return row
+
+    def _bytes_for(self, ref: str) -> tuple[bytes | None, str, str, str]:
+        """``(bytes, format, code, detail)``; ``bytes`` is None iff code is set.
+
+        ``format`` is the shape the fetch path declared for these bytes
+        (``content_format`` from the artifact's metadata). The provider id is
+        *not* used as a fallback: a provider can serve more than one shape
+        (a record, a search envelope, an HTML page), so treating its name as a
+        format would be the same inference this slice removes. Empty means no
+        carrier declared one; the content model then treats a serialization
+        as a fallback and never mines it.
+        """
+        match = _REFERENCE.match(ref.strip())
+        if match is None:
+            return (None, "", INSPECT_REF_MALFORMED,
+                    (f"{ref!r} is not an artifact ref; expected "
+                     "<kind>:<id>, <kind>/<id>, or a bare artifact id"))
+        kind = str(match.group("kind") or "")
+        name = str(match.group("name"))
+        row = self._row(kind, name)
+        if row is None:
+            return (None, "", INSPECT_ARTIFACT_MISSING,
+                    f"no artifact {ref!r} is recorded in this project")
+        if self._store is None:
+            return (None, "", INSPECT_BYTES_UNAVAILABLE,
+                    "no artifact store is wired — the bytes are not readable")
+        metadata = row.get("metadata")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        declared = metadata.get("content_format")
+        declared = declared if isinstance(declared, str) else ""
+        try:
+            return (self._store.read_verified(row["content_hash"]), declared,
+                    "", "")
+        except FileNotFoundError:
+            return (None, "", INSPECT_BYTES_UNAVAILABLE,
+                    f"artifact {ref!r} has a row but no stored bytes")
+        except ArtifactIntegrityError:
+            return (None, "", INSPECT_INTEGRITY_REFUSED,
+                    (f"artifact {ref!r} no longer re-derives its content "
+                     "hash — a tampered read is refused, not reported"))
+
+
+def _string_list(value: Any) -> list[str]:
+    """The declared array, as strings. The schema already bounds element type."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+class EvidenceInspectExecutor(_FalsificationBase):
+    """One admitted artifact -> its facts, by rule."""
+
+    def __call__(self, arguments: Mapping[str, Any],
+                 context: ToolCallContext) -> ToolResult:
+        ref = str(arguments.get("ref") or "").strip()
+        if not ref:
+            return _refused_result(
+                "evidence_inspect", INSPECT_REF_MALFORMED,
+                "evidence_inspect needs one artifact ref")
+        raw, declared, code, detail = self._bytes_for(ref)
+        if raw is None:
+            return _refused_result("evidence_inspect", code, detail)
+        read = read_content(raw, format=declared)
+        if read.state is ContentState.UNREADABLE:
+            # A declared format that could not be read is a named refusal.
+            # Reporting "no figure was found" here would say the source states
+            # nothing, which is a different fact from "the reader could not
+            # read it".
+            return _refused_result(
+                "evidence_inspect", INSPECT_CONTENT_UNREADABLE,
+                f"artifact {ref!r} has bytes but its content could not be "
+                f"read: {read.detail}")
+        # A fallback (an undeclared serialization) is a successful read of
+        # *no prose*: `facts_in` returns no facts and says why. Refusing it
+        # would lose a source the run fetched for a cost with no safety
+        # benefit — the mining is what was dangerous, and it does not happen.
+        inspection = filter_inspection(
+            facts_in(read), _string_list(arguments.get("subjects")))
+        return ToolResult(
+            payload=json.dumps({
+                "capability": "evidence_inspect",
+                "ref": ref,
+                "facts": facts_document(inspection),
+                "read": read.to_mapping(),
+            }, sort_keys=True, ensure_ascii=False),
+            artifacts=(),
+            notes=(describe_inspection(inspection, ref, read=read),))
+
+
+class ContradictionScanExecutor(_FalsificationBase):
+    """Two or more claims -> the pairs that cannot both be true."""
+
+    def __call__(self, arguments: Mapping[str, Any],
+                 context: ToolCallContext) -> ToolResult:
+        statements = arguments.get("statements")
+        if not isinstance(statements, (list, tuple)) or not statements:
+            return _refused_result(
+                "contradiction_scan", SCAN_CLAIMS_MISSING,
+                "contradiction_scan needs at least one claim statement")
+        refs = arguments.get("refs") or []
+        if not isinstance(refs, (list, tuple)):
+            return _refused_result(
+                "contradiction_scan", SCAN_REFS_MISMATCH,
+                "refs must be an array of strings")
+        if refs and len(refs) != len(statements):
+            return _refused_result(
+                "contradiction_scan", SCAN_REFS_MISMATCH,
+                f"{len(refs)} ref(s) for {len(statements)} statement(s) — the "
+                "arrays must align by index")
+        if len(statements) > MAX_SCAN_CLAIMS:
+            # Refuse rather than analyse a prefix. The old code passed the
+            # first 12 to the scanner and still reported "claims": 13, so a
+            # conflict between the first and the thirteenth came back as none.
+            return _refused_result(
+                "contradiction_scan", SCAN_TOO_MANY_CLAIMS,
+                f"{len(statements)} statements in one call; this capability "
+                f"analyses at most {MAX_SCAN_CLAIMS}. Split the batch — a "
+                "prefix is not a scan")
+        claims = [
+            ClaimText(
+                ref=(str(refs[index]) if refs
+                     else f"claim[{index + 1}]"),
+                text=str(statement))
+            for index, statement in enumerate(statements)]
+        conflicts = conflicts_between(claims)
+        # The scan is complete; the payload is bounded. Report both: a prefix
+        # presented as the whole set is a false pass, and the audit's 17-claim
+        # repro returned 16 of 136 with nothing saying so.
+        total = len(conflicts)
+        shown = conflicts[:MAX_CONFLICTS]
+        return ToolResult(
+            payload=json.dumps({
+                "capability": "contradiction_scan",
+                "claims": len(claims),
+                "conflicts": [{
+                    "kind": conflict.kind,
+                    "left": conflict.left,
+                    "right": conflict.right,
+                    "subject": conflict.subject,
+                    "date": conflict.date,
+                    "detail": conflict.detail,
+                } for conflict in shown],
+                "conflicts_total": total,
+                "truncated": total > len(shown),
+            }, sort_keys=True, ensure_ascii=False),
+            artifacts=(),
+            notes=(describe_conflicts(shown, len(claims), total=total),),
+        )
+
+
+class StatisticCheckExecutor(_FalsificationBase):
+    """One derived assertion -> consistent / inconsistent / not checkable."""
+
+    def __call__(self, arguments: Mapping[str, Any],
+                 context: ToolCallContext) -> ToolResult:
+        statement = str(arguments.get("statement") or "").strip()
+        if not statement:
+            return _refused_result(
+                "statistic_check", STATISTIC_STATEMENT_MISSING,
+                "statistic_check needs one derived assertion")
+        bases: list[Any] = []
+        for ref in _string_list(arguments.get("base_refs")):
+            raw, declared, _code, detail = self._bytes_for(ref)
+            if raw is None:
+                return _refused_result(
+                    "statistic_check", STATISTIC_BASIS_MISSING,
+                    f"base {ref!r}: {detail}")
+            read = read_content(raw, format=declared)
+            if not read.is_content:
+                # A derivation checked against a fallback or an unreadable
+                # artifact would silently miss every figure the reader could
+                # not see, so "consistent" would be a pass over an unread
+                # basis.
+                return _refused_result(
+                    "statistic_check", STATISTIC_BASIS_MISSING,
+                    f"base {ref!r}: its content could not be read "
+                    f"({read.detail or read.state.value}); a derivation "
+                    f"cannot be checked against a {read.state.value} read")
+            bases.extend(facts_in(read).figures)
+        verdict = check_derivation(statement, bases)
+        return ToolResult(
+            payload=json.dumps({
+                "capability": "statistic_check",
+                "status": verdict.status,
+                "operator": verdict.operator,
+                "asserted": verdict.asserted,
+                "computed": verdict.computed,
+                "detail": verdict.detail,
+            }, sort_keys=True, ensure_ascii=False),
+            artifacts=(),
+            notes=(describe_verdict(verdict),))
+
+
 # ── supply ──
 
 
@@ -826,7 +1244,10 @@ class ResearchEgressSupply:
 
     tools: tuple[Tool, ...]
     capabilities: tuple[Capability, ...]
+    #: The research egress set (kept for callers that predate the trio).
     tool_set: ToolSet
+    #: Every declared set: the egress set and the falsification set.
+    tool_sets: tuple[ToolSet, ...]
     registry: CapabilityRegistry
     implementations: Mapping[str, Any]
     machinery: ProviderMachinery
@@ -848,7 +1269,11 @@ def build_research_egress_supply(
     allowlist: tuple[str, ...] | None = None,
     dns_resolve: Callable[[str], tuple[str, ...]] | None = None,
 ) -> ResearchEgressSupply:
-    """Build the two capabilities over the shipped adapters and allowlist.
+    """Build all five capabilities: the egress pair and the falsification trio.
+
+    The trio shares ``conn`` and ``store`` only to read this project's stored
+    bytes; it touches no adapter, no allowlist and no transport, which is why
+    it is built even when egress is narrowed.
 
     ``machinery`` is an injection seam for tests (a scripted or recorded
     transport); when absent the production live-fetch wiring is built, which
@@ -872,6 +1297,11 @@ def build_research_egress_supply(
             "research capability supply: an empty egress allowlist would make "
             "every call unusable — refusing to build")
     tools, capabilities, tool_set = research_egress_declarations()
+    falsification_tools, falsification_capabilities, falsification_set = (
+        falsification_declarations())
+    tools = tools + falsification_tools
+    capabilities = capabilities + falsification_capabilities
+    tool_sets = (tool_set, falsification_set)
     registry = CapabilityRegistry(
         allowlist=frozenset(capability.capability_id
                             for capability in capabilities))
@@ -879,7 +1309,8 @@ def build_research_egress_supply(
         registry.register_tool(tool)
     for capability in capabilities:
         registry.register_capability(capability)
-    registry.register_tool_set(tool_set)
+    for declared_set in tool_sets:
+        registry.register_tool_set(declared_set)
     journal = _EgressJournal(conn, store, clock)
     search_registry = SearchResultRegistry()
     shared: dict[str, Any] = {
@@ -891,12 +1322,23 @@ def build_research_egress_supply(
         "store": store,
         "search_registry": search_registry,
     }
+    falsification_shared: dict[str, Any] = {
+        "conn": conn,
+        "store": store,
+        "project_id": project_id,
+        "clock": clock,
+    }
     implementations: dict[str, Any] = {
         "source_search": SourceSearchExecutor(**shared),
         "source_fetch": SourceFetchExecutor(**shared),
+        "evidence_inspect": EvidenceInspectExecutor(**falsification_shared),
+        "contradiction_scan": ContradictionScanExecutor(
+            **falsification_shared),
+        "statistic_check": StatisticCheckExecutor(**falsification_shared),
     }
     return ResearchEgressSupply(
         tools=tools, capabilities=capabilities, tool_set=tool_set,
+        tool_sets=tool_sets,
         registry=registry, implementations=implementations,
         machinery=active_machinery, allowlist=resolved_allowlist,
         search_registry=search_registry)

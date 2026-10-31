@@ -41,6 +41,7 @@ from hermes.research.source_templates import (
     SOURCE_SEARCH_TEMPLATE,
 )
 from hermes.security.boundaries import UntrustedContent
+from hermes.tools.capabilities.content import read_content
 from hermes.tools.providers.base import (
     ProviderAdapter,
     WalkRequest,
@@ -164,6 +165,7 @@ class TaskScopedSourceRepos:
     _dereference_ref: Callable[[str, str], bool]
     _load_search_results: Callable[[str], list]
     _read_payload: Callable[[str], bytes | None] | None
+    _read_payload_format: Callable[[str], str] | None
 
     def __init__(self, repos: SourceRepos, task_id: str) -> None:
         # The raw bundle is deliberately NOT retained (S6-C2/D4): a handler
@@ -183,6 +185,10 @@ class TaskScopedSourceRepos:
         reader = getattr(repos, "read_payload", None)
         object.__setattr__(self, "_read_payload",
                            _payload_reader_of(reader))
+        object.__setattr__(
+            self, "_read_payload_format",
+            _payload_format_reader_of(
+                getattr(repos, "read_payload_format", None)))
 
     def record(
         self,
@@ -226,6 +232,18 @@ def _payload_reader_of(
     """Type-narrow the repos' optional ``read_payload`` (M3). A missing or
     non-callable reader is None — the context then fails closed (no raw
     fallback)."""
+    if callable(reader):
+        return reader  # type: ignore[return-value]  # narrowed by the contract
+    return None
+
+
+def _payload_format_reader_of(
+    reader: object,
+) -> Callable[[str], str] | None:
+    """Type-narrow the repos' optional ``read_payload_format``.
+
+    A missing reader is None: the content model then sees an undeclared
+    format, which reads a serialization as a fallback and never mines it."""
     if callable(reader):
         return reader  # type: ignore[return-value]  # narrowed by the contract
     return None
@@ -280,6 +298,7 @@ class UntrustedContentView:
 
     _load_search_results: Callable[[str], list]
     _read_payload: Callable[[str], bytes | None] | None = None
+    _read_payload_format: Callable[[str], str] | None = None
 
     def search_results(self, search_task_id: str) -> tuple[UntrustedSearchResult, ...]:
         results = self._load_search_results(search_task_id)
@@ -301,15 +320,32 @@ class UntrustedContentView:
 
     def fetched_text(self, ref: str) -> UntrustedContent | None:
         """The fetched payload text for ``source_payload:<hash>`` refs,
-        ENVELOPED. None when the ref does not dereference or no reader is
-        wired (fail closed)."""
+        ENVELOPED. None when the ref does not dereference, no reader is wired
+        (fail closed), or the artifact is unreadable.
+
+        OPS-5Z5: the text is the artifact's *content* — the same rendering the
+        evidence envelope and the claim gate use — not a shape inferred here.
+
+        OPS-5Z Group C: a ``fallback`` (an undeclared serialization) or an
+        ``unreadable`` read is returned as legible text under a distinct
+        origin (``fetched.fallback`` / ``fetched.unreadable``) rather than
+        dropped. "The model may read the blob" is not the defect; mining it
+        is, and the claim gate refuses a quote from either.
+        """
         if self._read_payload is None or not isinstance(ref, str):
             return None
         raw = self._read_payload(ref)
         if raw is None:
             return None
-        return UntrustedContent(
-            raw.decode("utf-8", errors="replace"), "fetched", ref)
+        declared = ""
+        if self._read_payload_format is not None:
+            declared = self._read_payload_format(ref) or ""
+        read = read_content(raw, format=declared)
+        if not read.text:
+            return None
+        origin = (f"fetched.{read.state.value}" if not read.is_content
+                  else "fetched")
+        return UntrustedContent(read.text, origin, ref)
 
 
 @dataclass(frozen=True)
@@ -358,6 +394,8 @@ class SourceHandler:
             untrusted=UntrustedContentView(
                 _load_search_results=repos.load_search_results,
                 _read_payload=_payload_reader_of(reader),
+                _read_payload_format=_payload_format_reader_of(
+                    getattr(repos, "read_payload_format", None)),
             ),
         )
 
@@ -381,12 +419,32 @@ class HandlerResult:
     request count for this dispatch (FIX-A1: the controller charges
     actuals, never estimates — an estimate that understates retries would
     let real egress exceed the token envelope unrefused).
+
+    OPS-5Y depth fields. A methodology handler reports how far its chain got
+    and what stopped it, so the journal carries the measurement as data instead
+    of prose. All five default to "nothing to report"; the controller writes a
+    payload key only for a non-default value, so every other handler's
+    ``TaskStatusChanged`` event is byte-identical. ``stage_depth`` is the
+    number of stages actually recorded; ``stage_reached`` is the stage whose
+    run was attempted or stopped the run; ``stages_declared`` is the document's
+    declared count; ``refusal_code`` is the code that stopped it; and
+    ``backing_class`` is the evidence ref's FETCHED/ROW classification.
     """
 
     status: str                       # "completed" | "failed_typed"
     reason: str = ""
     outcome_recorded: bool = False
     provider_requests: int = 0
+    stage_depth: int = 0
+    stage_reached: str = ""
+    stages_declared: int = 0
+    refusal_code: str = ""
+    backing_class: str = ""
+    #: OPS-5Z5: the CLAIM gate's verdict as one compact token —
+    #: ``"GROUNDED"`` or ``"CAVEATED:<code>"``. Empty for every other handler,
+    #: so its TaskStatusChanged payload is unchanged. This is the caveat's
+    #: structured channel to the journal; the reason carries the detail.
+    grounding: str = ""
 
 
 class _CountingTransport:

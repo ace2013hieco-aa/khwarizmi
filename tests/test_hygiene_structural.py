@@ -28,22 +28,28 @@ GATEWAY = SRC / "hermes" / "research" / "gateway.py"
 DATABASE = SRC / "hermes" / "persistence" / "database.py"
 
 EXPECTED_REFUSAL_CODE_COUNTS = {
-    "BUDGET": 1,
+    # OPS-5Z Group E adds the round request/outcome validators: 8 new
+    # MALFORMED_PAYLOAD sites (payload/schema/journal-record shape), 2 BUDGET
+    # (the same-round and already-round claim bounds), 2 PROPOSAL (no such
+    # round; a winner outside the round), 2 EVIDENCE_REF (a round cannot cite
+    # an artifact it did not fetch, nor a web-derived row) and 1 STALE (one
+    # terminal record).
+    "BUDGET": 3,
     "CLASSIFICATION_REF": 19,
     "CONTRADICTION_BACKLOG": 1,
     "DEPENDENCY": 4,
-    "EVIDENCE_REF": 26,
+    "EVIDENCE_REF": 28,
     "IDEMPOTENCY_CONFLICT": 3,
-    "MALFORMED_PAYLOAD": 124,  # COND-TYPE +1; P2-10 +1; AUDIT-TXN +1
+    "MALFORMED_PAYLOAD": 132,  # COND-TYPE +1; P2-10 +1; AUDIT-TXN +1
     "NOT_COMPILED": 2,
     "NOT_WIRED": 1,
     "OPERATOR": 5,
     "PROJECT_NOT_FOUND": 3,
-    "PROPOSAL": 44,  # OPS-5Q +1 (unresolvable contradiction party scope)
+    "PROPOSAL": 46,  # OPS-5Q +1 (unresolvable contradiction party scope)
     "PROVENANCE": 15,
     "ROLE": 8,
     "SCOPE_NOT_GOVERNED": 2,
-    "STALE": 11,
+    "STALE": 12,
     "UNKNOWN_KIND": 1,
 }
 
@@ -139,13 +145,14 @@ def test_gateway_refusal_code_census_is_exact() -> None:
     assert counts == EXPECTED_REFUSAL_CODE_COUNTS
     # COND-TYPE +1 site; GAP-1 P2-10 +1 site; AUDIT-TXN +1 site (the
     # pre-dispatch audit-payload gate in apply_intent); OPS-5Q +1 site
-    # (unresolvable contradiction party scope).
-    assert sum(counts.values()) == 270
+    # (unresolvable contradiction party scope); OPS-5Z Group E +14 sites
+    # (the round request and its terminal record — see the table above).
+    assert sum(counts.values()) == 285
 
 
 def test_proposal_refusal_code_count_is_deterministic() -> None:
     counts, _ = _refusal_calls(_tree(GATEWAY))
-    assert counts["PROPOSAL"] == 44
+    assert counts["PROPOSAL"] == 46
 
 
 def test_refusal_code_symbols_are_stable_module_constants() -> None:

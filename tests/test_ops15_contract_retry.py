@@ -185,7 +185,7 @@ def test_every_validate_output_site_states_its_marker() -> None:
     """
     calls = _validate_output_refusal_calls()
 
-    assert len(calls) == 9
+    assert len(calls) == 10
     assert all(any(keyword.arg == "contract_feedback"
                    for keyword in call.keywords) for call in calls), (
         "every _validate_output refusal must state contract_feedback")
@@ -195,7 +195,7 @@ def test_every_validate_output_site_states_its_marker() -> None:
         if keyword.arg == "contract_feedback"
         and isinstance(keyword.value, ast.Constant)
     ]
-    assert markers.count(True) == 8
+    assert markers.count(True) == 9
     assert markers.count(False) == 1, "the decision-shaped PROPOSAL is the exception"
 
 

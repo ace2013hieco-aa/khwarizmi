@@ -5,6 +5,7 @@ Records are Atom ``entry`` elements. No credentials (auth ``none``).
 """
 from __future__ import annotations
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.adapters.base_adapter import (
     JsonSearchAdapter,
     make_contract,
@@ -46,6 +47,19 @@ class ArxivAdapter(JsonSearchAdapter):
         "published": ("published",),
         "link": ("link",),
     }
+    content_format = ContentFormat.ARXIV
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """An Atom feed is an arXiv record; a web page is still a page.
+
+        The captured response is ``application/atom+xml; charset=utf-8``. Only
+        that concrete type is declared ``arxiv`` — a generic ``application/xml``
+        body has not been captured from this host and is not guessed at.
+        """
+        kind = (media_type or "").split(";", 1)[0].strip().lower()
+        if kind == "application/atom+xml":
+            return ContentFormat.ARXIV
+        return super().fetch_content_format(media_type)
 
     def build_request(self, hints: RetrievalHints, state: PageState,
                       page_size: int) -> RequestSpec:

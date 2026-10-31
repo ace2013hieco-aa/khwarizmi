@@ -1,0 +1,43 @@
+{
+  "accepted": [
+    "objective:CONCLUSION",
+    "objective:CRITIQUE",
+    "objective:EVIDENCE",
+    "objective:EXPERIMENT",
+    "objective:OBSERVATION",
+    "objective:QUESTION",
+    "payload:critic:ABANDON",
+    "payload:critic:REQUEST_HUMAN",
+    "payload:critic:REQUEST_REPLICATION",
+    "payload:experimenter:REQUEST_REPLICATION",
+    "payload:planner:ABANDON",
+    "payload:planner:BRANCH",
+    "payload:planner:REQUEST_HUMAN",
+    "payload:synthesizer:REQUEST_HUMAN",
+    "payload:verifier:REQUEST_REPLICATION"
+  ],
+  "history": [
+    {
+      "accepted": 3,
+      "reason": "N7: every seam now contributes a finding, not only declaration/enforcement. Accepted: 3 statement mismatches, 12 proposable kinds with no payload schema, 6 objectives that never ask for a statement. These are known gaps; a NEW one fails."
+    },
+    {
+      "accepted": 21,
+      "reason": "gate 7 is now mechanical: B reads required_when_proposing when present, E renders a minting profile WITH the flag, and render-required:<profile> keys the three profiles whose line still says optional. OPS-5Z must make these three disappear; a slice that leaves them baselined has not been measured."
+    },
+    {
+      "accepted": 24,
+      "reason": "gate 7 is now mechanical: B reads required_when_proposing when present, E renders a minting profile WITH the flag, and render-required:<profile> keys the three profiles whose line still says optional. OPS-5Z must make these three disappear; a slice that leaves them baselined has not been measured."
+    },
+    {
+      "accepted": 24,
+      "reason": "OPS-5Z: the statement is required when the reply proposes in a minting stage. The six keys are gone \u2014 three stage mismatches and three render-required \u2014 leaving 18 known gaps (6 objective, 12 payload). B now builds a minting profile's contract as its stage receives it; E renders the conditional line; the duplicate 'optional:' is removed."
+    },
+    {
+      "accepted": 18,
+      "reason": "OPS-5Z Group E wires REQUEST_ADDITIONAL_EXPERIMENT and publishes its closed payload schema; the three per-profile payload findings are fixed (critic/experimenter/researcher). No new finding."
+    }
+  ],
+  "reason": "OPS-5Z Group E wires REQUEST_ADDITIONAL_EXPERIMENT and publishes its closed payload schema; the three per-profile payload findings are fixed (critic/experimenter/researcher). No new finding.",
+  "recorded_at": "2026-10-30T15:02:34+00:00"
+}

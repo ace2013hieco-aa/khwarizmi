@@ -7,10 +7,12 @@ construction, never logged; see ``RequestSpec.headers_meta``).
 """
 from __future__ import annotations
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.adapters.base_adapter import (
     JsonSearchAdapter,
     make_contract,
 )
+from hermes.tools.providers.base import media_kind
 
 __all__ = ["SemanticScholarAdapter"]
 
@@ -43,3 +45,17 @@ class SemanticScholarAdapter(JsonSearchAdapter):
     authors_fields = ("authors",)
     year_fields = ("year",)
     venue_fields = ("venue", "journal")
+    content_format = ContentFormat.SEMANTIC_SCHOLAR
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """A paper record from the graph API is JSON; its search wrapper is not.
+
+        The captured response is ``application/json`` for
+        ``graph/v1/paper/DOI:…``. The declaration is made here so the artifact
+        carries the shape; the reader still refuses a body that has no
+        ``title``/``abstract`` (a search wrapper or an unknown shape) instead
+        of mining its ``citationCount`` and ``externalIds``.
+        """
+        if media_kind(media_type) == "json":
+            return ContentFormat.SEMANTIC_SCHOLAR
+        return super().fetch_content_format(media_type)

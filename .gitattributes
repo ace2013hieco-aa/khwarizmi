@@ -19,3 +19,12 @@ docs/idr/IDR-026.md eol=lf
 docs/idr/IDR-027.md eol=lf
 docs/idr/IDR-028.md eol=lf
 docs/idr/IDR-036.md eol=lf
+
+# Byte-exact fetch fixtures (OPS-5Z3). These are stored provider responses —
+# a 5,590-byte challenge page and a 33,727-byte OpenAlex record — and the tests
+# assert their exact byte lengths, because the point is that the refusal and the
+# excerpt are decided on the real bytes. `core.autocrlf=true` rewrote them to
+# CRLF on checkout (5,590 -> 5,785), so on any Windows clone the suite failed.
+# `-text` keeps the working-tree bytes identical to the blob, whatever the
+# checkout config.
+tests/fixtures/source_payloads/** -text

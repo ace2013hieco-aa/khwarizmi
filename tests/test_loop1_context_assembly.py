@@ -36,10 +36,21 @@ from hermes.tools.models.router import ModelProposal, ModelRequest
 ASSEMBLY_PATH = Path(str(assembly_module.__file__))
 
 #: Exactly what the module may import: its own types, the envelope, stdlib.
+#: ``json``, ``re`` and ``html`` joined this set for OPS-5Z3: the evidence
+#: excerpt selects an artifact's *content* — an OpenAlex abstract reconstructed
+#: from its inverted index, HTML reduced to text — instead of taking a byte
+#: prefix. All three are pure, deterministic and touch nothing: no clock, no
+#: model, no I/O, which is what this invariant exists to protect.
 ALLOWED_IMPORTS = frozenset({
     "__future__", "collections.abc", "typing",
     "hermes.agents.runtime.types",
     "hermes.security.boundaries",
+    # OPS-5Z4: the content extractor is one implementation in the capability
+    # layer, shared with `evidence_inspect` so the model and the falsifier read
+    # the same text. It imports nothing but stdlib, so the purity rule holds —
+    # and the runtime's import direction (`hermes.tools.capabilities`) is the
+    # one the module-invariant test enforces.
+    "hermes.tools.capabilities.content",
 })
 
 #: Names a module that could touch the world would mention.

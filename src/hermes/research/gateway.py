@@ -82,6 +82,7 @@ from hermes.persistence.source_outcomes import (
     source_artifact_is_web_derived,
     source_artifact_retracted,
 )
+from hermes.research import verification
 from hermes.research.extraction import (
     EXTRACT_COST_CLASS,
     EXTRACT_PROFILE,
@@ -143,6 +144,8 @@ CONTRADICTION_BACKLOG = "CONTRADICTION_BACKLOG"  # project OPEN-contradiction
 #: set is refused ``NOT_WIRED`` by the dispatch below, and the authority
 #: (``ProfileSpec.authority.proposable_kinds``) is never changed by this list.
 WIRED_INTENT_KINDS: frozenset[IntentKind] = frozenset({
+    IntentKind.REQUEST_ADDITIONAL_EXPERIMENT,
+    IntentKind.RECORD_VERIFICATION_OUTCOME,
     IntentKind.PROPOSE_RESEARCH_PROGRAM,
     IntentKind.PROPOSE_CLASSIFICATION_ACTION,
     IntentKind.RESOLVE_CLASSIFICATION_PROPOSAL,
@@ -202,10 +205,11 @@ class GatewayRejection(IntentRejectedError):
 class IntentResult:
     """The outcome of an applied intent.
 
-    ``entity_type`` is ``"research_program"`` or ``"task"``; ``entity_id`` is
-    the program_id / task_id; ``duplicate`` is True when the admission was
-    idempotent (existing row returned, no new event); ``row`` is the
-    repository row; ``event_type`` names the mutation's own event.
+    ``entity_type`` is ``"research_program"``, ``"task"`` or
+    ``"verification_round"``; ``entity_id`` is the program_id / task_id / round
+    id; ``duplicate`` is True when the admission was idempotent (existing row
+    returned, no new event); ``row`` is the repository row (the round's journal
+    record, for OPS-5Z Group E); ``event_type`` names the mutation's own event.
     """
 
     kind: IntentKind
@@ -1357,6 +1361,19 @@ _EVIDENCE_TRANSITION_PAYLOAD_KEYS = frozenset({
     "ratification_ref", "rationale",
 })
 
+#: OPS-5Z Group E — the critic's round request and the spine's terminal
+#: record. Closed top-level keys; the nested shapes are validated by
+#: ``hermes.research.verification`` so the gateway and the executor cannot
+#: disagree about them.
+_REQUEST_ADDITIONAL_EXPERIMENT_PAYLOAD_KEYS = frozenset({
+    "claims", "conflict", "mode", "targets",
+})
+_RECORD_VERIFICATION_OUTCOME_PAYLOAD_KEYS = frozenset({
+    "round_id", "status", "winner_ref", "detail", "code", "evidence_refs",
+    "branches",
+})
+_ROUND_MODE_VALUES: frozenset[str] = frozenset(verification.VERIFICATION_MODES)
+
 #: The legal top-level payload keys, per kind, for the kinds an LLM profile can
 #: actually propose and the gateway can apply (OPS-12). Each value is the same
 #: frozenset its validator checks; the contract renders from this map, never
@@ -1366,6 +1383,10 @@ INTENT_PAYLOAD_KEYS: Mapping[IntentKind, frozenset[str]] = {
     IntentKind.INSERT_TASK: _TASK_PAYLOAD_KEYS,
     IntentKind.ADMIT_TASK: _TASK_PAYLOAD_KEYS,
     IntentKind.EVIDENCE_TRANSITION: _EVIDENCE_TRANSITION_PAYLOAD_KEYS,
+    IntentKind.REQUEST_ADDITIONAL_EXPERIMENT:
+        _REQUEST_ADDITIONAL_EXPERIMENT_PAYLOAD_KEYS,
+    IntentKind.RECORD_VERIFICATION_OUTCOME:
+        _RECORD_VERIFICATION_OUTCOME_PAYLOAD_KEYS,
     IntentKind.PROPOSE_RESEARCH_PROGRAM: RESEARCH_PROGRAM_PAYLOAD_KEYS,
 }
 
@@ -1389,6 +1410,9 @@ INTENT_PAYLOAD_VALUE_SETS: Mapping[IntentKind, Mapping[str, frozenset[str]]] = {
     IntentKind.INSERT_TASK: {
         "task_type": _TASK_TYPE_VALUES,
         "profile": _PROFILE_VALUES,
+    },
+    IntentKind.REQUEST_ADDITIONAL_EXPERIMENT: {
+        "mode": _ROUND_MODE_VALUES,
     },
 }
 
@@ -1417,6 +1441,16 @@ _PAYLOAD_NULLABLE_STRING_SHAPE = "a string or null"
 #: (``task_id``, ``idempotency_key``) are not mapped: the contract forbids
 #: supplying them at all.
 INTENT_PAYLOAD_SHAPES: Mapping[IntentKind, Mapping[str, str]] = {
+    IntentKind.REQUEST_ADDITIONAL_EXPERIMENT: {
+        "claims": ("a list of exactly two claim objects "
+                   "(ref, statement, source_ref)"),
+        "conflict": ("the contradiction_scan conflict object "
+                     "(kind, left, right, subject, date, detail)"),
+        "mode": "one of the two modes derived from the claims' sources",
+        "targets": ("a list of one (verify-one) or two, one per claim "
+                    "(parallel-two), fetch targets "
+                    "(claim_ref, provider, url)"),
+    },
     IntentKind.INSERT_TASK: {
         "spec": _PAYLOAD_DICT_SHAPE,
         "inputs": _PAYLOAD_LIST_SHAPE,
@@ -1484,6 +1518,12 @@ def intent_payload_required_fields() -> dict[
         f"'{SOURCE_PAYLOAD_HANDLE_PREFIX}{SOURCE_REF_SEPARATOR}"
         f"<content_hash>' is not accepted in evidence_artifact_ref; no "
         f"payload field of EVIDENCE_TRANSITION takes it.")
+    round_note = (
+        "The round carries the conflict that caused it (the contradiction_scan "
+        "result) so the journal shows why an extra fetch happened. The mode is "
+        "checked against the claims' sources — different sources cost one "
+        "fetch, the same source on both sides is two branches; the spine "
+        "derives it and the critic cannot choose past it.")
     return {
         IntentKind.EVIDENCE_TRANSITION: {
             "evidence_artifact_ref": RequiredPayloadField(
@@ -1492,6 +1532,30 @@ def intent_payload_required_fields() -> dict[
                 values=RATIFIED_EVIDENCE_STATES, note=state_note),
             "to_state": RequiredPayloadField(
                 values=RATIFIED_EVIDENCE_STATES, note=state_note),
+        },
+        IntentKind.REQUEST_ADDITIONAL_EXPERIMENT: {
+            "claims": RequiredPayloadField(
+                shape=("a list of exactly two objects: {ref, statement, "
+                       "source_ref} — the two conflicting claims and the "
+                       "source each rests on"),
+                note=round_note),
+            "conflict": RequiredPayloadField(
+                shape=("the contradiction_scan conflict object: {kind, left, "
+                       "right, subject, date, detail}"),
+                note=("This is the rationale: the journal records it with "
+                      "the round. A conflict is the only reason a round "
+                      "opens — a caveat is not.")),
+            "mode": RequiredPayloadField(
+                values=_ROUND_MODE_VALUES,
+                note=("verify-one when the claims rest on different sources "
+                      "(one targeted fetch); parallel-two when they share "
+                      "one source and still disagree (two branches).")),
+            "targets": RequiredPayloadField(
+                shape=("a list of {claim_ref, provider, url}: one target for "
+                       "verify-one, two (one per claim) for parallel-two"),
+                note=("The primary source(s) the round fetches. The fetch "
+                      "goes through the capability plane's source_fetch — "
+                      "egress allowlist and content gate included.")),
         },
     }
 
@@ -3269,6 +3333,210 @@ def _cx_classification_facts(conn: Any, project_id: str, artifact_id: str,
             "failure_class": failure_class.value, "evidence": evidence}
 
 
+def _opened_rounds(conn: Any, project_id: str) -> list[dict]:
+    """Every opened verification round in the project, oldest first.
+
+    The round's record IS its journal event (OPS-5Z Group E): no new table,
+    no new acquisition owner. A corrupt record is not skipped — the caller
+    refuses fail-closed, because a budget check that cannot see a round is
+    not a budget.
+    """
+    import json as _json
+
+    rounds: list[dict] = []
+    rows = EventRepository(conn).list_for_project(project_id)
+    for row in rows:
+        if row.get("event_type") != EventType.VERIFICATION_ROUND_OPENED.value:
+            continue
+        try:
+            payload = _json.loads(row.get("payload_json") or "{}")
+        except ValueError:
+            raise ValueError(
+                "the journal holds an unreadable verification-round record; "
+                "refusing to open another") from None
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "the journal holds a malformed verification-round record; "
+                "refusing to open another")
+        rounds.append(payload)
+    return rounds
+
+
+def _validate_request_additional_experiment(
+    conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
+) -> IntentResult:
+    """REQUEST_ADDITIONAL_EXPERIMENT — a conflict opens one bounded round.
+
+    OPS-5Z Group E. The critic proposes; this validator decides. The payload
+    is closed and parsed by ``hermes.research.verification`` (claims,
+    conflict, mode, targets); the mode is checked against the claims' own
+    declared sources. The round's identity is content-derived from the claim
+    refs and the disputed question, and the **budget is one round per
+    claim**: any prior round that names either claim refuses the new one
+    with ``BUDGET`` — a persistent conflict is disputed, not reopened.
+
+    The mutation is the ``VerificationRoundOpened`` event, which carries the
+    conflict that caused the round (the journal shows *why* the extra fetch
+    happened). An exact replay of the same round returns ``duplicate=True``.
+    """
+    try:
+        round_ = verification.parse_round_payload(
+            intent.payload, project_id=intent.project_id)
+    except verification.VerificationError as exc:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"round request refused: {exc}") from None
+    record = verification.round_payload(round_)
+    try:
+        prior = _opened_rounds(conn, intent.project_id)
+    except ValueError as exc:
+        raise _reject(intent.kind, MALFORMED_PAYLOAD, str(exc)) from None
+    for existing in prior:
+        if existing.get("round_id") != round_.round_id:
+            continue
+        if existing == record:
+            return IntentResult(
+                kind=intent.kind, entity_type="verification_round",
+                entity_id=round_.round_id, duplicate=True, row=existing,
+                event_type=EventType.VERIFICATION_ROUND_OPENED.value)
+        raise _reject(
+            intent.kind, BUDGET,
+            f"round {round_.round_id!r} already exists with different "
+            "content — one round, then escalate; a conflict that persists is "
+            "DISPUTED, never a second fetch")
+    refs = set(round_.claim_refs)
+    for existing in prior:
+        overlap = refs & set(existing.get("claim_refs") or ())
+        if overlap:
+            raise _reject(
+                intent.kind, BUDGET,
+                f"claim(s) {sorted(overlap)} already had verification round "
+                f"{existing.get('round_id')!r} — one round, then escalate; "
+                "a conflict that persists is DISPUTED, never a second fetch")
+    try:
+        validate_event(EventType.VERIFICATION_ROUND_OPENED.value, record)
+    except EventValidationError as exc:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"the round record is not a valid event payload: {exc}") from None
+    EventRepository(conn).append_transactional(
+        clock, EventType.VERIFICATION_ROUND_OPENED.value,
+        project_id=intent.project_id,
+        correlation_id=round_.round_id,
+        caused_by=intent.proposed_by,
+        reason=intent.justification,
+        payload=record, audit=audit)
+    return IntentResult(
+        kind=intent.kind, entity_type="verification_round",
+        entity_id=round_.round_id, duplicate=False, row=record,
+        event_type=EventType.VERIFICATION_ROUND_OPENED.value)
+
+
+def _validate_record_verification_outcome(
+    conn: Any, intent: Intent, *, clock: Callable[[], str],
+    audit: AuditRecord | None = None,
+) -> IntentResult:
+    """RECORD_VERIFICATION_OUTCOME — the round's terminal record.
+
+    Internal-only: the round produces evidence and the deterministic layer
+    records which side (if either) it establishes. A RESOLVED outcome must
+    name a claim of the opened round and an artifact that resolves in the
+    project; a DISPUTED or REFUSED outcome must say why (and REFUSED, with
+    which code). The round can close once; a differing second outcome is
+    ``STALE`` and an exact replay is ``DUPLICATE``.
+    """
+    import json as _json
+
+    try:
+        outcome = verification.parse_outcome_payload(intent.payload)
+    except verification.VerificationError as exc:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"verification outcome refused: {exc}") from None
+    round_id = outcome["round_id"]
+    events = EventRepository(conn)
+    opened_raw = events.payload_json(
+        EventType.VERIFICATION_ROUND_OPENED.value, round_id, intent.project_id)
+    if opened_raw is None:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"no verification round {round_id!r} is open in this project")
+    try:
+        opened = _json.loads(opened_raw)
+    except ValueError:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"verification round {round_id!r} has an unreadable record") from None
+    if not isinstance(opened, dict):
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"verification round {round_id!r} has a malformed record")
+    claim_refs = set(opened.get("claim_refs") or ())
+    if outcome["status"] == "RESOLVED" and outcome["winner_ref"] not in claim_refs:
+        raise _reject(
+            intent.kind, PROPOSAL,
+            f"winner_ref {outcome['winner_ref']!r} is not a claim of "
+            f"round {round_id!r} ({sorted(claim_refs)})")
+    # Every evidence ref a round records is an evidence position, whatever
+    # the outcome: it must resolve in-project and pass the IDR-046 bar.
+    for ref in outcome["evidence_refs"]:
+        artifact_id = ref.partition(":")[2]
+        if not _source_artifact_resolves(
+                conn, intent.project_id, artifact_id, "source_payload"):
+            raise _reject(
+                intent.kind, EVIDENCE_REF,
+                f"evidence ref {ref!r} does not resolve to a fetched "
+                "source artifact in this project — a round cannot cite "
+                "an artifact it did not fetch")
+        # IDR-046 D2/E4 fence: a web-derived row is barred from every
+        # evidence position. (N9 retraction fencing is FROZEN at four
+        # predicate call sites — AGENTS.md, N9 cert 02cb976 — so this
+        # evidence position is recorded as a frozen gap in
+        # `tests/test_n9_resolve_path_pin.py` rather than adding a fifth
+        # call here without the owning gate re-run.)
+        if source_artifact_is_web_derived(conn, artifact_id):
+            raise _reject(
+                intent.kind, EVIDENCE_REF,
+                f"evidence ref {ref!r} names a web-derived row — barred "
+                "from every evidence position (IDR-046 D2/E4)")
+    completed_raw = events.payload_json(
+        EventType.VERIFICATION_ROUND_COMPLETED.value, round_id,
+        intent.project_id)
+    if completed_raw is not None:
+        try:
+            existing = _json.loads(completed_raw)
+        except ValueError:
+            raise _reject(
+                intent.kind, MALFORMED_PAYLOAD,
+                f"verification round {round_id!r} has an unreadable "
+                "outcome record") from None
+        if existing == outcome:
+            return IntentResult(
+                kind=intent.kind, entity_type="verification_round",
+                entity_id=round_id, duplicate=True, row=existing,
+                event_type=EventType.VERIFICATION_ROUND_COMPLETED.value)
+        raise _reject(
+            intent.kind, STALE,
+            f"verification round {round_id!r} is already closed with a "
+            "different outcome — a round has one terminal record")
+    try:
+        validate_event(EventType.VERIFICATION_ROUND_COMPLETED.value, outcome)
+    except EventValidationError as exc:
+        raise _reject(
+            intent.kind, MALFORMED_PAYLOAD,
+            f"the outcome record is not a valid event payload: {exc}") from None
+    events.append_transactional(
+        clock, EventType.VERIFICATION_ROUND_COMPLETED.value,
+        project_id=intent.project_id, correlation_id=round_id,
+        caused_by=intent.proposed_by, reason=intent.justification,
+        payload=outcome, audit=audit)
+    return IntentResult(
+        kind=intent.kind, entity_type="verification_round",
+        entity_id=round_id, duplicate=False, row=outcome,
+        event_type=EventType.VERIFICATION_ROUND_COMPLETED.value)
+
+
 def _validate_record_contradiction(
     conn: Any, intent: Intent, *, clock: Callable[[], str],
     audit: AuditRecord | None = None,
@@ -5031,6 +5299,12 @@ def apply_intent(
             result = _validate_insert_task(
                 conn, intent, task_repo=task_repo, program_repo=program_repo,
                 clock=clock, audit=audit)
+        elif intent.kind is IntentKind.REQUEST_ADDITIONAL_EXPERIMENT:
+            result = _validate_request_additional_experiment(
+                conn, intent, clock=clock, audit=audit)
+        elif intent.kind is IntentKind.RECORD_VERIFICATION_OUTCOME:
+            result = _validate_record_verification_outcome(
+                conn, intent, clock=clock, audit=audit)
         else:
             raise _reject(
                 intent.kind, NOT_WIRED,

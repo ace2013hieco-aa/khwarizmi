@@ -89,7 +89,9 @@ from hermes.persistence.repositories import (
 from hermes.research.capability_supply import (
     SUPPLIED_CAPABILITY_IDS,
     build_research_egress_supply,
+    supplied_capability_risks,
 )
+from hermes.research.chain_refs import RefProvenanceReader
 from hermes.research.controller import Controller
 from hermes.research.evidence_transitions import (
     EVIDENCE_HANDLE_REF_PREFIX,
@@ -400,7 +402,7 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         clock=Clock(), ledger=InMemoryIdempotencyLedger(), sandbox_enabled=False)
     plan = plan_capability_plane(
         load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        risks=supplied_capability_risks())
     yield Rig(conn=conn, store=store, invoker=invoker, plan=plan)
     conn.close()
 
@@ -490,10 +492,12 @@ def test_a_run_with_no_admitted_ref_has_no_envelope_anywhere(rig: Rig) -> None:
     for model in (SilentModel(), Run19Model()):
         execution = rig.run(model)
         assert isinstance(execution, MethodologyRefusal), execution
-        assert execution.stage == "EVIDENCE"
+        # The stop moved to OBSERVATION: with no admitted ref there is nothing
+        # to cite, so the observation itself cannot be recorded.
+        assert execution.stage == "OBSERVATION"
         assert execution.source == "substrate"
         assert execution.code == MALFORMED_PAYLOAD
-        assert "needs a non-empty 'external_ref'" in execution.detail
+        assert "cites nothing" in execution.detail
         assert _envelope_documents(model) == {}
         for call in model.calls:
             assert _envelope_parts(call) == ()
@@ -714,14 +718,15 @@ def test_an_admitted_empty_id_ref_stops_the_run_without_raising() -> None:
             parse_methodology(dict(LITERATURE_REVIEW_DOCUMENT)),
             chain_inputs(PROJECT, QUESTION), wiring=wiring,
             project_id=PROJECT, task_id=TASK,
-            on_stage=lambda _w, r: collected.append(r))
+            on_stage=lambda _w, r: collected.append(r),
+            provenance_of=RefProvenanceReader(conn))
     finally:
         conn.close()
 
     # No ValueError from the envelope: the empty id selects as nothing.
     assert isinstance(execution, MethodologyRefusal), execution
     assert execution.source == "substrate"
-    assert "needs a non-empty 'external_ref'" in execution.detail
+    assert "cites nothing" in execution.detail
     assert _envelope_documents(model) == {}
     # The admission really happened — the reader declined it, the spine did not.
     assert any(p.was_admitted() for r in collected
@@ -765,13 +770,14 @@ def test_the_run_19_shape_reports_failed_without_a_task_outcome(
     collected: list[ProposalSet] = []
     execution = rig.run(model, on_stage=lambda _w, r: collected.append(r))
     assert isinstance(execution, MethodologyRefusal)
-    assert execution.stage == "EVIDENCE"
+    assert execution.stage == "OBSERVATION"
     assert execution.source == "substrate"
 
-    # Six of nine stage runs happened, and each one is SUCCEEDED.
+    # Five of nine stage runs happened, and each one is SUCCEEDED. EVIDENCE no
+    # longer runs: an observation that cites nothing stops the chain first.
     assert [str(r.task_id).rsplit(":", 1)[-1] for r in collected] == list(
-        STAGES[:6])
-    assert [r.state for r in collected] == [TaskStatus.SUCCEEDED.value] * 6
+        STAGES[:5])
+    assert [r.state for r in collected] == [TaskStatus.SUCCEEDED.value] * 5
     # The only admissions are bookkeeping: no EVIDENCE_TRANSITION anywhere.
     assert all(p.intent.kind != IntentKind.EVIDENCE_TRANSITION
                for r in collected for p in r.admitted())
@@ -782,7 +788,10 @@ def test_the_run_19_shape_reports_failed_without_a_task_outcome(
     assert report["terminal_state"] == "FAILED"
     assert report["terminal_reason"] == NO_EVIDENCE_REASON
     assert "EVIDENCE_TRANSITION" in report["terminal_reason"]
-    assert len(report["stages"]) == 6
+    # Five stage runs: the chain stopped at OBSERVATION, so EVIDENCE never ran.
+    # The terminal is still FAILED — a run with no admitted transition has no
+    # evidence, whether or not it reached the stage that would have cited it.
+    assert len(report["stages"]) == 5
 
 
 def _result(stage: str, *, state: str = TaskStatus.SUCCEEDED.value,
@@ -938,8 +947,8 @@ def _spine() -> Any:
     ArtifactRepository(conn, lambda: CLOCK).record(
         artifact_id=ARTIFACT_SEED, artifact_type="source_payload",
         content_hash=ARTIFACT_SEED, size_bytes=1,
-        storage_path=f"seed/{ARTIFACT_SEED}", producer="test",
-        project_id=PROJECT)
+        storage_path=f"seed/{ARTIFACT_SEED}",
+        producer="capability:source_fetch:test", project_id=PROJECT)
     return conn
 
 
@@ -954,8 +963,7 @@ def _admit(conn: Any, task_id: str) -> str:
             "spec": {"template": "methodology_run",
                      "methodology": dict(LITERATURE_REVIEW_DOCUMENT),
                      "inputs": {"question": inputs.question,
-                                "external_refs": dict(inputs.external_refs),
-                                "admission_refs": list(inputs.admission_refs)}},
+                                "stage_content": dict(inputs.stage_content)}},
             "idempotency_key": f"idem-{task_id}",
             "iteration": 1, "provenance": [], "inputs": [], "outputs": [],
             "dependencies": [], "cost_class": "LOW",
@@ -979,7 +987,8 @@ def test_the_controller_dispatch_of_the_run_19_shape_fails_with_a_reason() -> No
         collected: list[ProposalSet] = []
         handler = build_methodology_handler(
             model=Run19Model(), profiles=load_profiles(),
-            on_stage=lambda _w, r: collected.append(r))
+            on_stage=lambda _w, r: collected.append(r),
+            provenance_of=RefProvenanceReader(conn))
         ctrl = Controller(conn, project_id=PROJECT,
                           task_handlers={"methodology_run": handler},
                           clock=lambda: CLOCK)
@@ -997,7 +1006,7 @@ def test_the_controller_dispatch_of_the_run_19_shape_fails_with_a_reason() -> No
         assert [o["task_id"] for o in outcomes] == ["t-ops5l-19"]
         assert outcomes[0]["state"] == TaskStatus.RETRYING.value
         assert outcomes[0]["reason"].startswith(
-            "MALFORMED_PAYLOAD: a EVIDENCE node cites an existing artifact")
+            "MALFORMED_PAYLOAD: an OBSERVATION node cites nothing")
 
         report = build_run_report(
             run_id="run_ops5l_ctrl", project_id=PROJECT, started_at=CLOCK,
@@ -1005,7 +1014,7 @@ def test_the_controller_dispatch_of_the_run_19_shape_fails_with_a_reason() -> No
             vector="", task_outcomes=outcomes)
         assert report["terminal_state"] == "FAILED"
         assert report["terminal_reason"].startswith(
-            "MALFORMED_PAYLOAD: a EVIDENCE node cites an existing artifact")
+            "MALFORMED_PAYLOAD: an OBSERVATION node cites nothing")
     finally:
         conn.close()
 
@@ -1017,7 +1026,8 @@ def test_the_report_read_is_project_scoped_and_fails_closed_to_empty() -> None:
         collected: list[ProposalSet] = []
         handler = build_methodology_handler(
             model=Run19Model(), profiles=load_profiles(),
-            on_stage=lambda _w, r: collected.append(r))
+            on_stage=lambda _w, r: collected.append(r),
+            provenance_of=RefProvenanceReader(conn))
         ctrl = Controller(conn, project_id=PROJECT,
                           task_handlers={"methodology_run": handler},
                           clock=lambda: CLOCK)
@@ -1060,7 +1070,8 @@ def test_a_stage_refusal_after_an_admission_is_reported_failed() -> None:
         collected: list[ProposalSet] = []
         handler = build_methodology_handler(
             model=StageRefusalModel(ARTIFACT_SEED), profiles=load_profiles(),
-            on_stage=lambda _w, r: collected.append(r))
+            on_stage=lambda _w, r: collected.append(r),
+            provenance_of=RefProvenanceReader(conn))
         ctrl = Controller(conn, project_id=PROJECT,
                           task_handlers={"methodology_run": handler},
                           clock=lambda: CLOCK)
@@ -1182,10 +1193,8 @@ def test_the_live_cli_of_the_run_19_shape_says_failed_with_a_reason(
         "template": "methodology_run",
         "methodology": dict(LITERATURE_REVIEW_DOCUMENT),
         "inputs": {"question": "does it hold?",
-                   "external_refs": dict(
-                       chain_inputs("p1", QUESTION).external_refs),
-                   "admission_refs": list(
-                       chain_inputs("p1", QUESTION).admission_refs)},
+                   "stage_content": dict(
+                       chain_inputs("p1", QUESTION).stage_content)},
     })
     db = _project(tmp_path, task)
     report_dir = tmp_path / RUN_DIR
@@ -1212,12 +1221,17 @@ def test_the_live_cli_of_the_run_19_shape_says_failed_with_a_reason(
 
     assert report["terminal_state"] == "FAILED"
     assert report["terminal_reason"].startswith(
-        "MALFORMED_PAYLOAD: a EVIDENCE node cites an existing artifact")
-    assert [stage["stage"] for stage in report["stages"]] == list(STAGES[:6])
+        "MALFORMED_PAYLOAD: an OBSERVATION node cites nothing")
+    assert [stage["stage"] for stage in report["stages"]] == list(STAGES[:5])
     assert all(stage["state"] == TaskStatus.SUCCEEDED.value
                for stage in report["stages"])
-    assert report["stages"][-1]["stage"] == "EVIDENCE"
-    assert report["stages"][-1]["admissions"] == 0
+    assert report["stages"][-1]["stage"] == "OBSERVATION"
+    # The old assertion read the *last* stage's admission count, which only
+    # worked while the chain still reached EVIDENCE and that stage admitted
+    # nothing. The last stage is now OBSERVATION, which admits bookkeeping
+    # intents — and the report carries counts, not kinds, so the absence of an
+    # EVIDENCE_TRANSITION is asserted where it can be read: the driver-level
+    # sibling test checks the admitted proposals' kind directly.
 
     # No admitted ref, so no envelope — the run holds nothing to surface.
     assert all(count == 0 for _stage, count in transport.requests)

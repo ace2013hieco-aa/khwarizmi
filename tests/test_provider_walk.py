@@ -871,13 +871,13 @@ _SHIPPED_SPEC_PROVIDERS = frozenset({
     "tavily",
 })
 _SPEC_REFUSED_PROVIDERS = frozenset({
-    "biorxiv", "core", "crossref", "medrxiv", "pubmed", "semantic-scholar",
-    "unpaywall",
+    "biorxiv", "core", "crossref", "inspirehep", "medrxiv", "pubmed",
+    "semantic-scholar", "unpaywall",
 })
 
 
 def test_every_registered_adapter_has_a_spec_or_is_typed_refused():
-    # The shipped corpus covers 8 of the 15 registered providers; the other 7
+    # The shipped corpus covers 8 of the 16 registered providers; the other 8
     # have no spec and must refuse at the hazard boundary. Adding a provider
     # (or shipping a spec) has to update this census deliberately — never
     # guess endpoints, allowlist hosts, or patterns to fill a gap.

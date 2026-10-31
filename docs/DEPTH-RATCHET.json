@@ -1,0 +1,75 @@
+{
+  "history": [
+    {
+      "from": null,
+      "reason": "OPS-5Y landed: depth is now a typed field. Run 39 reached QUESTION (1 of 9) with no prior art; run 38's PREDICTION (2) is prose-derived and was bought with fabricated prior art, so it is not a floor.",
+      "to": {
+        "depth": 1,
+        "note": "OPS-5Y landed: depth is now a typed field. Run 39 reached QUESTION (1 of 9) with no prior art; run 38's PREDICTION (2) is prose-derived and was bought with fabricated prior art, so it is not a floor.",
+        "project": "sars-covid-39",
+        "projects_measured": 1,
+        "recorded_at": "2026-10-28T10:29:59+00:00",
+        "stage": "QUESTION"
+      }
+    },
+    {
+      "from": {
+        "depth": 1,
+        "note": "OPS-5Y landed: depth is now a typed field. Run 39 reached QUESTION (1 of 9) with no prior art; run 38's PREDICTION (2) is prose-derived and was bought with fabricated prior art, so it is not a floor.",
+        "project": "sars-covid-39",
+        "projects_measured": 1,
+        "recorded_at": "2026-10-28T10:29:59+00:00",
+        "stage": "QUESTION"
+      },
+      "reason": "corrected aggregation: latest field event per project, not the historical maximum; stage label now stage_reached (HYPOTHESIS) not the recorded count (QUESTION). Audit F1.",
+      "to": {
+        "depth": 1,
+        "measurable": true,
+        "note": "corrected aggregation: latest field event per project, not the historical maximum; stage label now stage_reached (HYPOTHESIS) not the recorded count (QUESTION). Audit F1.",
+        "project": "sars-covid-39",
+        "projects_measured": 1,
+        "recorded_at": "2026-10-28T11:57:16+00:00",
+        "stage": "HYPOTHESIS"
+      }
+    },
+    {
+      "from": {
+        "depth": 1,
+        "measurable": true,
+        "note": "corrected aggregation: latest field event per project, not the historical maximum; stage label now stage_reached (HYPOTHESIS) not the recorded count (QUESTION). Audit F1.",
+        "project": "sars-covid-39",
+        "projects_measured": 1,
+        "recorded_at": "2026-10-28T11:57:16+00:00",
+        "stage": "HYPOTHESIS"
+      },
+      "reason": "F1 neighbouring case: the baseline now records each project's latest depth, so a regression cannot be masked by a deeper sibling. Single project today (sars-covid-39 at 1).",
+      "to": {
+        "depth": 1,
+        "measurable": true,
+        "note": "F1 neighbouring case: the baseline now records each project's latest depth, so a regression cannot be masked by a deeper sibling. Single project today (sars-covid-39 at 1).",
+        "project": "sars-covid-39",
+        "projects": {
+          "sars-covid-39": 1
+        },
+        "projects_measured": 1,
+        "recorded_at": "2026-10-28T13:14:18+00:00",
+        "stage": "HYPOTHESIS"
+      }
+    }
+  ],
+  "projects": {
+    "sars-covid-39": 1
+  },
+  "ratchet": {
+    "depth": 1,
+    "measurable": true,
+    "note": "F1 neighbouring case: the baseline now records each project's latest depth, so a regression cannot be masked by a deeper sibling. Single project today (sars-covid-39 at 1).",
+    "project": "sars-covid-39",
+    "projects": {
+      "sars-covid-39": 1
+    },
+    "projects_measured": 1,
+    "recorded_at": "2026-10-28T13:14:18+00:00",
+    "stage": "HYPOTHESIS"
+  }
+}

@@ -29,8 +29,8 @@ from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
 from hermes.persistence.repositories import ArtifactRepository, ProjectRepository
 from hermes.research.capability_supply import (
+    RESEARCH_CAPABILITY_IDS,
     RESEARCH_EGRESS_TOOL_SET_ID,
-    SUPPLIED_CAPABILITY_IDS,
     build_research_egress_supply,
 )
 from hermes.research.gateway import apply_intent
@@ -353,8 +353,11 @@ class _ToolThenEvidence:
 
 
 def test_a_live_shaped_run_fetches_then_cites_an_artifact_it_can_prove(rig) -> None:
+    # This test is the researcher's fetch-then-cite path: the egress pair is
+    # the only supplied set it needs (the falsifiers are covered in
+    # test_ops5z4_falsification.py).
     plan = plan_capability_plane(
-        load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
+        load_profiles(), supplied=RESEARCH_CAPABILITY_IDS,
         risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
     model = _ToolThenEvidence(rig.conn)
     capabilities = RecordingCapabilityPort(rig.invoker)

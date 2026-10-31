@@ -87,6 +87,11 @@ class IntentKind(str, Enum):
     # PROPOSE_SCOPE_NARROWING proposal, with the approval id as its
     # ratification ref. Internal-only (the human has no agent profile).
     RECORD_SCOPE_REVIEW_DECISION = "RECORD_SCOPE_REVIEW_DECISION"
+    # OPS-5Z Group E: the deterministic layer records a verification round's
+    # terminal outcome (RESOLVED / DISPUTED / REFUSED) against the round the
+    # critic opened. Internal-only — the round produces evidence and this
+    # record names the verdict; the critic never decides which side is right.
+    RECORD_VERIFICATION_OUTCOME = "RECORD_VERIFICATION_OUTCOME"
 
     # v6 §7/S5 (implemented Step 5): the supersede-and-invalidate cascade
     # trigger — human-initiated per the §9.2 override discipline,
@@ -159,6 +164,7 @@ class IntentKind(str, Enum):
         return frozenset({cls.ADMIT_TASK,
                           cls.RESOLVE_CLASSIFICATION_PROPOSAL,
                           cls.RECORD_SCOPE_REVIEW_DECISION,
+                          cls.RECORD_VERIFICATION_OUTCOME,
                           cls.RETRACT_SOURCE,
                           cls.CURATE_KNOWLEDGE,
                           cls.RECORD_CONTRADICTION,

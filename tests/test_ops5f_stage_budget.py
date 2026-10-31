@@ -39,8 +39,13 @@ from typing import Any
 
 import pytest
 
-from hermes.agents.runtime.assembly import PAYLOAD_ORIGIN, TASK_ORIGIN
+from hermes.agents.runtime.assembly import (
+    EVIDENCE_ORIGIN,
+    PAYLOAD_ORIGIN,
+    TASK_ORIGIN,
+)
 from hermes.agents.runtime.config import load_profiles
+from hermes.agents.runtime.run import TOOL_CALL_KEYS
 from hermes.agents.runtime.types import (
     TaskStatus,
     Termination,
@@ -48,7 +53,7 @@ from hermes.agents.runtime.types import (
 )
 from hermes.agents.runtime.wiring import RuntimeWiring
 from hermes.artifacts.store import ArtifactStore
-from hermes.composition import plan_capability_plane
+from hermes.composition import build_capability_tool_notes, plan_capability_plane
 from hermes.methodology.substrate import MALFORMED_PAYLOAD, digest_of
 from hermes.methodology.swap_test import chain_inputs, engineering_investigation
 from hermes.methodology.workflows import (
@@ -72,7 +77,9 @@ from hermes.research.capability_supply import (
     RESEARCH_EGRESS_TOOL_SET_ID,
     SUPPLIED_CAPABILITY_IDS,
     build_research_egress_supply,
+    supplied_capability_risks,
 )
+from hermes.research.chain_refs import RefProvenanceReader
 from hermes.research.gateway import apply_intent
 from hermes.research.live_fetch import ALLOWLIST_HOSTS, build_live_fetch_wiring
 from hermes.research.task_handlers.methodology_driver import (
@@ -122,19 +129,27 @@ DOIS = (
 #: stage fields, version 1). New: the document that declares OBSERVATION's
 #: three ticks and every stage's objective. Control: the swap fixture, which
 #: declares neither and therefore does not move.
-OLD_FORM_DIGEST = "36566121eb5c4260aea121678c4c5e2f99f37c3002bc0e67f6a6553185641a0f"
-SHIPPED_DIGEST = "ca7a95f44a5c569addf32f1cb3d212ae0478119838dce9e27ef7e57d48a6693b"
-CONTROL_DIGEST = "91e7427f74ecdd12db3d9a0a0dfa31f460b5f443086a4edd9b5b1d6aa61f9a2a"
+OLD_FORM_DIGEST = "a5ba891919badaa4e7b01db2e993689d069e325fe598e1e6e54f9f7cd25a845d"
+SHIPPED_DIGEST = "493ddb056e53ac822d0448a3b8dfe93525737476e1ccf83103e7c3021d7aad8d"
+#: Moved when HYPOTHESIS, PREDICTION and CLAIM gained the proposal envelope in
+#: their objective (+204 bytes each): a live run stopped at HYPOTHESIS in four
+#: of four attempts because the model wrote the stage name where an intent kind
+#: belongs. The bytes are the cost of saying it where the model reads its task.
+#: Moved when the swap fixture's OBSERVATION stage moved from `experimenter`
+#: (which has no source tools and could not observe anything) to `researcher`.
+#: The control still controls: it is pinned so an unrelated change to the
+#: shipped document cannot move it silently.
+CONTROL_DIGEST = "b27cf7ed13baec7aef6230c7d643af0daa3113b130ac2d86f70b9b872148aab1"
 
 #: Per-stage objective bytes (UTF-8), the delta each stage adds to its prompt.
 OBJECTIVE_BYTES = {
     "QUESTION": 85,
-    "HYPOTHESIS": 107,
-    "PREDICTION": 78,
+    "HYPOTHESIS": 481,
+    "PREDICTION": 311,
     "EXPERIMENT": 106,
     "OBSERVATION": 471,
     "EVIDENCE": 110,
-    "CLAIM": 66,
+    "CLAIM": 299,
     "CRITIQUE": 87,
     "CONCLUSION": 73,
 }
@@ -306,6 +321,70 @@ class SearchFetchCiteModel:
         })
 
 
+class Run40Model:
+    """Run 40's exact shape: search + a refused transition, then fetch, then cite.
+
+    Tick 1 carries a correct ``source_search`` **and** an ``EVIDENCE_TRANSITION``
+    naming a ref that does not exist. The gateway refuses the transition
+    (``EVIDENCE_REF``), but the search executes; before this slice the refused
+    draft counted as raised and the stage ended on that tick. Now the stage
+    reaches tick 2 (fetch the handle's row) and tick 3 (cite the artifact).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+        self.evidence_ref = ""
+
+    def invoke(self, request: Any) -> ModelProposal:
+        self.calls.append(request)
+        if any(part.origin == "runtime.review" for part in request.prompt):
+            return _proposal(request, {})
+        if _stage_of(request) != "OBSERVATION":
+            return _proposal(request, {})
+        tick, _ = _tick_of(request)
+        if tick == 1:
+            return _proposal(request, {
+                "kind": "EVIDENCE_TRANSITION",
+                "rationale": ("No evidence artifact has been fetched yet; I "
+                              "must search and fetch before proposing."),
+                "payload": {
+                    "evidence_artifact_ref":
+                        "evidence:obs-sars-covid-40-brazil-india",
+                    "from_state": "SUPPORTED",
+                    "to_state": "ROBUST",
+                    "rationale": "defer the verdict to a later tick",
+                },
+                "tool_calls": [{
+                    "capability_id": "source_search",
+                    "arguments": {"provider": "openalex", "topic": TOPIC,
+                                  "max_results": 2},
+                    "rationale": "find a source before citing one",
+                }],
+            })
+        if tick == 2:
+            handle = _handle_from_feedback(request)
+            assert handle, "the search handle did not reach the next tick"
+            return _proposal(request, {"tool_calls": [{
+                "capability_id": "source_fetch",
+                "arguments": {"provider": "openalex", "search_handle": handle,
+                              "row_index": 0},
+                "rationale": "fetch the row the search delivered",
+            }]})
+        artifact = _artifact_from_feedback(request)
+        assert artifact, "the fetched artifact did not reach the next tick"
+        self.evidence_ref = "evidence:" + artifact.split("/", 1)[1]
+        return _proposal(request, {
+            "kind": "EVIDENCE_TRANSITION",
+            "rationale": "cite the artifact this stage fetched",
+            "payload": {
+                "evidence_artifact_ref": self.evidence_ref,
+                "from_state": "SUPPORTED",
+                "to_state": "ROBUST",
+                "rationale": "the fetched source supports the rung",
+            },
+        })
+
+
 class SilentModel:
     """Records every call and proposes nothing — a stage with no work."""
 
@@ -353,7 +432,19 @@ class Rig:
     store: ArtifactStore
     invoker: CapabilityInvoker
     plan: Any
+    supply: Any
     calls: list[Any]
+
+    def read_artifact(self, project_id: str, artifact_id: str) -> bytes | None:
+        """The composition's OPS-5Z3 byte port, project-scoped (test double)."""
+        repo = ArtifactRepository(self.conn, lambda: CLOCK)
+        if not repo.in_project(artifact_id, project_id):
+            return None
+        row = repo.get(artifact_id)
+        try:
+            return self.store.read_verified(row["content_hash"])
+        except FileNotFoundError:
+            return None
 
     def fetch_once(self) -> str:
         """Write one real artifact row through the shipped fetch chain."""
@@ -385,13 +476,17 @@ class Rig:
             profiles=load_profiles(),
             grants=self.plan.grants,
             capabilities=self.invoker,
+            capability_tool_notes=build_capability_tool_notes(
+                self.plan, self.supply, item_keys=TOOL_CALL_KEYS),
             clock=lambda: CLOCK)
         return live_run_methodology(
             literature_review() if config is None else config,
             chain_inputs(PROJECT, QUESTION) if inputs is None else inputs,
             wiring=wiring,
             project_id=PROJECT,
-            task_id=TASK)
+            task_id=TASK,
+            provenance_of=RefProvenanceReader(self.conn),
+            artifact_reader=self.read_artifact)
 
 
 @pytest.fixture
@@ -432,9 +527,9 @@ def rig(tmp_path, monkeypatch):
         sandbox_enabled=False)
     plan = plan_capability_plane(
         load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        risks=supplied_capability_risks())
     yield Rig(conn=connection, store=store, invoker=invoker, plan=plan,
-              calls=calls)
+              supply=supply, calls=calls)
     connection.close()
 
 
@@ -475,7 +570,7 @@ def test_the_stage_vocabulary_gained_exactly_the_two_keys() -> None:
 
 def test_the_shipped_document_declares_the_budget_and_every_stage_job() -> None:
     config = literature_review()
-    assert config.version == "2"
+    assert config.version == "3"
     ticks = {stage.stage: stage.effective_ticks(
         config.termination.max_ticks_per_stage) for stage in config.stages}
     assert ticks == {
@@ -661,7 +756,9 @@ def test_a_stage_without_an_objective_renders_none(rig) -> None:
     model = SilentModel()
     execution = rig.run(model, config=config)
     assert isinstance(execution, MethodologyRefusal), execution
-    assert execution.stage == "EVIDENCE"
+    # A silent run stops at OBSERVATION, not EVIDENCE: it fetched nothing, so
+    # it has nothing to cite. The objective-rendering subject is unchanged.
+    assert execution.stage == "OBSERVATION"
     for request in model.calls:
         assert _payload_document(request, "objective") is None
         assert all(not part.ref.endswith(":objective") for part in request.prompt)
@@ -721,6 +818,19 @@ def test_observation_searches_fetches_then_cites_the_fetched_artifact(rig) -> No
         model.evidence_ref,)
     assert _node_content(execution, "CLAIM")["admitted_refs"] == (
         model.evidence_ref,)
+
+    # OPS-5Z3: the EVIDENCE stage's prompt carries the admitted artifact's
+    # bytes, bounded — not just its id. The rig wires the composition's reader.
+    evidence_call = next(call for call in model.calls
+                         if _stage_of(call) == "EVIDENCE")
+    evidence_envelopes = [part for part in evidence_call.prompt
+                          if part.origin == EVIDENCE_ORIGIN]
+    assert len(evidence_envelopes) == 1
+    excerpt = json.loads(evidence_envelopes[0].text)["excerpt"]
+    assert excerpt["text"] == FETCH_BODY.decode("utf-8")
+    assert excerpt["bytes"] == len(FETCH_BODY)
+    assert excerpt["truncated"] is False
+
     reconstruction = execution.reconstruction()
     assert reconstruction.complete() is True
 
@@ -728,6 +838,37 @@ def test_observation_searches_fetches_then_cites_the_fetched_artifact(rig) -> No
                               if record.stage == "OBSERVATION")
     assert observation_record.termination == Termination.STOP_WHEN.value
     assert observation_record.state == TaskStatus.SUCCEEDED.value
+
+
+def test_run_40s_reply_now_uses_all_three_ticks_and_cites_the_fetch(rig) -> None:
+    """The falsifier: a refused tick-1 transition no longer kills the stage."""
+    model = Run40Model()
+    execution = rig.run(model)
+    assert isinstance(execution, MethodologyExecution), execution
+
+    calls = _stage_calls(model, "OBSERVATION")
+    assert len(calls) == 3
+    assert [_tick_of(call) for call in calls] == [(1, 3), (2, 3), (3, 3)]
+    # The rig now advertises the capabilities the scripted model calls.
+    notes = dict(calls[0].output_contract.field_notes)
+    assert "source_search" in notes["tool_calls"]
+    assert "source_fetch" in notes["tool_calls"]
+
+    # Tick 2's prompt carries the tick-1 spine refusal, so the model can repair
+    # the citation instead of repeating it blind.
+    assert any("obs-sars-covid-40-brazil-india" in part.text
+               for part in calls[1].prompt)
+
+    # One search and one fetch dial hit the scripted edge; the fetch addressed
+    # the row the search delivered.
+    assert [urllib.parse.urlsplit(call.url).path for call in rig.calls] == [
+        "/works", "/W910000001"]
+    rows = _artifact_rows(rig.conn)
+    assert len(rows) == 1
+    assert model.evidence_ref == f"evidence:{FETCH_HASH}"
+    assert len(_transition_events(rig.conn)) == 1
+    assert _node_content(execution, "EVIDENCE")["external_ref"] == (
+        model.evidence_ref)
 
 
 def test_a_proposal_on_the_first_tick_still_stops_the_stage(rig) -> None:
@@ -751,9 +892,11 @@ def test_a_silent_stage_spends_its_budget_and_terminates(rig) -> None:
     model = SilentModel()
     execution = rig.run(model)
     assert isinstance(execution, MethodologyRefusal), execution
-    assert execution.stage == "EVIDENCE"
+    # The refusal now names the stage that actually failed: OBSERVATION cites
+    # nothing, so it cannot be recorded, and EVIDENCE is never reached.
+    assert execution.stage == "OBSERVATION"
     assert execution.code == MALFORMED_PAYLOAD
-    assert "needs a non-empty 'external_ref'" in execution.detail
+    assert "cites nothing" in execution.detail
     assert len(_stage_calls(model, "OBSERVATION")) == 3
     assert not _transition_events(rig.conn)
     assert _artifact_rows(rig.conn) == []
@@ -764,12 +907,11 @@ def test_a_one_tick_stage_behaves_exactly_as_today(rig) -> None:
     model = SilentModel()
     execution = rig.run(model, config=config)
     assert isinstance(execution, MethodologyRefusal), execution
-    assert execution.stage == "EVIDENCE"
-    # One model call per stage that ran, and OBSERVATION is one of them: the
-    # old budget, unchanged for a document that declares no stage fields.
+    assert execution.stage == "OBSERVATION"
+    # One model call per stage that ran. EVIDENCE is no longer among them: an
+    # observation that cites nothing stops the chain where it failed.
     assert [_stage_of(request) for request in model.calls] == [
-        "QUESTION", "HYPOTHESIS", "PREDICTION", "EXPERIMENT", "OBSERVATION",
-        "EVIDENCE"]
+        "QUESTION", "HYPOTHESIS", "PREDICTION", "EXPERIMENT", "OBSERVATION"]
 
 
 # ═══════════════ 5. the cost table ═══════════════

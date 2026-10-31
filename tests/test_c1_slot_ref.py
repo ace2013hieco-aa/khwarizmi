@@ -502,6 +502,7 @@ class TestAC6NoAuthorityLeak:
             "CONTRADICTION_RESOLUTION", "PROPOSE_RESEARCH_PROGRAM",
             "PROPOSE_CLASSIFICATION_ACTION", "RESOLVE_CLASSIFICATION_PROPOSAL",
             "RECORD_SCOPE_REVIEW_DECISION",
+            "RECORD_VERIFICATION_OUTCOME",  # OPS-5Z Group E round terminal record
             "RETRACT_SOURCE",  # v6 §7/S5 (Step 4 gate §9.3 authorization)
             "CURATE_KNOWLEDGE",  # v6 §16.6 (Step 7E charter authorization)
             "RECORD_CONTRADICTION",  # CHG-1 contradiction lifecycle

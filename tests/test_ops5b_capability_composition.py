@@ -51,6 +51,9 @@ from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
 from hermes.persistence.repositories import EventRepository, ProjectRepository
 from hermes.research.capability_supply import (
+    FALSIFICATION_CAPABILITY_IDS,
+    FALSIFICATION_TOOL_SET_ID,
+    RESEARCH_CAPABILITY_IDS,
     RESEARCH_EGRESS_TOOL_SET_ID,
     SUPPLIED_CAPABILITY_IDS,
 )
@@ -128,28 +131,48 @@ def live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 # ── the capability plan ──
 
 
-def test_plan_keeps_the_researcher_and_withholds_every_other_declaration() -> None:
+#: Every supplied capability's declared risk. A grant cannot be derived
+#: without one, so the plan refuses rather than invent a ceiling.
+RISKS = {
+    "source_fetch": "MEDIUM", "source_search": "MEDIUM",
+    "evidence_inspect": "LOW", "contradiction_scan": "LOW",
+    "statistic_check": "LOW",
+}
+
+
+def test_plan_keeps_every_supplied_declaration_and_withholds_the_rest() -> None:
     profiles = load_profiles()
     plan = plan_capability_plane(
-        profiles, supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        profiles, supplied=SUPPLIED_CAPABILITY_IDS, risks=RISKS,
+        tool_sets=(
+            ToolSet(RESEARCH_EGRESS_TOOL_SET_ID, RESEARCH_CAPABILITY_IDS),
+            ToolSet(FALSIFICATION_TOOL_SET_ID, FALSIFICATION_CAPABILITY_IDS)))
     assert plan.profiles["researcher"].tools == (
         "source_search", "source_fetch")
     assert plan.profiles["researcher"].model_policy.allows_tool_calls is True
-    assert plan.profiles["critic"].tools == ()
+    # OPS-5Z4: the critic and verifier declared falsifiers that are now
+    # supplied, so their composed tools are kept rather than emptied.
+    assert plan.profiles["critic"].tools == (
+        "evidence_inspect", "contradiction_scan")
+    assert plan.profiles["verifier"].tools == (
+        "evidence_inspect", "statistic_check")
+    assert plan.profiles["planner"].tools == ()
     # profile data is not edited: only the composed copy is narrowed
     assert plan.profiles["critic"].model_policy.allows_tool_calls is True
     assert profiles["critic"].tools == (
         "evidence_inspect", "contradiction_scan")
-    assert set(plan.grants) == {"RESEARCHER"}
+    assert set(plan.grants) == {"ADVERSARY", "RESEARCHER"}
     grant = plan.grants["RESEARCHER"]
     assert grant.profile == "RESEARCHER"
     assert grant.tool_set_ids == frozenset({RESEARCH_EGRESS_TOOL_SET_ID})
     assert grant.max_risk == "MEDIUM"
-    assert len(plan.withheld) == 10
+    adversary = plan.grants["ADVERSARY"]
+    assert adversary.tool_set_ids == frozenset({FALSIFICATION_TOOL_SET_ID})
+    assert adversary.max_risk == "LOW"
+    assert len(plan.withheld) == 6
     assert {item.capability_id for item in plan.withheld} == {
-        "evidence_inspect", "contradiction_scan", "experiment_execute",
-        "artifact_store", "graph_read", "provenance_read", "statistic_check"}
+        "artifact_store", "experiment_execute", "graph_read",
+        "provenance_read"}
     assert all(item.capability_id not in SUPPLIED_CAPABILITY_IDS
                for item in plan.withheld)
     assert plan.withheld == tuple(sorted(
@@ -165,7 +188,7 @@ def test_a_mixed_profile_keeps_its_supplied_subset_and_grants() -> None:
         tools=("source_search", "graph_read"))
     plan = plan_capability_plane(
         {**profiles, "mixed": mixed}, supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        risks=RISKS)
     assert plan.profiles["mixed"].tools == ("source_search",)
     assert "mixed/graph_read" in plan.capability_line
     assert plan.grants["RESEARCHER"].profile == "RESEARCHER"
@@ -173,23 +196,23 @@ def test_a_mixed_profile_keeps_its_supplied_subset_and_grants() -> None:
 
 def test_a_zero_supplied_profile_gets_no_grant_and_keeps_its_declaration() -> None:
     plan = plan_capability_plane(
-        load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
-    assert "ADVERSARY" not in plan.grants
-    assert set(plan.grants) == {"RESEARCHER"}
+        load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS, risks=RISKS)
+    assert "DIRECTOR" not in plan.grants
+    assert plan.profiles["planner"].tools == ()
+    assert set(plan.grants) == {"ADVERSARY", "RESEARCHER"}
     assert plan.profiles["critic"].model_policy.structured_fields == (
         "proposals", "tool_calls")
 
 
 def test_the_capability_line_names_environment_and_withheld_set() -> None:
     plan = plan_capability_plane(
-        load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS, risks=RISKS)
     line = plan.capability_line
     assert "in-process (no sandbox)" in line
     assert "source_fetch" in line and "source_search" in line
-    assert "critic/evidence_inspect" in line
-    assert "granted 1 profile(s) (RESEARCHER)" in line
+    assert "evidence_inspect" in line and "statistic_check" in line
+    assert "planner/graph_read" in line
+    assert "granted 2 profile(s) (ADVERSARY, RESEARCHER)" in line
     assert "token" not in line.lower()
     assert "dollar" not in line.lower()
     assert "budget" not in line.lower()
@@ -260,12 +283,12 @@ def test_the_tool_calls_note_states_the_handle_forms_and_citing_rules() -> None:
     assert "is accepted and normalized to the same ref" in note
     assert "later tick" in note
     # A profile with no grant gets the empty-reach statement, not a legal id.
-    critic = build_capability_tool_notes(
+    planner = build_capability_tool_notes(
         plan, _SupplyWith(_schema_registry("SUMMARY")),
-        item_keys=TOOL_CALL_KEYS)["critic"]
-    assert "no capability is reachable" in critic
-    assert "refused (ROLE)" in critic
-    assert "source_search" not in critic
+        item_keys=TOOL_CALL_KEYS)["planner"]
+    assert "no capability is reachable" in planner
+    assert "refused (ROLE)" in planner
+    assert "source_search" not in planner
 
 
 def test_the_contract_note_is_rendered_and_reaches_the_model_request() -> None:
@@ -293,8 +316,8 @@ def test_the_contract_note_is_rendered_and_reaches_the_model_request() -> None:
 def test_the_live_composition_journals_one_content_free_plane_event(live) -> None:
     conn, composed = live
     assert composed.supplied == tuple(sorted(SUPPLIED_CAPABILITY_IDS))
-    assert composed.granted == ("RESEARCHER",)
-    assert len(composed.withheld) == 10
+    assert composed.granted == ("ADVERSARY", "RESEARCHER")
+    assert len(composed.withheld) == 6
     rows = [row for row in EventRepository(conn).list_for_project(PROJECT)
             if row["event_type"] == EventType.CAPABILITY_PLANE_COMPOSED.value]
     assert len(rows) == 1
@@ -303,8 +326,8 @@ def test_the_live_composition_journals_one_content_free_plane_event(live) -> Non
     payload = json.loads(row["payload_json"])
     assert payload["environment"] == "in-process (no sandbox)"
     assert payload["supplied"] == list(composed.supplied)
-    assert payload["granted"] == ["RESEARCHER"]
-    assert len(payload["withheld"]) == 10
+    assert payload["granted"] == ["ADVERSARY", "RESEARCHER"]
+    assert len(payload["withheld"]) == 6
     assert all(set(item) == {"profile", "agent_profile", "capability_id"}
                for item in payload["withheld"])
     serialized = row["payload_json"]
@@ -365,12 +388,21 @@ class _OneToolReply:
 
 
 def test_f4_a_profile_without_the_field_cannot_execute_tool_calls() -> None:
+    # The verifier now declares `tool_calls` (OPS-5Z4), so the gate is proven
+    # on a profile whose declaration still lacks it.
+    profiles = dict(load_profiles())
+    verifier = profiles["verifier"]
+    profiles["verifier"] = replace(
+        verifier,
+        model_policy=replace(
+            verifier.model_policy,
+            structured_fields=("proposals", "delegations")))
     port = _CapturePort()
     runtime = AgentRuntime(
         model=_OneToolReply("evidence_inspect"),
         orchestration=lambda intent: None,
         capabilities=port,
-        profiles=load_profiles(),
+        profiles=profiles,
         grants={})
     result = runtime.run("verifier", TaskContext(
         task_id="t1", project_id=PROJECT, lease_generation="gen",
@@ -417,8 +449,11 @@ def test_m2_is_a_measured_zero_and_a_number_when_calls_happen() -> None:
 
 
 def test_a_withheld_profile_call_is_role_skipped_and_the_tick_continues() -> None:
+    # With only the pre-5Z4 supplied pair, the critic's declarations are
+    # withheld, so its composed tools are empty while `allows_tool_calls`
+    # stays true: the call is refused by the profile gate, not the port.
     profiles = plan_capability_plane(
-        load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
+        load_profiles(), supplied=RESEARCH_CAPABILITY_IDS,
         risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"}).profiles
     port = _CapturePort()
     runtime = AgentRuntime(

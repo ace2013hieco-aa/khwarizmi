@@ -35,14 +35,17 @@ from hermes.agents.runtime.types import (
     MAX_PAYLOAD_BYTES,
     Proposal,
     ReviewVerdict,
+    RuntimeRefusal,
     TaskContext,
     ToolFeedback,
     canonical_json,
 )
 from hermes.security.boundaries import UntrustedContent
+from hermes.tools.capabilities.content import ContentRead, read_content
 
 __all__ = [
     "CONTRACT_FEEDBACK_ORIGIN",
+    "EVIDENCE_EXCERPT_MAX_BYTES",
     "EVIDENCE_ORIGIN",
     "OBSERVATION_ORIGIN",
     "PAYLOAD_ORIGIN",
@@ -61,6 +64,7 @@ __all__ = [
     "assemble_payload_envelopes",
     "contract_feedback_envelope",
     "default_context_assembler",
+    "draft_feedback_envelope",
     "evidence_envelope",
     "feedback_envelopes",
     "project_index_envelope",
@@ -102,12 +106,15 @@ REVIEW_ORIGIN = "runtime.review_verdict"
 #: instruction it obeys.
 RETRY_ORIGIN = "runtime.retry"
 
-#: The origin a **contract-shape** retry note carries (OPS-15): the previous
-#: attempt was refused by whole-reply output validation before any draft
-#: existed, and the next attempt is asked to repair that shape. Distinct from
-#: `RETRY_ORIGIN` so an operator can tell the LOOP-4 rationale retry from an
-#: OPS-15 contract retry. Same discipline: data the next attempt reads, never
-#: an instruction it obeys.
+#: The origin a **contract-shape** refusal carries: the previous reply was
+#: refused by output validation and the next call is asked to repair it. Two
+#: renderers share it because the signal is the same one — OPS-15's
+#: `contract_feedback_envelope` (the whole reply failed the declared contract
+#: before any draft existed, re-asked inside the same tick) and OPS-5Z2's
+#: `draft_feedback_envelope` (a draft was refused after the reply was parsed,
+#: carried into the next tick). Distinct from `RETRY_ORIGIN` so an operator can
+#: tell the LOOP-4 rationale retry from a contract refusal. Same discipline:
+#: data the next attempt reads, never an instruction it obeys.
 CONTRACT_FEEDBACK_ORIGIN = "runtime.contract_feedback"
 
 #: The origin the OPS-18 project index carries: a bounded, content-free list of
@@ -126,6 +133,12 @@ EVIDENCE_ORIGIN = "runtime.evidence"
 #: is applied; the tail is the truncation priority. The renderer additionally
 #: holds the canonical envelope to `MAX_PAYLOAD_BYTES`.
 PROJECT_INDEX_MAX_ENTRIES = 40
+
+#: The most artifact bytes the evidence envelope will try to excerpt before
+#: the whole canonical document is trimmed to `MAX_PAYLOAD_BYTES`. This is a
+#: starting point, never a promise: the binary search below lowers it until the
+#: escaped envelope fits, so the shared 4 KiB bound is the only real bound.
+EVIDENCE_EXCERPT_MAX_BYTES = 3072
 
 
 class ProjectIndexEntry(NamedTuple):
@@ -288,23 +301,116 @@ def task_input_envelope(
     )
 
 
+def _decode_prefix(raw: bytes, limit: int) -> str:
+    """Decode the longest clean UTF-8 prefix of ``raw[:limit]``.
+
+    A cut through a multi-byte character is trimmed back to the last complete
+    character, so the returned text is always a contiguous prefix of the bytes
+    rather than a replacement-smeared approximation. Deterministic and pure.
+    """
+    chunk = raw[:limit]
+    while chunk:
+        try:
+            return chunk.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            chunk = chunk[:exc.start]
+    return ""
+
+
+def _excerpt_document(read: ContentRead, raw: bytes,
+                      limit: int) -> dict[str, Any]:
+    """One excerpt document: the text, whether content was left out, and the
+    artifact's true size (never the excerpt's).
+
+    OPS-5Z3: the text is a prefix of the artifact's *content*, not of its bytes.
+    A 3 KB prefix of a 33 KB OpenAlex record is a title and a list of author
+    affiliations — the abstract begins at byte 31,556 — so bounding the bytes
+    gave the stage a prompt that could not support a claim about the source
+    while looking as though it could. The content is extracted first, then
+    bounded.
+
+    OPS-5Z5: a read that failed says so. ``read`` carries the state and
+    ``detail`` names what could not be read.
+
+    OPS-5Z Group C: the excerpt's ``read`` field is the three-state vocabulary
+    (``content`` / ``fallback`` / ``unreadable``). A fallback's or an
+    unreadable read's bytes *are* rendered — a model may read a blob, and
+    dropping the source was a cost with no safety benefit — but they are
+    labelled, so neither the model nor a consumer can mistake them for the
+    artifact's prose. Only a read with no text at all renders none.
+    """
+    content = read.text
+    encoded = content.encode("utf-8")
+    # Two different omissions, and a reader needs to tell them apart:
+    # ``extracted`` — the text was *selected* from the artifact, so fields the
+    # artifact carries are absent even when nothing was cut; ``truncated`` — the
+    # selected text itself did not fit the bound. Reporting only ``truncated``
+    # would say "false" over a 33 KB record reduced to its abstract, which reads
+    # as "you are seeing everything". A fallback is not an extraction; a
+    # partial read (title without its abstract) is.
+    extracted = (read.is_content and bool(content)
+                 and content != raw.decode("utf-8", "replace"))
+    if len(encoded) <= limit:
+        document: dict[str, Any] = {
+            "text": content, "truncated": False, "extracted": extracted,
+            "bytes": len(raw), "read": read.state.value,
+            "format": read.format}
+        if not read.is_content or read.detail:
+            document["detail"] = read.detail
+            document["fields"] = list(read.fields)
+        return document
+    document = {
+        "text": _decode_prefix(encoded, limit),
+        "truncated": True,
+        "extracted": extracted,
+        "bytes": len(raw),
+        "read": read.state.value,
+        "format": read.format,
+    }
+    if not read.is_content or read.detail:
+        document["detail"] = read.detail
+        document["fields"] = list(read.fields)
+    return document
+
+
 def evidence_envelope(*, task_id: str,
-                      evidence_ref: str) -> UntrustedContent:
+                      evidence_ref: str,
+                      artifact_bytes: bytes | None = None,
+                      artifact_format: str = "",
+                      read_failure: str = "",
+                      ) -> UntrustedContent:
     """Render the run's admitted evidence ref as a ``runtime.evidence`` envelope.
 
-    OPS-5L: the EVIDENCE stage must know the ref the run admitted. The document
-    is exactly ``{"evidence_ref": "evidence:<artifact_id>", "artifact_id":
-    "<artifact_id>"}`` — the ref, its artifact id and nothing else. No
-    rationale, provider, URL, media type, byte count, state rung or content
-    travels here; the envelope is data the model reads, never an instruction
-    and never an admissibility claim (the gateway and the substrate remain the
-    validators).
+    OPS-5L: the EVIDENCE stage must know the ref the run admitted. Without
+    ``artifact_bytes`` the document is exactly ``{"evidence_ref":
+    "evidence:<artifact_id>", "artifact_id": "<artifact_id>"}`` — the ref, its
+    artifact id and nothing else.
+
+    OPS-5Z3: a stage that must describe or quote the source cannot do so from
+    an id. When the caller supplies the artifact's bytes, the document gains a
+    bounded ``excerpt``: the clean UTF-8 prefix, whether bytes were left out,
+    and the artifact's true size. The whole canonical document — not just the
+    excerpt — is held to the shared ``MAX_PAYLOAD_BYTES`` bound by trimming the
+    prefix until it fits; a truncated excerpt says so. The bytes enter as
+    untrusted content in the same origin-labelled document, and are never
+    copied into an event payload.
 
     The ref must already be canonical. The caller is the live methodology
     driver, whose selector canonicalises the admitted proposal's raw payload
     before it gets here; a non-canonical ref is a programming error, refused
-    loudly rather than rendered as a half-document. Pure and deterministic, so
-    equal inputs assemble to equal envelopes.
+    loudly rather than rendered as a half-document. Pure and deterministic: the
+    bytes are an argument, never a read, so equal inputs assemble to equal
+    envelopes.
+
+    OPS-5Z5: ``read_failure`` is the caller's account of a wired read that
+    returned no bytes. Without it, a missing artifact and an intentionally
+    ref-only envelope look identical — the silent caveat the audit found. The
+    OPS-5L ref-only shape is unchanged when neither argument is supplied.
+
+    OPS-5Z Group C: ``artifact_format`` is the shape the fetch path declared
+    for these bytes. The read dispatches on it; the envelope never guesses.
+    The excerpt's ``read`` is the three-state vocabulary, and the read is
+    computed once for the whole binary search rather than once per probe.
     """
     prefix = "evidence:"
     ref = str(evidence_ref)
@@ -313,10 +419,40 @@ def evidence_envelope(*, task_id: str,
             "evidence_envelope requires a canonical "
             "'evidence:<artifact_id>' ref")
     artifact_id = ref[len(prefix):]
+    document: dict[str, Any] = {"evidence_ref": ref,
+                                "artifact_id": artifact_id}
+    if artifact_bytes is not None:
+        read = read_content(artifact_bytes, format=artifact_format)
+        # Binary-search the largest prefix whose escaped document fits. The
+        # ref and id are fixed, and the empty-excerpt document always fits,
+        # so a candidate exists; `best` is still defaulted for the type.
+        low, high = 0, min(len(artifact_bytes), EVIDENCE_EXCERPT_MAX_BYTES)
+        best: dict[str, Any] | None = None
+        while low <= high:
+            middle = (low + high) // 2
+            candidate = dict(
+                document,
+                excerpt=_excerpt_document(read, artifact_bytes, middle))
+            if len(canonical_json(candidate).encode("utf-8")) <= MAX_PAYLOAD_BYTES:
+                best = candidate
+                low = middle + 1
+            else:
+                high = middle - 1
+        document = best if best is not None else dict(
+            document,
+            excerpt={"text": "", "truncated": True,
+                     "bytes": len(artifact_bytes), "read": read.state.value,
+                     "format": read.format})
+    elif read_failure:
+        # A wired read that returned nothing is a fact the stage must see:
+        # omitting the excerpt entirely is the same document as a ref-only
+        # envelope, and the model cannot tell "no source" from "not read".
+        document["excerpt"] = {
+            "text": "", "read": "unreadable", "detail": str(read_failure)}
     return _document_envelope(
         EVIDENCE_ORIGIN,
         f"{task_id}:evidence",
-        {"evidence_ref": ref, "artifact_id": artifact_id},
+        document,
     )
 
 
@@ -446,6 +582,24 @@ def retry_envelope(code: str, detail: str, *, attempt: int) -> UntrustedContent:
                             ref=f"retry:{attempt}:{code}")
 
 
+def _bounded_refusal_text(document: dict[str, Any], detail: str) -> str:
+    """The one bounding rule every refusal envelope applies (OPS-15, OPS-5Z2).
+
+    Canonical JSON, and — when that would exceed `MAX_PAYLOAD_BYTES` — the
+    free-text `detail` is replaced by its byte length under
+    `detail_omitted_bytes`, keeping every identity field. A torn envelope is never
+    emitted. Shared rather than copied so "escaped the way OPS-15 escapes it" is a
+    structural fact: a second renderer cannot drift from the first.
+    """
+    text = canonical_json(document)
+    if len(text.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        omitted = len(str(detail).encode("utf-8"))
+        document["detail"] = ""
+        document["detail_omitted_bytes"] = omitted
+        text = canonical_json(document)
+    return text
+
+
 def contract_feedback_envelope(code: str, detail: str, *,
                                attempt: int) -> UntrustedContent:
     """Render a contract-shape refusal as data for the next attempt (OPS-15).
@@ -463,14 +617,43 @@ def contract_feedback_envelope(code: str, detail: str, *,
     carries `detail_omitted_bytes` instead of a torn body.
     """
     document: dict[str, Any] = {"attempt": attempt, "code": code, "detail": detail}
-    text = canonical_json(document)
-    if len(text.encode("utf-8")) > MAX_PAYLOAD_BYTES:
-        omitted = len(str(detail).encode("utf-8"))
-        document["detail"] = ""
-        document["detail_omitted_bytes"] = omitted
-        text = canonical_json(document)
-    return UntrustedContent(text=text, origin=CONTRACT_FEEDBACK_ORIGIN,
-                            ref=f"contract_feedback:{attempt}:{code}")
+    return UntrustedContent(
+        text=_bounded_refusal_text(document, detail),
+        origin=CONTRACT_FEEDBACK_ORIGIN,
+        ref=f"contract_feedback:{attempt}:{code}")
+
+
+def draft_feedback_envelope(refusal: RuntimeRefusal, *,
+                            index: int) -> UntrustedContent:
+    """Render a **refused draft** as data for the next tick's model call (OPS-5Z2).
+
+    The runtime refused the draft and told nobody who could act on it: the refusal
+    went into `state.refusals` and the `PROPOSAL_REFUSED` event, and the next tick
+    re-asked the identical question, so the model spent its remaining ticks making
+    the same mistake. This carries the refusal's code, the detail that names what
+    was wrong (the refused payload, the citation that names nothing admitted) and
+    the kind of draft it was, so the next tick's proposal is informed.
+
+    Same origin and same bounding rule as `contract_feedback_envelope` — both are
+    "your reply was refused; here is what to repair", and a model or an operator
+    should not have to learn two signal shapes. The document differs because the
+    identity differs: a draft refusal belongs to a *tick* and a draft, not to a
+    whole-reply *attempt*, and says so instead of overloading `attempt`.
+
+    Pure and deterministic; `index` is the refusal's position in the pending
+    queue, which is what makes the ref unique when one reply produced two refused
+    drafts with the same code.
+    """
+    document: dict[str, Any] = {
+        "tick": refusal.tick,
+        "kind": refusal.kind,
+        "code": refusal.code,
+        "detail": refusal.detail,
+    }
+    return UntrustedContent(
+        text=_bounded_refusal_text(document, refusal.detail),
+        origin=CONTRACT_FEEDBACK_ORIGIN,
+        ref=f"draft_feedback:{refusal.tick}:{index}:{refusal.code}")
 
 
 def review_envelopes(verdicts: Sequence[ReviewVerdict]

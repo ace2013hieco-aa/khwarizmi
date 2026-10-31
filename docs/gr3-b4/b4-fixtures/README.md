@@ -33,10 +33,10 @@ tamper-evident. Each body records:
 
 | `fixture_id` | sources | edges | fixture file |
 |---|---|---|---|
-| `b4-c1-p1a-baseline` | 6 | 5 | `cdeb67d656351be1bb3cdefe719054953821ec85ead5680c180fff52b909f1e0.json` |
-| `b4-c2-expanded-cohort` | 12 | 19 | `6a0ad579c6e1adc4abbe1f88581a834915512cb20b3cf9af72140f0c835e30a2.json` |
+| `b4-c1-p1a-baseline` | 6 | 5 | `e599bcf7e73df0679f671b4cceef115a3708b734bee71ea9e445a1051efe6791.json` |
+| `b4-c2-expanded-cohort` | 12 | 19 | `8918d71516c803c74d25ac89bd6a55ad9957940475d2e03f95022e9259c7fe5d.json` |
 | `b4-c3-idr-design-chain` | 8 | 10 | `eef419463e5201c415615b1a8e33b03f237283a43b40af2b5a6709b3b63b664e.json` |
-| `b4-c4-authority-spine` | 4 | 5 | `652e6a81422e87e8e3087d7282d74059f721a185a980120c616f4d104816ff19.json` |
+| `b4-c4-authority-spine` | 4 | 5 | `367087716fb5988ab05e2bb95612f2518e34bf3909b017a99609ad1a9d19911f.json` |
 
 > **Re-derivation (`merge/conditions`, `docs/MERGE-AUDIT.md` C1).** The census update to `AGENTS.md`
 > and `docs/ARCHITECTURE.md` — both governed corpus members — moved those two documents' bytes, so
@@ -153,6 +153,15 @@ tamper-evident. Each body records:
 > `ROADMAP.md` (the dangling platform-line pointer is dropped), so the
 > citation structure is invariant — only the pinned byte identities moved,
 > and this table is the regeneration's own output.
+
+> **Re-derivation (DIAG-GATES — `diag/contract-matrix`).** The diagnostics branch adds a
+> "Running the suite from a worktree" subsection to `AGENTS.md`, a `CORPUS_REFS` member, so
+> `b4-c1` / `b4-c2` / `b4-c4` were regenerated deliberately per §Regenerating:
+> `cdeb67d6… → e599bcf7…`, `6a0ad579… → 8918d715…`, `652e6a81… → 36708771…`. `b4-c3` is unchanged
+> (IDR-only stratum). Edge sets, `counts`, `sources` counts and `skipped` list lengths are identical
+> (5 / 19 / 10 / 5; 6 / 12 / 8 / 4; 21 / 28 / 15 / 18); the added prose cites no governed document, so
+> the citation structure is invariant — only the pinned byte identities moved, and this table is the
+> regeneration's own output.
 
 `b4-c1` is the certified P1b baseline (the P1a six alone); `b4-c2` is
 the reference graph (the expanded sample); `b4-c3` and `b4-c4` are

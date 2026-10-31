@@ -30,7 +30,9 @@ authority:
 
 schemas:
   proposal: runtime_proposal_v1
-  draft: [kind, rationale, payload]
+  # ``statement`` is documented here; the runtime's DRAFT_KEYS is the
+  # enforcement (OPS-5Y). A minted CLAIM reads its statement from it.
+  draft: [kind, rationale, payload, statement]
 
 termination:
   max_ticks: 4

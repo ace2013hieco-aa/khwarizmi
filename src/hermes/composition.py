@@ -72,8 +72,10 @@ from hermes.research.capability_supply import (
     SUPPLIED_CAPABILITY_IDS,
     build_research_egress_supply,
 )
+from hermes.research.chain_refs import RefProvenanceReader
 from hermes.research.controller import Controller
 from hermes.research.task_handlers import build_methodology_handler
+from hermes.tools.capabilities.content import ArtifactRead
 from hermes.tools.capabilities.invoke import (
     CapabilityInvoker,
     InMemoryIdempotencyLedger,
@@ -81,6 +83,7 @@ from hermes.tools.capabilities.invoke import (
 from hermes.tools.capabilities.types import (
     IN_PROCESS_ENVIRONMENT,
     ToolGrant,
+    ToolSet,
     max_risk_for,
 )
 from hermes.tools.models.binding import (
@@ -298,6 +301,7 @@ def plan_capability_plane(
     *,
     supplied: Sequence[str],
     risks: Mapping[str, str],
+    tool_sets: Sequence[ToolSet] = (),
 ) -> CapabilityPlanePlan:
     """Narrow profiles, derive per-``agent_profile`` grants, name the withheld set.
 
@@ -309,6 +313,9 @@ def plan_capability_plane(
     * a profile with no supplied tool is composed with ``tools=()``;
     * a profile with some supplied tools keeps the supplied subset — it is not
       emptied (the design note's correction to OPS-5's literal wording);
+    * the grant opens every declared tool set that contains one of the
+      profile's supplied capabilities (OPS-5Z4: two compositions now exist, and
+      a grant naming only the egress set could not reach a falsifier);
     * ``allows_tool_calls`` and ``structured_fields`` are profile data and are
       left exactly as declared (OPS-5 R2).
     """
@@ -350,10 +357,17 @@ def plan_capability_plane(
                 f"supplied capability(s) {missing_risks} have no declared risk "
                 f"— a grant cannot be derived without a ceiling")
             continue
+        opened = frozenset(
+            declared.set_id for declared in tool_sets
+            if set(declared.capability_ids) & set(capability_ids))
+        if not opened:
+            # The historical single-set default: a caller that does not pass
+            # the declared sets gets the set OPS-5B derived every grant from.
+            opened = frozenset({RESEARCH_EGRESS_TOOL_SET_ID})
         grants[agent_profile] = ToolGrant(
             grant_id=f"grant.live.{agent_profile.lower()}",
             profile=agent_profile,
-            tool_set_ids=frozenset({RESEARCH_EGRESS_TOOL_SET_ID}),
+            tool_set_ids=opened,
             max_risk=max_risk_for(
                 tuple(risks[capability_id] for capability_id in capability_ids)),
             approvals=frozenset())
@@ -864,6 +878,8 @@ def build_controller(
     grants: Mapping[str, Any] | None = None,
     capabilities: Any = None,
     capability_tool_notes: Mapping[str, str] | None = None,
+    provenance_of: Any = None,
+    artifact_reader: Any = None,
     **controller_kwargs: Any,
 ) -> Controller:
     """A `Controller` with the methodology handler bound to ``binding``.
@@ -881,6 +897,15 @@ def build_controller(
     previous shape. ``grants`` and ``capabilities`` are the OPS-5B capability
     plane; omitted, the runtime keeps its pre-5B no-port refusal path, so a
     caller that does not wire them cannot accidentally run tools.
+    ``provenance_of`` (OPS-5Y) is the read-only ref-backing port; omitted, this
+    function builds the real one over ``conn``. Every composed methodology run
+    therefore resolves prior art against durable rows, never against the strings
+    an operator typed.
+
+    ``artifact_reader`` (OPS-5Z3) is the project-scoped byte port
+    ``(project_id, artifact_id) -> bytes | None`` the evidence envelope uses
+    for its bounded excerpt. Omitted, the envelope keeps its ref-and-id shape;
+    the live composition always supplies it.
     """
     loaded = profiles if profiles is not None else load_profiles(
         directory=profiles_dir)
@@ -893,6 +918,9 @@ def build_controller(
         grants=grants,
         capabilities=capabilities,
         capability_tool_notes=capability_tool_notes,
+        provenance_of=(provenance_of if provenance_of is not None
+                       else RefProvenanceReader(conn)),
+        artifact_reader=artifact_reader,
     )
     return Controller(
         conn,
@@ -958,8 +986,37 @@ def build_live_composition(
         for group in by_provider.values()]
 
     clock = utc_now
+    artifact_repo = ArtifactRepository(conn, clock)
     artifact_store = ArtifactStore(
-        cfg.artifacts.artifact_root, ArtifactRepository(conn, clock), clock)
+        cfg.artifacts.artifact_root, artifact_repo, clock)
+
+    def read_artifact(project_id: str,
+                      artifact_id: str) -> ArtifactRead | None:
+        """The OPS-5Z3 project-scoped byte port for the evidence envelope.
+
+        A missing row or file is ``None`` (the envelope then says no excerpt is
+        available); a present row is read through the store's verified path, so
+        bytes that no longer re-derive the recorded hash raise instead of being
+        rendered as the source.
+
+        OPS-5Z Group C: the row's declared format travels with the bytes. The
+        reader dispatches on that declaration — never on the shape it finds in
+        the bytes — so an unrecognised serialization is shown as a fallback and
+        is never mined as prose.
+        """
+        if not artifact_repo.in_project(artifact_id, project_id):
+            return None
+        row = artifact_repo.get(artifact_id)
+        try:
+            data = artifact_store.read_verified(row["content_hash"])
+        except FileNotFoundError:
+            return None
+        metadata = row.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        declared = metadata.get("content_format")
+        return ArtifactRead(
+            data=bytes(data),
+            format=declared if isinstance(declared, str) else "")
     try:
         supply = build_research_egress_supply(
             conn=conn, store=artifact_store, clock=clock,
@@ -974,7 +1031,8 @@ def build_live_composition(
         for capability in supply.capabilities}
     plan = plan_capability_plane(
         load_profiles(directory=profiles_dir),
-        supplied=SUPPLIED_CAPABILITY_IDS, risks=capability_risks)
+        supplied=SUPPLIED_CAPABILITY_IDS, risks=capability_risks,
+        tool_sets=supply.tool_sets)
     event_payload = plan.event_payload()
     correlation = "capability_plane:" + hashlib.sha256(
         json.dumps(event_payload, sort_keys=True, separators=(",", ":"),
@@ -1025,6 +1083,7 @@ def build_live_composition(
         project_index=ProjectIndexReader(conn),
         grants=plan.grants, capabilities=capability_recorder,
         capability_tool_notes=capability_tool_notes,
+        artifact_reader=read_artifact,
         **controller_kwargs)
     return LiveComposition(
         controller=controller, binding=binding, vector=vector,

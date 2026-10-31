@@ -47,7 +47,11 @@ from hermes.methodology.substrate import (
     SubstrateStore,
     reconstruct_chain,
 )
-from hermes.methodology.swap_test import engineering_investigation
+from hermes.methodology.swap_test import (
+    CHAIN_STATEMENTS,
+    engineering_investigation,
+    fixture_provenance,
+)
 from hermes.methodology.workflows import (
     LITERATURE_REVIEW_DOCUMENT,
     MethodologyInputs,
@@ -75,15 +79,6 @@ PROJECT = "p-w3"
 TASK = "task-w3"
 LEASE = "lease-gen-w3"
 OTHER_PROJECT = "p-w3-other"
-
-#: The citation refs a grounded run cites, all registered in-project.
-#: The prior-art refs a grounded run cites. OPS-5D: the evidence position is
-#: agent-derived and is not in this table.
-REFS: dict[str, str] = {
-    "HYPOTHESIS": "hypothesis:program-w3/h1",
-    "PREDICTION": "prediction:program-w3/h1/p1",
-    "CLAIM": "claim:claim-w3/c1",
-}
 
 #: The agent's evidence ref, proposed by the model, never seeded.
 AGENT_EVIDENCE = "evidence:evidence-w3/e1"
@@ -241,13 +236,9 @@ def _stage_profiles() -> dict[str, ProfileSpec]:
 
 
 def _inputs(question: str = "does the effect hold?",
-            *, refs: dict[str, str] | None = None,
-            retracted: tuple[str, ...] = ()) -> MethodologyInputs:
-    table = REFS if refs is None else refs
+            *, retracted: tuple[str, ...] = ()) -> MethodologyInputs:
     return MethodologyInputs(
-        question=question,
-        external_refs=dict(table),
-        admission_refs=tuple(table.values()),
+        question=question, stage_content=CHAIN_STATEMENTS,
         retracted_refs=tuple(retracted))
 
 
@@ -273,7 +264,8 @@ class Rig:
         return run_methodology(
             document,
             _inputs() if inputs is None else inputs,
-            wiring=self.wiring, project_id=project_id, task_id=task_id)
+            wiring=self.wiring, project_id=project_id, task_id=task_id,
+            provenance_of=fixture_provenance)
 
 
 # ═══════════════════════ 1. projection ═══════════════════════
@@ -317,8 +309,14 @@ def test_the_projection_is_pure_document_data() -> None:
                                predecessor_stage=config.stages[0].stage)
     # OPS-5F: a declared objective rides the stage-identity payload; it is
     # stage configuration, not chain content, and its value is the document's.
-    assert set(projection.context.payload) == {
-        "stage", "methodology_id", "predecessor_stage", "objective"}
+    expected_payload = {"stage", "methodology_id", "predecessor_stage",
+                        "objective"}
+    if projection.spec.stage in {"HYPOTHESIS", "PREDICTION", "CLAIM",
+                                  "EXPERIMENT"}:
+        # OPS-5Z/OPS-5ZM: a prose stage tells the runtime the statement is
+        # required; an experiment's statement is the test it would run.
+        expected_payload.add("requires_statement")
+    assert set(projection.context.payload) == expected_payload
     assert projection.context.payload["objective"] == \
         config.stages[1].objective
     assert set(projection.to_mapping()) == {
@@ -426,13 +424,19 @@ def test_every_stage_admission_names_the_existing_write_boundary() -> None:
     assert all(kind in {"INSERT_TASK", "EVIDENCE_TRANSITION"} for kind in kinds)
 
 
-def test_a_silent_run_stops_at_evidence_with_no_admissions() -> None:
+def test_a_silent_run_stops_at_observation_with_no_admissions() -> None:
     # OPS-5D pin: no admitted evidence transition means no EVIDENCE node —
     # the run stops there rather than recording a synthetic ref.
+    #
+    # It now stops one stage earlier, at OBSERVATION: a run that fetched
+    # nothing has nothing to cite, so it cannot record an observation either.
+    # The pin's intent is unchanged and its subject moved to the earlier
+    # stage — before the substrate refused an observation, the refusal
+    # surfaced at EVIDENCE and named a citation the run could not have made.
     rig = Rig(model=SilentModel())
     outcome = rig.run()
     assert isinstance(outcome, MethodologyRefusal)
-    assert (outcome.source, outcome.stage) == ("substrate", "EVIDENCE")
+    assert (outcome.source, outcome.stage) == ("substrate", "OBSERVATION")
     assert outcome.code == MALFORMED_PAYLOAD
     assert rig.applier.calls == []
 
@@ -611,17 +615,31 @@ def test_the_driver_runs_the_shipped_profiles_too() -> None:
 #: it), plus core types. OPS-5L adds the citation grammar's read-side
 #: canonicaliser (``canonical_evidence_ref``), a vocabulary module with no write
 #: surface; `test_ops5l_evidence_ref_and_completion.py` pins that it imports
-#: only ``__future__`` and ``enum``.
+#: only ``__future__`` and ``enum``. OPS-5Z5 adds the deterministic claim gate
+#: (``hermes.research.grounding``: regexes only, no provider or model) and the
+#: one content reader (``hermes.tools.capabilities.content``: pure JSON/HTML
+#: rendering); both are pure, and the driver is where the CLAIM node is minted,
+#: so the gate is called rather than remaining a library with a test.
 DRIVER_IMPORTS = frozenset({
     "__future__", "dataclasses", "typing",
     "hermes.agents.runtime.assembly",
     "hermes.agents.runtime.types",
     "hermes.agents.runtime.wiring",
     "hermes.core.task_status",
+    # OPS-5Z Group E: the round's terminal record is an internal-only intent
+    # written through the same injected applier; the intent vocabulary and the
+    # DETERMINISTIC role are pure enums (no write surface).
+    "hermes.core.intents",
+    "hermes.core.node",
     "hermes.methodology",
     "hermes.methodology.substrate",
     "hermes.methodology.workflows",
     "hermes.research.evidence_transitions",
+    "hermes.research.grounding",
+    # The round's shapes/executor: pure dataclasses, the content reader and
+    # the claim gate behind injected ports — no I/O, no provider import.
+    "hermes.research.verification",
+    "hermes.tools.capabilities.content",
 })
 
 #: Names a module with a write surface would mention.

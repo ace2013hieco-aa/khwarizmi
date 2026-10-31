@@ -39,6 +39,7 @@ from hermes.agents.runtime.types import TaskContext
 from hermes.agents.runtime.wiring import RuntimeWiring
 from hermes.core.intents import IntentKind
 from hermes.core.task_status import TaskStatus
+from hermes.methodology.swap_test import CHAIN_STATEMENTS, fixture_provenance
 from hermes.methodology.workflows import (
     LITERATURE_REVIEW_DOCUMENT,
     MethodologyInputs,
@@ -65,12 +66,6 @@ QUESTION = "does the payload reach the model?"
 #: The citation refs a grounded run cites, all registered in-project (same shape
 #: the W3 suite uses; the driver has no opinion about their values).
 #: Prior-art refs only (OPS-5D); the evidence position is agent-derived.
-REFS: dict[str, str] = {
-    "HYPOTHESIS": "hypothesis:program-loop0/h1",
-    "PREDICTION": "prediction:program-loop0/h1/p1",
-    "CLAIM": "claim:claim-loop0/c1",
-}
-
 #: The agent's evidence ref, proposed by the model, never seeded.
 AGENT_EVIDENCE = "evidence:evidence-loop0/e1"
 
@@ -208,11 +203,8 @@ class ContextRecordingWiring:
 
 
 def _inputs(question: str = QUESTION) -> MethodologyInputs:
-    return MethodologyInputs(
-        question=question,
-        external_refs=dict(REFS),
-        admission_refs=tuple(REFS.values()),
-        retracted_refs=())
+    return MethodologyInputs(question=question,
+                             stage_content=CHAIN_STATEMENTS)
 
 
 def _prompt_texts(request: ModelRequest) -> list[str]:
@@ -238,7 +230,8 @@ def test_driver_path_prompts_carry_the_payload_and_the_review_drafts() -> None:
         profiles=load_profiles()))
     outcome = driver_run_methodology(
         parse_methodology(dict(LITERATURE_REVIEW_DOCUMENT)), _inputs(),
-        wiring=wiring, project_id=PROJECT, task_id=TASK)
+        wiring=wiring, project_id=PROJECT, task_id=TASK,
+        provenance_of=fixture_provenance)
     _report("driver path (RuntimeWiring + W3 driver)", model)
 
     assert isinstance(outcome, MethodologyExecution)
@@ -281,7 +274,7 @@ def test_plane_path_prompts_carry_the_payload_and_the_review_drafts() -> None:
     applier = RecordingApplier()
     outcome = plane_run_methodology(
         parse_methodology(dict(LITERATURE_REVIEW_DOCUMENT)), PROJECT, TASK,
-        LEASE, _inputs(),
+        LEASE, _inputs(), provenance_of=fixture_provenance,
         model=model, orchestration=applier, profiles=load_profiles())
     _report("plane path (methodology.workflows)", model)
 

@@ -6,10 +6,12 @@ mailto belongs to deployment config, never to the adapter).
 """
 from __future__ import annotations
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.adapters.base_adapter import (
     JsonSearchAdapter,
     make_contract,
 )
+from hermes.tools.providers.base import media_kind
 
 __all__ = ["CrossrefAdapter"]
 
@@ -37,3 +39,10 @@ class CrossrefAdapter(JsonSearchAdapter):
     authors_fields = ("author", "authors")
     year_fields = ("published", "created", "year")
     venue_fields = ("container-title", "publisher", "journal")
+    content_format = ContentFormat.CROSSREF
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """A JSON body from Crossref is a ``message`` record or an items list."""
+        if media_kind(media_type) == "json":
+            return ContentFormat.CROSSREF
+        return super().fetch_content_format(media_type)

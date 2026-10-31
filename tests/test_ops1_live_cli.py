@@ -46,14 +46,6 @@ DRAIN_ONLY_OUTPUT = (
     "  note: contradiction detection: 0 recorded, 0 duplicates, 0 refused\n"
 )
 
-#: Prior-art refs only; OPS-5D makes the evidence position agent-derived.
-REFS: dict[str, str] = {
-    "HYPOTHESIS": "hypothesis:program-ops1/h1",
-    "PREDICTION": "prediction:program-ops1/h1/p1",
-    "CLAIM": "claim:claim-ops1/c1",
-}
-
-
 # ── fixtures ──
 
 
@@ -106,9 +98,7 @@ def _methodology_task() -> tuple[str, str, str, dict]:
     return ("meth-1", "AGENT_TASK", "RESEARCHER", {
         "template": "methodology_run",
         "methodology": document,
-        "inputs": {"question": "does it hold?",
-                   "external_refs": REFS,
-                   "admission_refs": list(REFS.values())},
+        "inputs": {"question": "does it hold?"},
     })
 
 
@@ -297,9 +287,11 @@ def test_live_run_executes_a_methodology_stage(tmp_path, capsys,
 
     assert rc == 0
     assert "Model plane: live (tiers: m=anthropic:test-model)" in captured.out
-    assert "Capability plane: 2 supplied" in captured.out
+    # OPS-5Z4 supplied the falsification trio, which also shrinks the
+    # withheld set from ten declarations to six.
+    assert "Capability plane: 5 supplied" in captured.out
     assert "in-process (no sandbox)" in captured.out
-    assert "withheld 10 declaration(s)" in captured.out
+    assert "withheld 6 declaration(s)" in captured.out
     assert "succeeded" in captured.out
     assert "  model call 1: tier=m provider=anthropic model=test-model OK" \
         in captured.out

@@ -103,6 +103,11 @@ class EventType(str, Enum):
     CRITIQUE_GENERATED = "CritiqueGenerated"
     REPLICATION_REQUESTED = "ReplicationRequested"
     REPLICATION_COMPLETED = "ReplicationCompleted"
+    # OPS-5Z Group E — one bounded verification round opened by the critic's
+    # REQUEST_ADDITIONAL_EXPERIMENT proposal (the payload names the conflict
+    # that caused it) and its terminal outcome (RESOLVED / DISPUTED / REFUSED).
+    VERIFICATION_ROUND_OPENED = "VerificationRoundOpened"
+    VERIFICATION_ROUND_COMPLETED = "VerificationRoundCompleted"
 
     # Iteration (F-09)
     ITERATION_ADVANCED = "IterationAdvanced"  # ADV-05: EMITTED by the system, was enum-missing

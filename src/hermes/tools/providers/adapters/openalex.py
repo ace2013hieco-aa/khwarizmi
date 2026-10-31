@@ -6,11 +6,12 @@ mailto belongs to deployment config, never to the adapter).
 """
 from __future__ import annotations
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.adapters.base_adapter import (
     JsonSearchAdapter,
     make_contract,
 )
-from hermes.tools.providers.base import RequestSpec
+from hermes.tools.providers.base import RequestSpec, media_kind
 
 __all__ = ["OpenalexAdapter"]
 
@@ -39,6 +40,13 @@ class OpenalexAdapter(JsonSearchAdapter):
     authors_fields = ("authorships", "authors")
     year_fields = ("publication_year", "year")
     venue_fields = ("primary_location", "venue", "journal")
+    content_format = ContentFormat.OPENALEX
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """A JSON body from OpenAlex is a work (or a results wrapper of works)."""
+        if media_kind(media_type) == "json":
+            return ContentFormat.OPENALEX
+        return super().fetch_content_format(media_type)
 
     def build_fetch_request(self, source) -> RequestSpec:
         """Fetch through the API host: a canonical ``openalex.org/W…`` URL

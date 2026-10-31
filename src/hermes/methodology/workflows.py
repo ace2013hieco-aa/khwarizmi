@@ -47,7 +47,7 @@ canonical-policy entry, no model vendor named anywhere.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
 from hermes.agents.runtime.run import run as runtime_run
@@ -66,8 +66,9 @@ from hermes.governance.authority import (
 from hermes.methodology.substrate import (
     CHAIN_KINDS,
     MALFORMED_PAYLOAD,
-    REF_NAMESPACES,
+    MINTED_NODE_KINDS,
     ChainReconstruction,
+    RefBacking,
     SubstrateNode,
     SubstrateRefusal,
     SubstrateStore,
@@ -401,13 +402,16 @@ LITERATURE_REVIEW_DOCUMENT: Mapping[str, Any] = {
     "schema_version": METHODOLOGY_SCHEMA_VERSION,
     "methodology_id": "literature-review",
     # The content revision, distinct from the schema version: document version
-    # 2 is the revision that declares a stage budget and each stage's job. It
-    # is a governed-document event — see docs/idr/LIVE-STAGE-BUDGET.md §6.2.
-    "version": "2",
+    # 2 declared a stage budget and each stage's job. Version 3 is OPS-5Y: the
+    # HYPOTHESIS/PREDICTION/CLAIM stages ask for a *statement* (the run's own
+    # asserted content) instead of citing an identity that has no producer.
+    # It is a governed-document event — see docs/idr/LIVE-STAGE-BUDGET.md §6.2.
+    "version": "3",
     "name": "literature-review",
     "description": (
-        "A cited search of admitted sources: frame the question, draw a "
-        "hypothesis from prior art, pre-register what would count against it, "
+        "A cited search of admitted sources: frame the question, state a "
+        "testable hypothesis of the run's own (citing prior art where it was "
+        "admitted), pre-register what would count against it, "
         "run the discriminating step, record the observation, admit the "
         "evidence, state the claim, subject it to adversarial critique and "
         "draw the conclusion. Every stage is an R4 runtime profile; every "
@@ -422,12 +426,21 @@ LITERATURE_REVIEW_DOCUMENT: Mapping[str, Any] = {
         {"stage": "HYPOTHESIS", "profile": "researcher",
          "governance_action": "WEB_SEARCH",
          "objective": (
-             "Propose a testable hypothesis and cite the prior art you were "
-             "given: the hypothesis: ref in the task input.")},
+             "State a testable hypothesis of your own as this proposal's "
+             "statement — the thing the run will test — and give the "
+             "observation that would refute it. The rationale says why you "
+             "propose it. If prior art was admitted, cite it as a citation, "
+             "never as your hypothesis's identity. "
+             "Emit one proposal whose `kind` is an intent kind — `INSERT_TASK`, "
+             "`PROPOSE_RESEARCH_PROGRAM` or `REQUEST_HUMAN` — and never the stage "
+             "name; put your sentence in `statement` and leave `payload` empty.")},
         {"stage": "PREDICTION", "profile": "experimenter",
          "objective": (
-             "State what your hypothesis predicts, and the observation that "
-             "would refute it.")},
+             "State what your hypothesis predicts as this proposal's "
+             "statement, and the observation that would refute it. "
+             "Emit one proposal whose `kind` is an intent kind — `INSERT_TASK`, "
+             "`PROPOSE_RESEARCH_PROGRAM` or `REQUEST_HUMAN` — and never the stage "
+             "name; put your sentence in `statement` and leave `payload` empty.")},
         {"stage": "EXPERIMENT", "profile": "experimenter",
          "governance_action": "SANDBOX_RUN",
          "objective": (
@@ -453,8 +466,11 @@ LITERATURE_REVIEW_DOCUMENT: Mapping[str, Any] = {
              "observation admitted, as this stage's external_ref.")},
         {"stage": "CLAIM", "profile": "synthesizer",
          "objective": (
-             "State what the cited evidence supports, and only what it "
-             "supports.")},
+             "State what the cited evidence supports as this proposal's "
+             "statement, and only what it supports. "
+             "Emit one proposal whose `kind` is an intent kind — `INSERT_TASK`, "
+             "`PROPOSE_RESEARCH_PROGRAM` or `REQUEST_HUMAN` — and never the stage "
+             "name; put your sentence in `statement` and leave `payload` empty.")},
         {"stage": "CRITIQUE", "profile": "critic",
          "objective": (
              "Attack the claim: say what would break it, and whether the cited "
@@ -485,16 +501,21 @@ def literature_review() -> MethodologyConfig:
 class MethodologyInputs:
     """What a caller must supply for one methodology run — nothing is invented.
 
-    ``external_refs`` maps a **prior-art** referenced-kind stage to the artifact
-    ref the caller observed (``hypothesis:…`` / ``prediction:…`` /
-    ``claim:…``). It deliberately has no evidence position: OPS-5D makes the
-    ``EVIDENCE`` ref agent-derived (the admitted ``EVIDENCE_TRANSITION``), and
-    a seed evidence ref is refused. ``admission_refs`` names the prior-art refs
-    that resolve in the project — the citation registry; a node citing a ref
-    that is not registered fails closed, which is exactly the intended
-    behaviour for a ref nobody observed. ``retracted_refs`` is the N9
-    projection the caller supplies; an evidence ref there is allowed because a
-    retraction can only remove support, never make a ref resolve.
+    ``external_refs`` names a **prior-art citation** a stage should carry
+    (``claim:…`` on a minted HYPOTHESIS/PREDICTION/CLAIM — a mention, never the
+    node's identity; OPS-5Y). It deliberately has no evidence position: OPS-5D
+    makes the ``EVIDENCE`` ref agent-derived (the admitted
+    ``EVIDENCE_TRANSITION``), and a seed evidence ref is refused.
+    ``admission_refs`` names the refs that resolve in the project; since
+    OPS-5Y each must be backed by a real project row, or the run refuses at
+    intake. ``retracted_refs`` is the N9 projection the caller supplies.
+
+    ``stage_content["CLAIM"]`` may also carry ``subjects``: the entities the
+    claim's figures are about (OPS-5Z5). It is a *field* because deriving it
+    needs entity recognition — a model — and the deterministic claim gate
+    forbids one. The spine validates it against the claim's own tokens and
+    records it on the CLAIM node; the plane itself only passes the override
+    through.
     """
 
     question: str
@@ -507,12 +528,20 @@ class MethodologyInputs:
 
 @dataclass(frozen=True, slots=True)
 class MethodologyRefusal:
-    """Refusal-as-data from the driver, naming the layer that refused."""
+    """Refusal-as-data from the driver, naming the layer that refused.
+
+    OPS-5Y: ``stages_recorded`` / ``stages_declared`` and ``backing_class``
+    carry the depth measurement alongside the refusal, so the handler never
+    parses prose to learn how far the chain got or how the evidence was backed.
+    """
 
     code: str
     detail: str
     stage: str = ""
     source: str = ""
+    stages_recorded: int = 0
+    stages_declared: int = 0
+    backing_class: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {"rejected": True, "code": self.code, "detail": self.detail,
@@ -520,12 +549,21 @@ class MethodologyRefusal:
 
     def to_mapping(self) -> dict[str, Any]:
         return {"code": self.code, "detail": self.detail, "stage": self.stage,
-                "source": self.source}
+                "source": self.source,
+                "stages_recorded": self.stages_recorded,
+                "stages_declared": self.stages_declared,
+                "backing_class": self.backing_class}
 
 
 @dataclass(frozen=True, slots=True)
 class StageOutcome:
-    """One stage's result: the run's terminal state and the recorded node."""
+    """One stage's result: the run's terminal state and the recorded node.
+
+    ``content_origin`` is ``"MINTED"`` for the three stages whose node content
+    the run produces itself (HYPOTHESIS, PREDICTION, CLAIM), and empty for
+    every other stage. It is included in the mapping only when non-empty, so a
+    non-minted stage serializes exactly as before (OPS-5Y).
+    """
 
     stage: str
     profile: str
@@ -534,9 +572,10 @@ class StageOutcome:
     run_digest: str
     node_id: str
     governance: str
+    content_origin: str = ""
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping = {
             "stage": self.stage,
             "profile": self.profile,
             "state": self.state,
@@ -545,6 +584,9 @@ class StageOutcome:
             "node_id": self.node_id,
             "governance": self.governance,
         }
+        if self.content_origin:
+            mapping["content_origin"] = self.content_origin
+        return mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -588,18 +630,34 @@ class MethodologyRun:
 #: selected from an admitted EVIDENCE_TRANSITION in one of these stage runs.
 _EVIDENCE_STAGES: tuple[str, ...] = ("OBSERVATION", "EVIDENCE")
 
-#: The labels the design requires on the prior-art remainder. They are node
-#: `rationale` text (not content), so they never re-enter a prompt through
+#: OPS-5ZM — the content key each stage's model prose lands on. The proposal
+#: has one prose field (`statement`); a minted kind's node carries it as
+#: `statement`, while an EXPERIMENT's node carries the same text as `test` —
+#: the design it proposes, not an assertion it mints.
+_STAGE_PROSE_KEY: Mapping[str, str] = {
+    "HYPOTHESIS": "statement",
+    "PREDICTION": "statement",
+    "CLAIM": "statement",
+    "EXPERIMENT": "test",
+}
+
+#: OPS-5Y — the labels the design requires on the minted remainder. They are
+#: node `rationale` text (not content), so they never re-enter a prompt through
 #: `predecessor_content`.
-_PRIOR_ART_LABEL = "prior-art citation (no producer in this build)"
-_CLAIM_IDENTITY_LABEL = (
-    "claim identity is prior art; support is the recorded evidence ref")
+_MINTED_LABEL = "run-minted conjecture, not prior art"
+_MINTED_CLAIM_LABEL = (
+    "run-minted claim; support is the admitted evidence ref")
 
 _EVIDENCE_POSITION_KEYS: Mapping[str, tuple[str, ...]] = {
     "OBSERVATION": ("cited_refs",),
     "EVIDENCE": ("external_ref",),
     "CLAIM": ("admitted_refs",),
 }
+
+
+def _evidence_backing_class(store: SubstrateStore, evidence_ref: str) -> str:
+    """The recorded backing of the run's evidence ref — ``""`` before one exists."""
+    return str(store.ref_backing.get(evidence_ref, "")) if evidence_ref else ""
 
 
 def _seeded_evidence_refusal(
@@ -723,37 +781,116 @@ def _node_rationale(kind: str, stage: str, profile: str,
     if not rationale:
         rationale = f"stage {stage} via profile {profile}"
     if kind in ("HYPOTHESIS", "PREDICTION"):
-        rationale = f"{rationale}; {_PRIOR_ART_LABEL}"
+        rationale = f"{rationale}; {_MINTED_LABEL}"
     elif kind == "CLAIM":
-        rationale = f"{rationale}; {_CLAIM_IDENTITY_LABEL}"
+        rationale = f"{rationale}; {_MINTED_CLAIM_LABEL}"
     return rationale
+
+
+def _stage_requires_statement(stage: str, inputs: MethodologyInputs | None,
+                              ) -> bool:
+    """OPS-5Z/OPS-5ZM: does this stage's *model* have to supply its prose?
+
+    One definition, used by both drivers so the plane and the spine cannot
+    drift. Three conditions, all required:
+
+    - the stage has a model-prose position (:data:`_STAGE_PROSE_KEY`) — the
+      three minted kinds and ``EXPERIMENT``, whose prose is its ``test``;
+    - the caller did not already supply that position — when it did, the model
+      is not the source, so it is not required from the model. This preserves
+      ``_stage_prose``'s first precedence;
+    - (at the contract layer) the reply actually proposes. A gather tick in a
+      prose stage raises no proposal and must still validate.
+
+    ``inputs is None`` means a projection that cannot see the override: there
+    is nothing to honour, so a prose stage requires the statement. A
+    projection must not promise the model that it is optional.
+    """
+    key = _STAGE_PROSE_KEY.get(stage)
+    if key is None:
+        return False
+    if inputs is None:
+        return True
+    override = inputs.stage_content.get(stage)
+    if isinstance(override, Mapping):
+        supplied = override.get(key)
+        if isinstance(supplied, str) and supplied.strip():
+            return False
+    return True
+
+
+def _stage_prose(kind: str, inputs: MethodologyInputs,
+                 proposals: tuple[Proposal, ...]) -> str:
+    """The prose a stage's node carries — supplied, or the run's own text.
+
+    The proposal has one prose field, ``statement``; the node's content key is
+    :data:`_STAGE_PROSE_KEY` (``test`` for an experiment, ``statement`` for the
+    minted kinds). Precedence, and nothing else:
+
+    1. ``inputs.stage_content[kind][key]`` when a caller supplies a non-empty
+       string (fixtures and the plane's own tests);
+    2. the first admitted proposal's ``proposal.statement``, stripped;
+    3. ``""`` — the shape gate then refuses the node with ``MALFORMED_PAYLOAD``.
+
+    It never reads the rationale (a justification is not a claim), never
+    invents text and never falls back to the question. A stage whose run
+    proposed nothing therefore does not get a node, which is the same
+    refusal-as-data discipline the rest of the plane uses.
+    """
+    key = _STAGE_PROSE_KEY.get(kind, "statement")
+    override = inputs.stage_content.get(kind)
+    if isinstance(override, Mapping):
+        supplied = override.get(key)
+        if isinstance(supplied, str) and supplied.strip():
+            return supplied.strip()
+    for proposal in proposals:
+        if not proposal.was_admitted():
+            continue
+        value = getattr(proposal, "statement", "")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def _default_content(kind: str, inputs: MethodologyInputs,
                      predecessor_id: str, question_id: str,
-                     *, evidence_ref: str = "",
+                     *, evidence_ref: str = "", statement: str = "",
                      ) -> Mapping[str, Any]:
     """The plainest well-formed content for a stage — never a fabricated ref.
 
     OPS-5D: the evidence position is not read from the seed. ``EVIDENCE`` gets
     the admitted ``evidence_ref``; ``OBSERVATION`` cites it; ``CLAIM`` admits
-    it. The prior-art positions (``HYPOTHESIS``, ``PREDICTION``, ``CLAIM``'s own
-    identity) still read ``inputs.external_refs``; they have no producer in
-    this build and are labelled in the node rationale.
+    it. OPS-5Y: ``HYPOTHESIS``, ``PREDICTION`` and ``CLAIM`` are **minted** —
+    they carry the run's ``statement`` and ``origin: "MINTED"``; an operator
+    ``external_refs`` value for one of them becomes a ``cited_refs`` mention,
+    never the node's identity. OPS-5ZM: ``EXPERIMENT`` carries the run's prose
+    as ``test``, and that prose arrives on the proposal's ``statement`` field.
     """
     override = inputs.stage_content.get(kind)
     content: dict[str, Any] = dict(override) if override is not None else {}
     if kind == "QUESTION":
         content.setdefault("question", inputs.question)
     elif kind == "CLAIM":
-        content.setdefault("external_ref", inputs.external_refs.get("CLAIM", ""))
         content["admitted_refs"] = ((evidence_ref,) if evidence_ref else ())
+        cited = inputs.external_refs.get("CLAIM", "")
+        if cited:
+            content.setdefault("cited_refs", (cited,))
+        _mint_content(content, statement)
+    elif kind == "EXPERIMENT":
+        # A caller-supplied non-empty test wins; an absent or blank one falls
+        # back to the proposal's prose, exactly as `_mint_content` does.
+        supplied = content.get("test")
+        if not (isinstance(supplied, str) and supplied.strip()):
+            content["test"] = statement
     elif kind == "EVIDENCE":
         # The admitted ref is the only source; an empty value reaches the
         # substrate's own shape refusal and the stage is not recorded.
         content["external_ref"] = evidence_ref
-    elif kind in REF_NAMESPACES:
-        content.setdefault("external_ref", inputs.external_refs.get(kind, ""))
+    elif kind in MINTED_NODE_KINDS:
+        cited = inputs.external_refs.get(kind, "")
+        if cited:
+            content.setdefault("cited_refs", (cited,))
+        _mint_content(content, statement)
     elif kind == "OBSERVATION":
         if evidence_ref:
             content["cited_refs"] = (evidence_ref,)
@@ -762,6 +899,20 @@ def _default_content(kind: str, inputs: MethodologyInputs,
     elif kind == "CONCLUSION":
         content.setdefault("question_ref", question_id)
     return content
+
+
+def _mint_content(content: dict[str, Any], statement: str) -> None:
+    """Write the minted identity fields — inline content, never a citation.
+
+    A caller-supplied non-empty statement wins (it is the fixture path); an
+    absent, blank or non-string one falls back to ``statement``. An
+    out-of-vocabulary ``origin`` is left in place so the shape gate refuses it
+    rather than silently rewriting the caller's value.
+    """
+    supplied = content.get("statement")
+    if not (isinstance(supplied, str) and supplied.strip()):
+        content["statement"] = statement
+    content.setdefault("origin", "MINTED")
 
 
 def _governance_outcome(stage: StageSpec, inputs: MethodologyInputs,
@@ -786,6 +937,39 @@ def _governance_outcome(stage: StageSpec, inputs: MethodologyInputs,
         code=code, detail=str(detail), stage=stage.stage, source="governance")
 
 
+def _resolved_backing(
+        provenance_of: Callable[[str, str], str | None] | None,
+        project_id: str, ref: str, *, witness: str) -> RefBacking | None:
+    """Ask the injected port for one ref's backing — ``None`` means unbacked.
+
+    Without a port nothing can be verified, so the result is ``None`` and the
+    substrate refuses the registration. A witness that names anything outside
+    ``FETCHED``/``ROW`` is treated the same way: fail closed, never guess.
+    """
+    if provenance_of is None:
+        return None
+    origin = provenance_of(project_id, ref)
+    if origin not in ("FETCHED", "ROW"):
+        return None
+    return RefBacking(origin=str(origin), witness=witness)
+
+
+def _evidence_backing(
+        provenance_of: Callable[[str, str], str | None] | None,
+        project_id: str, ref: str) -> RefBacking:
+    """The run's own admitted evidence: GATEWAY-witnessed, ROW if unclassified.
+
+    The gateway already dereferenced the artifact row before the driver sees
+    the admitted transition; this call does not re-check the row. It asks the
+    port only for the ``FETCHED``/``ROW`` bit support needs. A port that cannot
+    classify an admitted ref yields ``ROW``: the citation resolves, and a
+    claim over it will refuse — the safe direction.
+    """
+    backing = _resolved_backing(provenance_of, project_id, ref,
+                                witness="GATEWAY")
+    return backing or RefBacking(origin="ROW", witness="GATEWAY")
+
+
 def run_methodology(
     config: MethodologyConfig,
     project_id: str,
@@ -798,6 +982,7 @@ def run_methodology(
     capabilities: Any = None,
     profiles: Mapping[str, Any] | None = None,
     actor: str = "methodology-plane",
+    provenance_of: Callable[[str, str], str | None] | None = None,
 ) -> MethodologyRun | MethodologyRefusal:
     """Drive one methodology through the R4 runtime's public ``run()``.
 
@@ -813,13 +998,26 @@ def run_methodology(
     OBSERVATION/EVIDENCE runs supplies the ``EVIDENCE`` node's ref. A run with
     no admitted transition stops at ``EVIDENCE`` rather than recording a
     synthetic ref.
+
+    OPS-5Y: every ``admission_refs`` entry is registered before any stage,
+    governance consult or model call, and only with a backing the injected
+    ``provenance_of`` port reports. Omitted, every non-empty ``admission_refs``
+    refuses ``PRIOR_ART_UNBACKED`` — the fail-closed default that makes a
+    typed-in prior-art ref refuse at intake.
     """
     seed_refusal = _seeded_evidence_refusal(inputs)
     if seed_refusal is not None:
-        return seed_refusal
+        return replace(seed_refusal, stages_declared=len(config.stages))
     store = SubstrateStore()
     for ref in inputs.admission_refs:
-        store.admit_ref(ref, project_id)
+        refused = store.admit_ref(
+            ref, project_id,
+            backing=_resolved_backing(provenance_of, project_id, ref,
+                                      witness="RESOLVER"))
+        if refused is not None:
+            return MethodologyRefusal(code=refused.code, detail=refused.detail,
+                                      source="inputs",
+                                      stages_declared=len(config.stages))
     for ref in inputs.retracted_refs:
         store.retract(ref)
 
@@ -850,7 +1048,10 @@ def run_methodology(
         governance, refusal = _governance_outcome(
             stage, inputs, project_id, actor, inputs.question)
         if refusal is not None:
-            return refusal
+            return replace(
+                refusal, stages_recorded=len(stages),
+                stages_declared=len(config.stages),
+                backing_class=_evidence_backing_class(store, evidence_ref))
 
         payload: dict[str, Any] = {
             "stage": stage.stage,
@@ -865,6 +1066,10 @@ def run_methodology(
             # operator text and never an instruction authority. A document
             # without an objective adds no key, so an old stage renders none.
             payload["objective"] = stage.objective
+        if _stage_requires_statement(stage.stage, inputs):
+            # OPS-5Z: the runtime turns this into the conditional contract
+            # field; it is a fact about the run, not an instruction.
+            payload["requires_statement"] = True
         context = TaskContext(
             task_id=f"{task_id}:{stage.stage}",
             project_id=project_id,
@@ -892,11 +1097,17 @@ def run_methodology(
                 # Projection of the gateway's admission into the in-memory
                 # registry the substrate's write boundary reads. Not a second
                 # validation: the gateway already checked the artifact row.
-                store.admit_ref(evidence_ref, project_id)
+                # OPS-5Y: the backing is the gateway's witness plus the port's
+                # FETCHED/ROW classification.
+                store.admit_ref(
+                    evidence_ref, project_id,
+                    backing=_evidence_backing(provenance_of, project_id,
+                                              evidence_ref))
 
-        content = dict(_default_content(stage.stage, inputs, predecessor_id,
-                                        question_id,
-                                        evidence_ref=evidence_ref))
+        content = dict(_default_content(
+            stage.stage, inputs, predecessor_id, question_id,
+            evidence_ref=evidence_ref,
+            statement=_stage_prose(stage.stage, inputs, result.proposals)))
         if predecessor_id:
             content["predecessors"] = (predecessor_id,)
         node = SubstrateNode(
@@ -909,8 +1120,12 @@ def run_methodology(
                 evidence_proposal))
         recorded = write_node(store, node)
         if isinstance(recorded, SubstrateRefusal):
-            return MethodologyRefusal(code=recorded.code, detail=recorded.detail,
-                                      stage=stage.stage, source="substrate")
+            return MethodologyRefusal(
+                code=recorded.code, detail=recorded.detail,
+                stage=stage.stage, source="substrate",
+                stages_recorded=len(stages),
+                stages_declared=len(config.stages),
+                backing_class=_evidence_backing_class(store, evidence_ref))
         node_id = recorded
         if stage.stage == "QUESTION":
             question_id = node_id
@@ -923,7 +1138,9 @@ def run_methodology(
             termination=result.termination,
             run_digest=result.digest(),
             node_id=node_id,
-            governance=governance))
+            governance=governance,
+            content_origin=("MINTED" if stage.stage in MINTED_NODE_KINDS
+                            else "")))
         predecessor_id = node_id
 
     return MethodologyRun(

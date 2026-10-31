@@ -240,12 +240,16 @@ def _terminal(
             reason = (f"root task {task_id!r} ended {state or 'UNKNOWN'} "
                       f"with no FAILED reason on file")
         return "FAILED", bounded_excerpt(reason, excerpt_bytes)
-    ran_evidence = any(snapshot.stage == "EVIDENCE" for snapshot in stage_runs)
     admitted_evidence = any(
         proposal.intent.kind == IntentKind.EVIDENCE_TRANSITION
         for snapshot in stage_runs
         for proposal in snapshot.result.admitted())
-    if ran_evidence and not admitted_evidence:
+    # A run with stage runs and no admitted EVIDENCE_TRANSITION has no
+    # evidence — whether it reached the EVIDENCE stage or stopped before it.
+    # The second case used to report SUCCEEDED: a chain that stopped at
+    # OBSERVATION with nothing to cite had every stage it ran succeed, so the
+    # report called it a success while the handler called it failed.
+    if stage_runs and not admitted_evidence:
         return "FAILED", NO_EVIDENCE_REASON
     if not stage_runs and not task_outcomes:
         return "NO_STAGE_RUNS", ""

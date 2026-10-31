@@ -20,6 +20,7 @@ from hermes.agents.runtime.assembly import (
 from hermes.agents.runtime.config import load_profiles
 from hermes.agents.runtime.wiring import RuntimeWiring
 from hermes.eval.loop_observations import measure_prompt
+from hermes.methodology.swap_test import CHAIN_STATEMENTS, fixture_provenance
 from hermes.methodology.workflows import (
     LITERATURE_REVIEW_DOCUMENT,
     MethodologyInputs,
@@ -120,8 +121,11 @@ def _run(question: str = QUESTION
         model=model, orchestration=_Applier(), lease_generation=LEASE,
         profiles=load_profiles())
     execution = run_methodology(
-        _config(), _inputs(question), wiring=wiring,
-        project_id=PROJECT, task_id=TASK)
+        _config(),
+        MethodologyInputs(question=question,
+                          stage_content=CHAIN_STATEMENTS),
+        wiring=wiring, project_id=PROJECT, task_id=TASK,
+        provenance_of=fixture_provenance)
     return model, execution
 
 
@@ -145,8 +149,12 @@ def test_every_projected_stage_carries_the_question_and_the_ref_ids() -> None:
         # The structural payload keeps its shape: the input is not smuggled
         # into the stage-identity mapping, and the only addition is the stage's
         # own declared objective (OPS-5F) — never the question or a ref.
-        assert set(projection.context.payload) == {
-            "stage", "methodology_id", "predecessor_stage", "objective"}
+        expected_payload = {"stage", "methodology_id", "predecessor_stage",
+                            "objective"}
+        if projection.spec.stage in {"HYPOTHESIS", "PREDICTION", "CLAIM",
+                                      "EXPERIMENT"}:
+            expected_payload.add("requires_statement")
+        assert set(projection.context.payload) == expected_payload
         assert projection.context.payload["objective"] == projection.spec.objective
         assert QUESTION not in str(projection.context.payload)
 
@@ -235,5 +243,11 @@ def test_a_projection_without_inputs_keeps_the_previous_shape() -> None:
         _config(), _config().stages[0], project_id=PROJECT, task_id=TASK,
         lease_generation=LEASE)
     assert projection.context.context == ()
-    assert set(projection.context.payload) == {
-        "stage", "methodology_id", "predecessor_stage", "objective"}
+    expected_payload = {"stage", "methodology_id", "predecessor_stage",
+                        "objective"}
+    if projection.spec.stage in {"HYPOTHESIS", "PREDICTION", "CLAIM",
+                                  "EXPERIMENT"}:
+        # OPS-5Z/OPS-5ZM: a prose stage tells the runtime the statement is
+        # required; an experiment's statement is the test it would run.
+        expected_payload.add("requires_statement")
+    assert set(projection.context.payload) == expected_payload

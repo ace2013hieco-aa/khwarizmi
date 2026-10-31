@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/lXuulASt1hawwN73tSBlUkEI2wU</id>
+  <title>arXiv Query: search_query=&amp;id_list=1602.03837&amp;start=0&amp;max_results=1</title>
+  <updated>2026-10-30T17:12:51Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=1&amp;id_list=1602.03837" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>1</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/1602.03837v1</id>
+    <title>Observation of Gravitational Waves from a Binary Black Hole Merger</title>
+    <updated>2016-02-11T19:26:44Z</updated>
+    <link href="https://arxiv.org/abs/1602.03837v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1602.03837v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>On September 14, 2015 at 09:50:45 UTC the two detectors of the Laser Interferometer Gravitational-Wave Observatory simultaneously observed a transient gravitational-wave signal. The signal sweeps upwards in frequency from 35 to 250 Hz with a peak gravitational-wave strain of $1.0 \times 10^{-21}$. It matches the waveform predicted by general relativity for the inspiral and merger of a pair of black holes and the ringdown of the resulting single black hole. The signal was observed with a matched-filter signal-to-noise ratio of 24 and a false alarm rate estimated to be less than 1 event per 203 000 years, equivalent to a significance greater than 5.1 σ. The source lies at a luminosity distance of $410^{+160}_{-180}$ Mpc corresponding to a redshift $z = 0.09^{+0.03}_{-0.04}$. In the source frame, the initial black hole masses are $36^{+5}_{-4} M_\odot$ and $29^{+4}_{-4} M_\odot$, and the final black hole mass is $62^{+4}_{-4} M_\odot$, with $3.0^{+0.5}_{-0.5} M_\odot c^2$ radiated in gravitational waves. All uncertainties define 90% credible intervals.These observations demonstrate the existence of binary stellar-mass black hole systems. This is the first direct detection of gravitational waves and the first observation of a binary black hole merger.</summary>
+    <category term="gr-qc" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="astro-ph.HE" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2016-02-11T19:26:44Z</published>
+    <arxiv:comment>16 pages, 4 figures</arxiv:comment>
+    <arxiv:primary_category term="gr-qc"/>
+    <arxiv:journal_ref>Phys. Rev. Lett. 116, 061102 (2016)</arxiv:journal_ref>
+    <author>
+      <name> The LIGO Scientific Collaboration</name>
+    </author>
+    <author>
+      <name> the Virgo Collaboration</name>
+    </author>
+    <arxiv:doi>10.1103/PhysRevLett.116.061102</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1103/PhysRevLett.116.061102" title="doi"/>
+  </entry>
+</feed>

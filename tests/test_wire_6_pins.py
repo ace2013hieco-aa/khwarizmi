@@ -2,9 +2,10 @@
 
 D6-A pins the declared-but-unwired LLM-proposable intent kinds as
 declared, with recorded future couplings: ``BRANCH`` / ``ABANDON`` /
-``REQUEST_HUMAN`` await R2 / P1-12, ``REQUEST_ADDITIONAL_EXPERIMENT``
-is parked behind D2, and ``REQUEST_REPLICATION`` /
-``PROPOSE_GATE_OVERRIDE`` own their gates.
+``REQUEST_HUMAN`` await R2 / P1-12, and ``REQUEST_REPLICATION`` /
+``PROPOSE_GATE_OVERRIDE`` own their gates. **OPS-5Z Group E removed
+``REQUEST_ADDITIONAL_EXPERIMENT`` from this set by wiring it** — the
+positive pin below fails if it is unwired again.
 
 The pins are structural, derived from the live AST the way
 ``tests/test_hygiene_structural.py`` derives its census:
@@ -16,8 +17,8 @@ The pins are structural, derived from the live AST the way
   ``"X" == kind`` comparisons, ``kind in (...)`` membership, and
   ``or`` unions of those all resolve;
 - the uncovered remainder of ``llm_proposable()`` must be exactly the
-  six D6 recorded, and every declared kind must be either dispatched
-  or one of the six, so a new unwired kind cannot appear unannounced;
+  five D6 still records, and every declared kind must be either dispatched
+  or one of the five, so a new unwired kind cannot appear unannounced;
 - the chain must end in an ``else`` that refuses with the frozen
   ``NOT_WIRED`` code, so an unwired kind cannot fall through silently;
 - every ``director_only`` and ``internal_only`` kind must be covered
@@ -42,7 +43,6 @@ DECLARED_UNWIRED = frozenset({
     "ABANDON",
     "REQUEST_HUMAN",
     "REQUEST_REPLICATION",
-    "REQUEST_ADDITIONAL_EXPERIMENT",
     "PROPOSE_GATE_OVERRIDE",
 })
 
@@ -50,12 +50,11 @@ D6_COUPLINGS: dict[str, tuple[str, ...]] = {
     "BRANCH": ("R2", "P1-12"),
     "ABANDON": ("R2", "P1-12"),
     "REQUEST_HUMAN": ("R2", "P1-12"),
-    "REQUEST_ADDITIONAL_EXPERIMENT": ("D2",),
     "REQUEST_REPLICATION": ("own-gate",),
     "PROPOSE_GATE_OVERRIDE": ("own-gate",),
 }
 
-GATE_TOKENS = frozenset({"R2", "P1-12", "D2", "own-gate"})
+GATE_TOKENS = frozenset({"R2", "P1-12", "own-gate"})
 
 
 def _parse(path: Path) -> ast.Module:
@@ -359,7 +358,7 @@ def _resolve_dispatch(source: str | None = None) -> _Dispatch:
 
 def test_dispatch_coverage_pins_the_declared_unwired_remainder() -> None:
     """(a) llm_proposable minus the dispatch-covered set is exactly the
-    six kinds D6-A pinned as declared-but-unwired."""
+    five kinds D6-A still pins as declared-but-unwired."""
     dispatch = _resolve_dispatch()
     assert dispatch.anomalies == (), (
         "the dispatch chain could not be resolved cleanly; the WIRE-6 pin "
@@ -373,17 +372,17 @@ def test_dispatch_coverage_pins_the_declared_unwired_remainder() -> None:
         f"{sorted(dispatch.covered - members)}")
     assert llm - dispatch.covered == DECLARED_UNWIRED, (
         "llm_proposable minus the dispatch-covered set must be exactly the "
-        "six kinds D6-A pinned as declared-but-unwired: "
+        "five kinds D6-A still pins as declared-but-unwired: "
         f"uncovered={sorted(llm - dispatch.covered)}, "
         f"covered={sorted(dispatch.covered)}")
     assert members - dispatch.covered == DECLARED_UNWIRED, (
-        "every declared kind must be either dispatched or one of the six "
+        "every declared kind must be either dispatched or one of the five "
         "declared-unwired kinds — a new unwired kind cannot appear "
         f"unannounced: uncovered={sorted(members - dispatch.covered)}")
 
 
-def test_the_declared_unwired_six_reach_only_the_not_wired_refusal() -> None:
-    """(b) each of the six stays LLM-proposable, stays outside the
+def test_the_declared_unwired_five_reach_only_the_not_wired_refusal() -> None:
+    """(b) each of the five stays LLM-proposable, stays outside the
     dispatch, and lands in the chain's ``NOT_WIRED`` fallback — no silent
     fall-through."""
     dispatch = _resolve_dispatch()
@@ -402,7 +401,7 @@ def test_the_declared_unwired_six_reach_only_the_not_wired_refusal() -> None:
 
 
 def test_the_d6_couplings_are_the_recorded_pin_values() -> None:
-    """(c) the hardcoded six-to-coupling map is the D6 ruling text and
+    """(c) the hardcoded five-to-coupling map is the D6 ruling text and
     matches the live uncovered set."""
     assert set(D6_COUPLINGS) == DECLARED_UNWIRED
     assert {token for tokens in D6_COUPLINGS.values() for token in tokens} \
@@ -460,3 +459,25 @@ def test_the_resolver_reads_both_string_literal_orientations() -> None:
         "BRANCH",
     }), sorted(dispatch.covered)
     assert dispatch.fallback_lineno > 0
+
+
+def test_the_round_intent_is_wired_with_a_payload_schema() -> None:
+    """OPS-5Z Group E's positive pin: the kind it wired must stay wired.
+
+    D6-A required the wiring to land as an announced slice. This is the
+    announcement, stated as a test: the kind is in the dispatch chain and
+    its closed payload schema is published to the profiles that can propose
+    it. Unwiring it, or dropping the schema, fails here rather than
+    silently returning to the fallback.
+    """
+    from hermes.core.intents import IntentKind
+    from hermes.research.gateway import INTENT_PAYLOAD_KEYS
+
+    dispatch = _resolve_dispatch()
+    assert dispatch.anomalies == (), list(dispatch.anomalies)
+    assert "REQUEST_ADDITIONAL_EXPERIMENT" in dispatch.covered, (
+        "REQUEST_ADDITIONAL_EXPERIMENT is declared but no longer dispatched — "
+        "it must not return to the NOT_WIRED remainder")
+    assert IntentKind.REQUEST_ADDITIONAL_EXPERIMENT in INTENT_PAYLOAD_KEYS, (
+        "a wired LLM-proposable kind without a closed payload schema is the "
+        "OPS-12 finding this pin refuses")

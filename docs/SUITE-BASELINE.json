@@ -1,0 +1,23 @@
+{
+  "flaky": [
+    "tests/test_concurrency.py::TestCompetingTransitions::test_two_writers_different_tasks_both_succeed",
+    "tests/test_concurrency.py::TestDuplicateIdempotency::test_concurrent_event_append_succeeds",
+    "tests/test_eval_plane.py::TestMatrixRunner::test_matrix_runner_runs_clean_against_the_frozen_tree",
+    "tests/test_p_auto_5_vault.py::test_join_refuses_symlink_and_directory",
+    "tests/test_phase1_acceptance.py::TestForcedConcurrencyRace::test_concurrent_different_tasks_both_succeed",
+    "tests/test_q05_ratification_consumers.py::test_f6_one_verdict_race_closed"
+  ],
+  "history": [
+    {
+      "known": 7,
+      "reason": "Six tests fail only in full-suite context: each passes 3/3 (or 1/1) in isolation. SQLite threading, Windows symlink privileges and shared state under load. Pre-existing: the same set fails on the untouched main checkout. Recorded as known so a NEW failure is loud; the queued slice makes them deterministic."
+    },
+    {
+      "known": 5,
+      "reason": "Six tests are flaky, not known failures: the failing set varies run to run (5660 collected, 4-6 failing, different membership). Observed across five runs. Contention-sensitive: SQLite threading, Windows symlink privileges, shared state. The queued slice makes them deterministic; until then they are recorded as flaky so they gate in neither direction."
+    }
+  ],
+  "known_failures": [],
+  "note": "Six tests are flaky, not known failures: the failing set varies run to run (5660 collected, 4-6 failing, different membership). Observed across five runs. Contention-sensitive: SQLite threading, Windows symlink privileges, shared state. The queued slice makes them deterministic; until then they are recorded as flaky so they gate in neither direction.",
+  "recorded_at": "2026-10-28T20:43:31+00:00"
+}

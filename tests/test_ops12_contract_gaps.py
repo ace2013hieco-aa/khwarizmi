@@ -96,9 +96,10 @@ def test_every_shipped_profile_renders_the_five_statements() -> None:
 
         # 1. the single form requires the kind field, and it is the only form
         #    this build accepts (OPS-5I).
-        assert ('The top-level "kind" field is required: the single-proposal '
-                "form is the only proposal form in this build, and a reply "
-                'carrying a non-empty "proposals" array is refused.') in rendered
+        assert ('The top-level "kind" field is required when the reply '
+                "proposes: the single-proposal form is the only proposal form "
+                "in this build, and a reply carrying a non-empty "
+                '"proposals" array is refused.') in rendered
         assert "required in the single-proposal form" in rendered
         assert "not usable in this build" in rendered
 
@@ -123,12 +124,18 @@ def test_every_shipped_profile_renders_the_five_statements() -> None:
             assert key in rendered
 
         # 4. declared-but-unwired kinds are named from the gateway's set.
+        # OPS-5Z Group E wired REQUEST_ADDITIONAL_EXPERIMENT, so a profile
+        # whose every declared kind is now wired renders no unavailable
+        # sentence — the assertion is conditional on the set, not on the
+        # profile.
         unavailable = [kind for kind in declared if kind not in available]
-        assert unavailable, "every shipped profile has an unwired declared kind"
-        assert (
-            "Declared but unavailable in this phase (the gateway has no "
-            "validator for them): " + ", ".join(unavailable)
-            + ". Choosing one is refused.") in rendered
+        if unavailable:
+            assert (
+                "Declared but unavailable in this phase (the gateway has no "
+                "validator for them): " + ", ".join(unavailable)
+                + ". Choosing one is refused.") in rendered
+        else:
+            assert "Declared but unavailable in this phase" not in rendered
 
         # 5. one form is offered, and the unreachable one is named as refused
         #    (OPS-5I): the note no longer invites it.
@@ -346,3 +353,28 @@ def test_the_live_composition_renders_the_rules(
     assert "Never supply identity keys in a payload" in system
     assert "Declared but unavailable in this phase" in system
     assert "the only proposal form in this build" in system
+
+
+def test_every_shipped_profile_can_propose_something_that_dispatches() -> None:
+    """The edge the critic fell through.
+
+    `test_wired_kinds_match_the_dispatch` compares the enum to the dispatch, and
+    the prompt is rendered from the enum — but nothing compared a *profile's*
+    `proposable_kinds` to the dispatch. The critic declared four verbs and every
+    one was refused, so its whole vocabulary was dead while the prompt told it to
+    "use exactly one of" them.
+
+    This is that comparison, and it is one line.
+    """
+    from hermes.agents.runtime.config import load_profiles
+    from hermes.research.gateway import WIRED_INTENT_KINDS
+
+    wired = {kind.value for kind in WIRED_INTENT_KINDS}
+    silent = {}
+    for name, spec in load_profiles().items():
+        declared = {kind if isinstance(kind, str) else kind.value
+                    for kind in spec.authority.proposable_kinds}
+        if not (declared & wired):
+            silent[name] = sorted(declared)
+    assert not silent, (
+        f"profiles with no proposal kind the gateway dispatches: {silent}")

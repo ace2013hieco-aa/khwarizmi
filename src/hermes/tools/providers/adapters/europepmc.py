@@ -5,10 +5,12 @@ under ``resultList.result``. No credentials (auth ``none``).
 """
 from __future__ import annotations
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.adapters.base_adapter import (
     JsonSearchAdapter,
     make_contract,
 )
+from hermes.tools.providers.base import media_kind
 
 __all__ = ["EuropePmcAdapter"]
 
@@ -38,3 +40,16 @@ class EuropePmcAdapter(JsonSearchAdapter):
     authors_fields = ("authorString", "authors")
     year_fields = ("pubYear", "firstPublicationDate", "year")
     venue_fields = ("journalInfo", "journalTitle", "journal")
+    content_format = ContentFormat.EUROPEPMC
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """Europe PMC's record body is JSON (a ``resultList.result`` record).
+
+        The captured response is ``application/json;charset=UTF-8``. The
+        content-bearing search shape needs ``resultType=core`` in the request;
+        a ``lite`` result carries no ``abstractText`` and reads ``unreadable``
+        rather than being mined for its metadata.
+        """
+        if media_kind(media_type) == "json":
+            return ContentFormat.EUROPEPMC
+        return super().fetch_content_format(media_type)

@@ -28,6 +28,7 @@ import abc
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, TypeAlias
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.normalize import RetrievalHints
 from hermes.tools.research_sources import RequestLogRecord, RetryPolicy, SearchResult
 
@@ -49,6 +50,7 @@ __all__ = [
     "TransportResponse",
     "WalkMode",
     "WalkRequest",
+    "media_kind",
 ]
 
 PaginationKind: TypeAlias = Literal["cursor", "offset", "none"]
@@ -150,10 +152,54 @@ class WalkRequest:
     deadline_monotonic: float | None = None
 
 
+def media_kind(media_type: str | None) -> str:
+    """The coarse kind of a response body: ``json``/``xml``/``html``/``text``.
+
+    Kept here (not imported from the adapter package) so the protocol's
+    default hook has no dependency on a concrete adapter module. The tokens
+    are the :class:`hermes.tools.capabilities.content.ContentFormat` values
+    the reader dispatches on.
+    """
+    kind = (media_type or "").split(";", 1)[0].strip().lower()
+    # HTML first: `application/xhtml+xml` ends in `+xml` but is a page, not
+    # an XML record. Checking the suffix first would declare a real page as an
+    # unmodelled XML document (unreadable) — a false refusal.
+    if kind in ("text/html", "application/xhtml+xml"):
+        return "html"
+    if kind.endswith("+json") or kind in ("application/json", "text/json"):
+        return "json"
+    if kind.endswith("+xml") or kind in ("application/xml", "text/xml"):
+        return "xml"
+    if kind.startswith("text/"):
+        return "text"
+    return ""
+
+
 class ProviderAdapter(abc.ABC):
     """The four hooks the walk/fetch drivers call — the thin-adapter shape."""
 
     contract: ProviderContractCard
+    #: The content format this adapter's *fetched* record carries. Declared
+    #: here so it travels with the artifact (OPS-5Z Group C); the reader
+    #: dispatches on it and never infers a shape from the bytes. ``""`` means
+    #: no extractor is declared for this provider's record.
+    content_format: str = ""
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """The declared content format of one fetched body.
+
+        Determined from the media type the transport reported — a fact about
+        the response, not a shape guess over its bytes. A format-specific
+        adapter overrides for the media type its record uses; the default
+        reads HTML and plain text and leaves JSON/XML undeclared (a search
+        envelope or a record shape this reader does not model).
+        """
+        kind = media_kind(media_type)
+        if kind == "html":
+            return ContentFormat.HTML
+        if kind == "text":
+            return ContentFormat.TEXT
+        return ""
 
     @abc.abstractmethod
     def build_request(

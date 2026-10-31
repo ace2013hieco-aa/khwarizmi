@@ -52,6 +52,7 @@ from hermes.persistence.repositories import (
     ArtifactRepository,
     ProjectRepository,
 )
+from hermes.research.chain_refs import RefProvenanceReader
 from hermes.research.controller import Controller
 from hermes.research.gateway import apply_intent
 from hermes.research.task_handlers import build_methodology_handler
@@ -82,16 +83,6 @@ CLOCK = "2026-10-26T20:00:00.000000+00:00"
 STAGES = ("QUESTION", "HYPOTHESIS", "PREDICTION", "EXPERIMENT", "OBSERVATION",
           "EVIDENCE", "CLAIM", "CRITIQUE", "CONCLUSION")
 
-#: The refs a citationless run may still carry: prior-art ids the substrate
-#: accepts as admission refs. None of them is an *evidence* ref, which is the
-#: point of §1.2 — the admission there is an ordinary task, not a citation.
-REFS: dict[str, str] = {
-    "HYPOTHESIS": "hypothesis:program-ops5m/h1",
-    "PREDICTION": "prediction:program-ops5m/h1/p1",
-    "CLAIM": "claim:claim-ops5m/c1",
-}
-
-
 # ═══════════════════════ harness ═══════════════════════
 
 
@@ -121,8 +112,8 @@ def _spine() -> Any:
     ArtifactRepository(conn, lambda: CLOCK).record(
         artifact_id=AGENT_EVIDENCE_ID, artifact_type="source_payload",
         content_hash=AGENT_EVIDENCE_ID, size_bytes=1,
-        storage_path=f"seed/{AGENT_EVIDENCE_ID}", producer="test",
-        project_id=PROJECT)
+        storage_path=f"seed/{AGENT_EVIDENCE_ID}",
+        producer="capability:source_fetch:test", project_id=PROJECT)
     return conn
 
 
@@ -154,9 +145,7 @@ def _admit(conn: Any, task_id: str, document: dict[str, Any]) -> str:
             "task_id": task_id,
             "task_type": "AGENT_TASK",
             "spec": {"template": METH_TEMPLATE, "methodology": document,
-                     "inputs": {"question": "does it hold?",
-                                "external_refs": REFS,
-                                "admission_refs": list(REFS.values())}},
+                     "inputs": {"question": "does it hold?"}},
             "idempotency_key": f"idem-{task_id}",
             "iteration": 1, "provenance": [], "inputs": [], "outputs": [],
             "dependencies": [], "cost_class": "LOW",
@@ -171,7 +160,8 @@ def _dispatch(conn: Any, model: Any, document: dict[str, Any],
     collected: list[Any] = []
     handler = build_methodology_handler(
         model=model, profiles=_stage_profiles(),
-        on_stage=lambda _wiring, result: collected.append(result))
+        on_stage=lambda _wiring, result: collected.append(result),
+        provenance_of=RefProvenanceReader(conn))
     ctrl = Controller(conn, project_id=PROJECT,
                       task_handlers={METH_TEMPLATE: handler},
                       clock=lambda: CLOCK)
@@ -205,12 +195,14 @@ def _proposal(request: Any, structured: dict[str, Any]) -> ModelProposal:
 def _task_proposal(request: Any) -> ModelProposal:
     return _proposal(request, {
         "kind": "INSERT_TASK", "rationale": "one ordinary task",
+        "statement": "the run's own conjecture",
         "payload": {"spec": {"goal": f"stage {request.profile}"}}})
 
 
 def _transition_proposal(request: Any, ref: str) -> ModelProposal:
     return _proposal(request, {
         "kind": "EVIDENCE_TRANSITION", "rationale": "grounded evidence",
+        "statement": "the observed source supports the conjecture",
         "payload": {"evidence_artifact_ref": ref,
                     "from_state": "SUPPORTED", "to_state": "ROBUST",
                     "rationale": "grounded evidence"}})
@@ -468,7 +460,8 @@ def test_the_driver_still_reports_complete_for_that_run() -> None:
         execution = run_methodology(
             parse_methodology(_document()),
             chain_inputs(PROJECT, "does it hold?"),
-            wiring=wiring, project_id=PROJECT, task_id="t-ops5m-driver")
+            wiring=wiring, project_id=PROJECT, task_id="t-ops5m-driver",
+            provenance_of=RefProvenanceReader(conn))
         assert not isinstance(execution, Exception)
         assert execution.termination == METHODOLOGY_COMPLETE
         assert [record.stage for record in execution.stages] == list(STAGES)

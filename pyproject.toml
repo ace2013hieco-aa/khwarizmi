@@ -23,7 +23,11 @@ dependencies = [
 # External provider SDKs are isolated behind Hermes ports (foundation §5).
 # None are core. They land here as extras only when a concrete adapter needs one.
 docling = ["docling==2.132.0"]
-crawl4ai = ["crawl4ai==0.9.4"]
+# `crawl4ai` is deliberately NOT an extra. The S2 spike is not wired into
+# anything — `crawl4ai_provider.py` is its only importer and says so — while it
+# carried 86 of the 87 advisories in the lock. Revive it by installing the pin
+# in a spike venv (see that module's docstring); re-add the extra only when
+# something actually wires it, which is the moment it deserves a fresh audit.
 
 [dependency-groups]
 dev = [

@@ -55,6 +55,7 @@ from hermes.core.intents import Intent, IntentKind
 from hermes.core.task_status import TaskStatus
 from hermes.governance.authority import ActionRequest, evaluate_authority
 from hermes.governance.policy import GOVERNANCE_POLICY, POLICY_SUBSTITUTION_DETAIL
+from hermes.methodology.swap_test import CHAIN_STATEMENTS
 from hermes.methodology.workflows import LITERATURE_REVIEW_DOCUMENT
 from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
@@ -63,6 +64,7 @@ from hermes.persistence.repositories import (
     ProjectRepository,
     TaskRepository,
 )
+from hermes.research.chain_refs import RefProvenanceReader
 from hermes.research.controller import Controller
 from hermes.research.gateway import GatewayRejection, apply_intent
 from hermes.research.task_handlers import (
@@ -113,12 +115,6 @@ CHILD_TEMPLATE = "observation_review"
 _UNSET: Any = object()
 
 #: Prior-art refs only (OPS-5D); the evidence position is agent-derived.
-REFS: dict[str, str] = {
-    "HYPOTHESIS": "hypothesis:program-w4/h1",
-    "PREDICTION": "prediction:program-w4/h1/p1",
-    "CLAIM": "claim:claim-w4/c1",
-}
-
 #: A real artifact row the agent's evidence transition can cite. The W4 spine
 #: creates it; the gateway's EVIDENCE_REF check is the only validator.
 AGENT_EVIDENCE_ID = "d" * 64
@@ -319,8 +315,8 @@ def _spine() -> Any:
     ArtifactRepository(conn, _clock).record(
         artifact_id=AGENT_EVIDENCE_ID, artifact_type="source_payload",
         content_hash=AGENT_EVIDENCE_ID, size_bytes=1,
-        storage_path=f"seed/{AGENT_EVIDENCE_ID}", producer="test",
-        project_id=PROJECT)
+        storage_path=f"seed/{AGENT_EVIDENCE_ID}",
+        producer="capability:source_fetch:test", project_id=PROJECT)
     return conn
 
 
@@ -481,14 +477,14 @@ def test_a_methodology_template_drives_every_stage_through_the_bound_applier() -
     conn = _spine()
     try:
         model = ProposingModel()
-        handler = build_methodology_handler(model=model,
-                                            profiles=_stage_profiles())
+        handler = build_methodology_handler(
+            model=model, profiles=_stage_profiles(),
+            provenance_of=RefProvenanceReader(conn))
         ctrl = _controller(conn, {METH_TEMPLATE: handler})
         task_id = _admit(conn, "t-meth-1", METH_TEMPLATE, {
             "methodology": dict(LITERATURE_REVIEW_DOCUMENT),
             "inputs": {"question": "does it hold?",
-                       "external_refs": REFS,
-                       "admission_refs": list(REFS.values())},
+                       "stage_content": dict(CHAIN_STATEMENTS)},
         })
         baseline = max(e["event_id"] for e in _events(conn))
 
@@ -533,11 +529,11 @@ def test_a_zero_admission_methodology_run_is_not_a_recorded_outcome() -> None:
     conn = _spine()
     try:
         model = SilentModel()
-        handler = build_methodology_handler(model=model,
-                                            profiles=_stage_profiles())
+        handler = build_methodology_handler(
+            model=model, profiles=_stage_profiles(),
+            provenance_of=RefProvenanceReader(conn))
         inputs = {"question": "does it hold?",
-                  "external_refs": REFS,
-                  "admission_refs": list(REFS.values())}
+                  "stage_content": dict(CHAIN_STATEMENTS)}
         document = dict(LITERATURE_REVIEW_DOCUMENT)
         document["stages"] = [dict(document["stages"][0])]
         document["termination"] = {**dict(document["termination"]),

@@ -8,10 +8,14 @@ via the existing make_persisting_sink) → handlers (make_source_*_handler) →
 Controller tick → UntrustedContent envelope + journal.
 
 No credentials in tree. No new deps. Sanitized egress is scheme+host
-allowlisted to the two APIs inside the transport; redirects are re-vetted
-at every hop (same-origin https only — A1). Each search/fetch dispatch
-carries an overall wall-clock deadline (D1 — the SourcePolicy default),
-so a hung provider cannot hold a controller tick open past its budget.
+allowlisted to the reviewed provider APIs inside the transport; redirects are
+re-vetted at every hop (same-origin https only — A1). Each search/fetch
+dispatch carries an overall wall-clock deadline (D1 — the SourcePolicy
+default), so a hung provider cannot hold a controller tick open past its
+budget. The wiring itself still instantiates the two D5 keyless adapters;
+the host surface also covers the content sources read at
+``hermes.tools.capabilities.content`` (Crossref, arXiv, INSPIRE-HEP,
+Semantic Scholar, Europe PMC), each entry carrying its own review record.
 
 Every fetch is journaled as a provider_interaction (RecordedTransport's
 sink); live runs convert those interactions to replay fixtures (the
@@ -59,9 +63,11 @@ from hermes.tools.providers.replay import RecordedTransport, provider_resolver_f
 from hermes.tools.research_sources import ProviderValidationError
 
 __all__ = [
+    "ALLOWLIST_ENTRIES",
     "ALLOWLIST_HOSTS",
     "DEFAULT_PER_CALL_TIMEOUT_SECONDS",
     "RATE_LIMITER_PERSISTENCE",
+    "AllowlistedHost",
     "EgressRefusal",
     "LiveFetchWiring",
     "allowlist_from_config",
@@ -77,16 +83,136 @@ __all__ = [
 # — acceptable or fixed here"). Stated here, tested in the live-fetch tests.
 RATE_LIMITER_PERSISTENCE = "in-memory (resets on restart; acceptable per P-AUTO-3)"
 
-# (d) Sanitized egress — scheme/host allowlist for the two APIs only (D5:
-# OpenAlex + PubMed). Each provider's canonical content host (where its
-# record source_url points — the honest fetch target for SOURCE_FETCH)
-# is part of the same provider's API surface; no third-party egress.
-ALLOWLIST_HOSTS: tuple[str, ...] = (
-    "api.openalex.org",
-    "openalex.org",
-    "eutils.ncbi.nlm.nih.gov",
-    "pubmed.ncbi.nlm.nih.gov",
+# (d) Sanitized egress — scheme/host allowlist for the vetted provider APIs.
+# Each entry is a reviewed security decision, not a config value: the exact
+# host, who operates it, what it serves, whether it needs a credential, what
+# happens without one, and the rate the adapter assumes. A host added without
+# that record is a host nobody can review later. Host granularity is the
+# egress layer's: a provider served from a shared host (``www.ebi.ac.uk``)
+# admits that host's other services too, named in its entry.
+@dataclass(frozen=True, slots=True)
+class AllowlistedHost:
+    """One reviewed egress host and the facts a reviewer needs."""
+
+    host: str
+    provider: str
+    operator: str
+    serves: str
+    credential: str
+    without_credential: str
+    rate_limit: str
+
+
+ALLOWLIST_ENTRIES: tuple[AllowlistedHost, ...] = (
+    AllowlistedHost(
+        host="api.openalex.org",
+        provider="openalex",
+        operator="OpenAlex (OurResearch, nonprofit)",
+        serves="work records as JSON (/works/W…)",
+        credential="none required; a mailto joins the polite pool, and that "
+                   "belongs to deployment config, never the adapter",
+        without_credential="the same records are served; the polite pool is "
+                           "a courtesy signal, not an authentication",
+        rate_limit="adapter assumes 1 rps, burst 2, 1 concurrent "
+                   "(RateProfile default)"),
+    AllowlistedHost(
+        host="openalex.org",
+        provider="openalex",
+        operator="OpenAlex (OurResearch, nonprofit)",
+        serves="canonical work pages; a search row's source_url",
+        credential="none",
+        without_credential="the record page blocks plain GETs, so the "
+                           "adapter rewrites it to api.openalex.org before "
+                           "dialing; this host is the honest source_url, not "
+                           "the fetch target",
+        rate_limit="adapter assumes 1 rps (RateProfile default)"),
+    AllowlistedHost(
+        host="eutils.ncbi.nlm.nih.gov",
+        provider="pubmed",
+        operator="NCBI / US National Library of Medicine (NIH)",
+        serves="E-utilities esearch/esummary XML and JSON",
+        credential="none required; an NCBI API key raises the quota (10 rps "
+                   "instead of 3)",
+        without_credential="the service answers at the lower anonymous quota",
+        rate_limit="adapter assumes 1 rps, burst 2 (below the 3 rps "
+                   "anonymous ceiling)"),
+    AllowlistedHost(
+        host="pubmed.ncbi.nlm.nih.gov",
+        provider="pubmed",
+        operator="NCBI / US National Library of Medicine (NIH)",
+        serves="PubMed article pages (the source_url a PubMed row carries)",
+        credential="none",
+        without_credential="pages are served; a cookie wall or challenge "
+                           "body is refused by the content gate "
+                           "(NON_CONTENT_PAYLOAD), never recorded as a source",
+        rate_limit="adapter assumes 1 rps (RateProfile default)"),
+    AllowlistedHost(
+        host="api.crossref.org",
+        provider="crossref",
+        operator="Crossref (the DOI registration agency, run by the "
+                 "publishers' association)",
+        serves="DOI work records as JSON (/works/{doi}); the abstract is "
+               "JATS when deposited",
+        credential="none required; a mailto joins the polite pool, kept in "
+                   "deployment config",
+        without_credential="the same records are served from the public pool",
+        rate_limit="observed response headers during capture: "
+                   "x-rate-limit-limit 5 per 1 s, x-concurrency-limit 1; "
+                   "adapter assumes 1 rps, 1 concurrent"),
+    AllowlistedHost(
+        host="export.arxiv.org",
+        provider="arxiv",
+        operator="arXiv (Cornell University)",
+        serves="the Atom query API (/api/query?id_list=…); the record is an "
+               "<entry> with title and summary",
+        credential="none",
+        without_credential="the API is open; arXiv asks callers to pause "
+                           "between requests, and the adapter's 1 rps honours "
+                           "that",
+        rate_limit="adapter assumes 1 rps, burst 2 (arXiv's API guidance is "
+                   "a few seconds between calls)"),
+    AllowlistedHost(
+        host="inspirehep.net",
+        provider="inspirehep",
+        operator="INSPIRE-HEP (CERN)",
+        serves="the literature search API and each hit's JSON record link "
+               "(/api/literature/{recid}?format=json)",
+        credential="none",
+        without_credential="the API is open; no published key or token is "
+                           "required for these read calls",
+        rate_limit="adapter assumes 1 rps, burst 2 (RateProfile default); "
+                   "INSPIRE publishes no numeric anonymous limit"),
+    AllowlistedHost(
+        host="api.semanticscholar.org",
+        provider="semantic-scholar",
+        operator="Semantic Scholar (Allen Institute for AI)",
+        serves="Graph API paper records (/graph/v1/paper/DOI:…); a record "
+               "carries title, abstract and citationCount",
+        credential="optional API key (query/header), injected from "
+                   "deployment config by the adapter's auth policy",
+        without_credential="the anonymous pool is shared and rate-limited: "
+                           "during capture the search endpoint answered 429 "
+                           "and a retry on the paper endpoint succeeded; a "
+                           "429 is a transient THROTTLED verdict, never a "
+                           "content read",
+        rate_limit="adapter assumes 1 rps, burst 2; the anonymous pool can "
+                   "still throttle, so THROTTLED is a transient verdict"),
+    AllowlistedHost(
+        host="www.ebi.ac.uk",
+        provider="europepmc",
+        operator="EMBL-EBI (the European Bioinformatics Institute)",
+        serves="Europe PMC REST search (/europepmc/webservices/rest/search) "
+               "as JSON; resultType=core carries the abstract",
+        credential="none",
+        without_credential="the REST API is open; a lite result carries no "
+                           "abstract and reads unreadable, not metadata",
+        rate_limit="adapter assumes 1 rps, burst 2 (RateProfile default)"),
 )
+
+#: The code-owned host surface, derived from the reviewed entries. Egress
+#: gates consume this tuple; adding a host means adding an entry above.
+ALLOWLIST_HOSTS: tuple[str, ...] = tuple(
+    entry.host for entry in ALLOWLIST_ENTRIES)
 DEFAULT_PER_CALL_TIMEOUT_SECONDS = 10.0
 
 
@@ -155,8 +281,8 @@ class _AllowlistedTransport:
     """Sanitized egress gate: a thin adapter over ``EgressPolicy.vet``.
 
     Wraps any Transport. Refuses anything else fail-closed before any I/O.
-    The allowlist is the code-owned D5 provider surface, optionally NARROWED
-    by operator config (never widened — see ``allowlist_from_config``).
+    The allowlist is the code-owned reviewed provider surface, optionally
+    NARROWED by operator config (never widened — see ``allowlist_from_config``).
 
     FIX-USERINFO — the rule layer has exactly ONE implementation. The gate
     used to re-derive the host with ``netloc.lower().split(":")[0]``, which

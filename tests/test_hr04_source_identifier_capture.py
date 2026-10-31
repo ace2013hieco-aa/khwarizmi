@@ -571,6 +571,7 @@ STEP1_RAW_SHAPES: dict[str, dict[str, str]] = {
     "semantic-scholar": {
         "s2_paper_id": "649def34f8be52c8b66281af98ae884c09aef38b",
         "doi": "10.1038/NATURE12373"},
+    "inspirehep": {"doi": "10.1038/NATURE12373", "arxiv": "2103.15348v2"},
     "core": {"core_id": "82071694",
              "url": "https://core.ac.uk/download/82071694.pdf"},
     "unpaywall": {"doi": "10.1038/NATURE12373."},
@@ -593,6 +594,7 @@ STEP1_EXPECTED_CANONICAL: dict[str, dict[str, str]] = {
     "semantic-scholar": {
         "s2_paper_id": "649def34f8be52c8b66281af98ae884c09aef38b",
         "doi": "10.1038/nature12373"},
+    "inspirehep": {"doi": "10.1038/nature12373", "arxiv": "2103.15348"},
     "core": {"core_id": "82071694",
              "url": "https://core.ac.uk/download/82071694.pdf"},
     "unpaywall": {"doi": "10.1038/nature12373"},
@@ -608,10 +610,10 @@ class TestStep1ProviderSourceIdentityClosure:
     identity closure — the HR-04 normalization choke point covers every
     provider adapter before historical provider closure."""
 
-    def test_allowlist_is_exactly_the_eleven_ratified_providers(self):
+    def test_allowlist_is_exactly_the_ratified_providers(self):
         from hermes.tools.research_sources import SOURCE_PROVIDER_ALLOWLIST
         assert set(SOURCE_PROVIDER_ALLOWLIST) == set(STEP1_RAW_SHAPES)
-        assert len(SOURCE_PROVIDER_ALLOWLIST) == 15
+        assert len(SOURCE_PROVIDER_ALLOWLIST) == 16
 
     @pytest.mark.parametrize("provider", sorted(STEP1_RAW_SHAPES))
     def test_per_adapter_raw_shape_canonicalizes(self, provider):

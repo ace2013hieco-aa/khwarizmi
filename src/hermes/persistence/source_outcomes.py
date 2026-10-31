@@ -327,6 +327,17 @@ class SourceRepos:
         """
         return self.source.read_payload_bytes(ref)
 
+    def read_payload_format(self, ref: str) -> str:
+        """The content format declared for one payload ref, or ``""``.
+
+        OPS-5Z Group C: the format is a property of the fetch, recorded beside
+        the bytes. The controller's quote and span seams read it here instead
+        of inferring a shape from the payload. An older row carries the
+        provider id, which names the same shape for the providers this reader
+        models; a row with neither is undeclared and reads as a fallback.
+        """
+        return self.source.read_payload_format(ref)
+
 
 class SourceOutcomeRepository:
     """The ONE source-outcome write boundary (design record D3 / remediation §E).
@@ -517,6 +528,36 @@ class SourceOutcomeRepository:
             return self._store.read_verified(artifact_id)
         except FileNotFoundError:
             return None
+
+    def read_payload_format(self, ref: str) -> str:
+        """The content format recorded for a payload ref, or ``""``.
+
+        Same typed resolution as :meth:`read_payload_bytes` — the prefix must
+        match the row's type and the key is the full 64-hex hash. The value is
+        data the fetch path wrote (``content_format``); this method never
+        inspects the bytes. The provider id is not a fallback — a provider can
+        serve several shapes, and a name is not a format declaration.
+        """
+        if not isinstance(ref, str) or ":" not in ref:
+            return ""
+        artifact_type, _, artifact_id = ref.partition(":")
+        if artifact_type not in ("source_result", "source_payload"):
+            return ""
+        if len(artifact_id) != 64 or not all(
+                c in "0123456789abcdef" for c in artifact_id):
+            return ""
+        row = self._conn.execute(
+            "SELECT metadata_json FROM artifacts WHERE content_hash = ? "
+            "AND artifact_type = ?",
+            (artifact_id, artifact_type),
+        ).fetchone()
+        if row is None:
+            return ""
+        metadata = self._json_loads(row["metadata_json"]) or {}
+        if not isinstance(metadata, dict):
+            return ""
+        declared = metadata.get("content_format")
+        return declared if isinstance(declared, str) else ""
     def _validate_identities(self, outcome: object, outcome_kind: str) -> None:
         """Re-derive EVERY identity with the shipped helpers; a mismatch
         fails closed before the write (EC-V6 / ADV-01/06 discipline)."""
@@ -1046,6 +1087,12 @@ class SourceOutcomeRepository:
                 metadata={
                     "source_result_ref":
                         "source_result:" + content_hash_of_search_result(f.source),
+                    # OPS-5Z Group C: the shape the adapter declared at fetch.
+                    # It travels with the bytes so no reader has to infer it;
+                    # the provider is kept beside it for older rows and for
+                    # attribution.
+                    "content_format": payload.artifact.content_format,
+                    "provider": f.source.provider,
                 },
             )
             # R02 (final review) — the store dedups by hash only; the TYPE
@@ -1154,13 +1201,20 @@ class SourceOutcomeRepository:
                 "evidence_basis": dict(n.evidence_basis or {}),
             })
         for fl in getattr(outcome, "failed", ()):
-            per_source.append({
+            failed: dict[str, object] = {
                 "source_ref": "source_result:"
                     + content_hash_of_search_result(fl.source),
                 "resolution": "failed",
                 "failure_class": fl.failure_class,
                 "reason": fl.reason,
-            })
+            }
+            # OPS-5Z3 — a content refusal's named code is part of the durable
+            # outcome, not just an in-memory field: the record must say *why* a
+            # fetched page was not stored (an empty field is omitted, so every
+            # pre-existing failure shape is unchanged).
+            if getattr(fl, "code", ""):
+                failed["code"] = fl.code
+            per_source.append(failed)
         # IDR-046 D2 — the fetch-side provenance marker:
         # `{x.source.provider}` over `per_source` / `no_full_text` /
         # `failed`, falling back to the producing fetch task's

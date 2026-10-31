@@ -405,6 +405,16 @@ class RuntimeRefusal:
     #: (OPS-10). Diagnostic context only; `as_dict()` keeps the refusal-as-data
     #: shape unchanged and nothing reads this field as authority.
     excerpt: str = ""
+    #: True when the *model* could repair this refusal by proposing again: the
+    #: draft's own shape, bounds or citation was refused, not the profile's
+    #: authority and not the spine's governance (OPS-5Z2). It is the refusing
+    #: site's decision, never a property of the code — `MALFORMED_PAYLOAD` covers
+    #: both a draft the schema refuses and a request-side guard that would fail
+    #: identically on a second call, and `PROPOSAL` covers both a citation that
+    #: names nothing admitted and a governance denial. Default False, the same
+    #: rule `ModelRefusal.contract_feedback` follows: a refusal built without a
+    #: site that opted in never gains a re-prompt by omission.
+    model_actionable: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         """The shape §2.4 gives gateway refusals, so a plane refusal and a spine
@@ -426,7 +436,8 @@ class RuntimeRefusal:
             tick=int(data.get("tick", 0)),
             lease_generation=str(data.get("lease_generation", "")),
             kind=str(data.get("kind", "")),
-            excerpt=str(data.get("excerpt", "")))
+            excerpt=str(data.get("excerpt", "")),
+            model_actionable=bool(data.get("model_actionable", False)))
 
 
 # ═══════════════════════ proposals ═══════════════════════
@@ -474,6 +485,11 @@ class Proposal:
     profile: str
     agent_profile: str
     lease_generation: str
+    #: What the draft asserts, as distinct from *why* it is raised (OPS-5Y).
+    #: Optional: a draft without one keeps its previous mapping and digest, so
+    #: every existing proposal's identity is unchanged. A minted methodology
+    #: node refuses without it; the runtime does not.
+    statement: str = ""
     model: str = ""
     #: The *derived* invocation keys of the calls whose retained evidence this
     #: draft was drafted on (LOOP-4 E8) — the provenance link from a draft back
@@ -504,6 +520,10 @@ class Proposal:
             "payload": dict(self.intent.payload),
             "justification": self.intent.justification,
             "rationale": self.rationale,
+            # OPS-5Y: only when supplied, so every pre-existing draft keeps
+            # the digest it had. A draft that carries a statement is a
+            # different draft because its asserted content differs.
+            **({"statement": self.statement} if self.statement else {}),
             "artifact_ref": self.artifact_ref,
         })
 
@@ -516,7 +536,7 @@ class Proposal:
                                   Admission.DUPLICATE.value)
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping: dict[str, Any] = {
             "intent": intent_to_mapping(self.intent),
             "rationale": self.rationale,
             "tick": self.tick,
@@ -530,6 +550,11 @@ class Proposal:
             "admission_detail": self.admission_detail,
             "admitted_entity_id": self.admitted_entity_id,
         }
+        # OPS-5Y: conditional, so a proposal without a statement serializes
+        # byte-identically to its pre-slice mapping.
+        if self.statement:
+            mapping["statement"] = self.statement
+        return mapping
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "Proposal":
@@ -543,6 +568,7 @@ class Proposal:
             profile=str(data.get("profile", "")),
             agent_profile=str(data.get("agent_profile", "")),
             lease_generation=str(data.get("lease_generation", "")),
+            statement=str(data.get("statement", "")),
             model=str(data.get("model", "")),
             capability_refs=tuple(str(ref) for ref in
                                   (data.get("capability_refs") or ())),
@@ -912,6 +938,13 @@ class Checkpoint:
     context_digest: str = ""
     proposals: tuple[Proposal, ...] = ()
     refusals: tuple[RuntimeRefusal, ...] = ()
+    #: The model-actionable draft refusals owed to the **next** tick's prompt
+    #: (OPS-5Z2). `refusals` is the run's full, report-facing history; this is the
+    #: pending half of it, consumed once by the next model phase and cleared, so a
+    #: refusal is never re-injected into a later tick. Carried across a resume
+    #: like the other loop state: a recovery that forgot why the last tick failed
+    #: would re-ask the identical question.
+    draft_feedback: tuple[RuntimeRefusal, ...] = ()
     delegations: tuple[DelegationRecord, ...] = ()
     feedback: tuple[ToolFeedback, ...] = ()
     review_verdicts: tuple[ReviewVerdict, ...] = ()
@@ -947,6 +980,8 @@ class Checkpoint:
             "context_digest": self.context_digest,
             "proposals": [proposal.to_mapping() for proposal in self.proposals],
             "refusals": [refusal.to_mapping() for refusal in self.refusals],
+            "draft_feedback": [refusal.to_mapping()
+                               for refusal in self.draft_feedback],
             "delegations": [record.to_mapping() for record in self.delegations],
             "feedback": [record.to_mapping() for record in self.feedback],
             "review_verdicts": [verdict.to_mapping()
@@ -988,6 +1023,8 @@ class Checkpoint:
                             for item in (data.get("proposals") or ())),
             refusals=tuple(RuntimeRefusal.from_mapping(item)
                            for item in (data.get("refusals") or ())),
+            draft_feedback=tuple(RuntimeRefusal.from_mapping(item)
+                                 for item in (data.get("draft_feedback") or ())),
             delegations=tuple(DelegationRecord.from_mapping(item)
                               for item in (data.get("delegations") or ())),
             feedback=tuple(ToolFeedback.from_mapping(item)

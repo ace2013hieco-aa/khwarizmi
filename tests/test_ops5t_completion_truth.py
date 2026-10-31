@@ -45,6 +45,7 @@ from hermes.agents.runtime.config import ProfileSpec, parse_profile
 from hermes.agents.runtime.types import Admission, TaskStatus
 from hermes.agents.runtime.wiring import FencedIntentApplier, LeaseFence
 from hermes.core.intents import Intent, IntentKind, IntentRejectedError
+from hermes.methodology.swap_test import CHAIN_STATEMENTS
 from hermes.methodology.workflows import LITERATURE_REVIEW_DOCUMENT
 from hermes.persistence.database import connect
 from hermes.persistence.migrations import migrate_to_latest
@@ -80,9 +81,6 @@ LEASE = "gen-ops5t"
 #: finished anyway. Neither stage is an evidence position, so no citation is
 #: needed and the substrate cannot be the reason the run stops.
 STAGES = ("QUESTION", "HYPOTHESIS")
-
-#: The prior-art refs the HYPOTHESIS position reads (it has no producer here).
-REFS: dict[str, str] = {"HYPOTHESIS": "hypothesis:program-ops5t/h1"}
 
 MANDATORY_GATES = ("hypothesis", "pre_compute", "pre_live")
 
@@ -148,8 +146,7 @@ def _admit(conn: Any, task_id: str, document: dict[str, Any]) -> str:
             "task_type": "AGENT_TASK",
             "spec": {"template": METH_TEMPLATE, "methodology": document,
                      "inputs": {"question": "does it hold?",
-                                "external_refs": REFS,
-                                "admission_refs": list(REFS.values())}},
+                                "stage_content": dict(CHAIN_STATEMENTS)}},
             "idempotency_key": f"idem-{task_id}",
             "iteration": 1, "provenance": [], "inputs": [], "outputs": [],
             "dependencies": [], "cost_class": "LOW",
@@ -354,6 +351,7 @@ class _Model:
         self.calls.append(request)
         return _proposal(request, {"proposals": [
             {"kind": "INSERT_TASK", "rationale": "because",
+             "statement": "the run's own conjecture",
              "payload": {"spec": {"goal": f"slot {slot}"}}}
             for slot in range(self.count)]})
 
@@ -368,8 +366,7 @@ def _driver_run(applier: ScriptedApplier, *, stages: tuple[str, ...] = STAGES,
         profiles=_stage_profiles(), clock=lambda: CLOCK)
     return run_methodology(
         parse_methodology(_document(stages)),
-        MethodologyInputs(question="does it hold?", external_refs=dict(REFS),
-                          admission_refs=tuple(REFS.values())),
+        MethodologyInputs(question="does it hold?"),
         wiring=wiring, project_id=PROJECT, task_id=TASK)
 
 

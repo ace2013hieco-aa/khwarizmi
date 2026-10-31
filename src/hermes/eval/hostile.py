@@ -100,6 +100,7 @@ from hermes.eval.import_gate import (
     require_declaration,
 )
 from hermes.methodology.substrate import (
+    RefBacking,
     SubstrateNode,
     SubstrateRefusal,
     SubstrateStore,
@@ -1271,8 +1272,10 @@ _METHOD_REFS = {
 
 def _method_fresh(*, retracted: Sequence[str] = ()) -> SubstrateStore:
     store = SubstrateStore()
-    for ref in _METHOD_REFS.values():
-        store.admit_ref(ref, _METHOD_PROJECT)
+    for kind, ref in _METHOD_REFS.items():
+        origin = "FETCHED" if kind == "EVIDENCE" else "ROW"
+        store.admit_ref(ref, _METHOD_PROJECT,
+                        backing=RefBacking(origin=origin, witness="RESOLVER"))
     for ref in retracted:
         store.retract(ref)
     return store
@@ -1293,10 +1296,34 @@ def _method_id(store: SubstrateStore, node: SubstrateNode) -> str:
     return recorded
 
 
+def _method_chain_to_observation(store: SubstrateStore) -> str:
+    """A well-formed chain up to OBSERVATION — the fixture for EVIDENCE probes.
+
+    OPS-5Y: the HYPOTHESIS and PREDICTION are minted (statement + origin), not
+    citations. The returned id is the OBSERVATION predecessor an EVIDENCE node
+    must descend from.
+    """
+    question_id = _method_id(store, _method_node("QUESTION", question="q?"))
+    hypothesis_id = _method_id(store, _method_node(
+        "HYPOTHESIS", statement="the conjecture", origin="MINTED",
+        predecessors=(question_id,)))
+    prediction_id = _method_id(store, _method_node(
+        "PREDICTION", statement="the prediction", origin="MINTED",
+        predecessors=(hypothesis_id,)))
+    experiment_id = _method_id(store, _method_node(
+        "EXPERIMENT", test="the discriminating step",
+        predecessors=(prediction_id,)))
+    # An observation must cite the artifact it observed: `_method_fresh` admits
+    # the evidence ref, and without it the node is not a recorded observation.
+    return _method_id(store, _method_node(
+        "OBSERVATION", predecessors=(experiment_id,),
+        cited_refs=(_METHOD_REFS["EVIDENCE"],)))
+
+
 def methodology_gap() -> str:
     """A non-root node without a predecessor refuses PROVENANCE."""
     recorded = write_node(_method_fresh(), _method_node(
-        "HYPOTHESIS", external_ref=_METHOD_REFS["HYPOTHESIS"]))
+        "HYPOTHESIS", statement="the conjecture", origin="MINTED"))
     if not isinstance(recorded, SubstrateRefusal):
         raise AssertionError(
             f"methodology gap: predecessor-less node was admitted: "
@@ -1323,10 +1350,10 @@ def methodology_retraction() -> str:
 def methodology_circular() -> str:
     """A cyclic provenance graph refuses the report and every write."""
     first = _method_node(
-        "HYPOTHESIS", external_ref=_METHOD_REFS["HYPOTHESIS"],
+        "HYPOTHESIS", statement="the conjecture", origin="MINTED",
         predecessors=("mnode_second",))
     second = _method_node(
-        "PREDICTION", external_ref=_METHOD_REFS["PREDICTION"],
+        "PREDICTION", statement="the prediction", origin="MINTED",
         predecessors=("mnode_first",))
     cyclic = SubstrateStore(nodes={"mnode_first": first,
                                    "mnode_second": second})
@@ -1350,10 +1377,10 @@ def methodology_circular() -> str:
 def methodology_hallucination() -> str:
     """A citation of an unobserved external_ref refuses."""
     store = _method_fresh()
-    question_id = _method_id(store, _method_node("QUESTION", question="q?"))
+    observation_id = _method_chain_to_observation(store)
     recorded = write_node(store, _method_node(
-        "HYPOTHESIS", external_ref="hypothesis:never-seen/h1",
-        predecessors=(question_id,)))
+        "EVIDENCE", external_ref="evidence:never-seen",
+        predecessors=(observation_id,)))
     if not isinstance(recorded, SubstrateRefusal):
         raise AssertionError(
             f"methodology hallucination: unobserved ref was admitted: "
@@ -1367,11 +1394,12 @@ def methodology_hallucination() -> str:
 def methodology_coupling() -> str:
     """A foreign-project external_ref fails closed."""
     store = _method_fresh()
-    store.admit_ref("hypothesis:foreign/h1", "p2")
-    question_id = _method_id(store, _method_node("QUESTION", question="q?"))
+    store.admit_ref("evidence:foreign", "p2",
+                    backing=RefBacking("ROW", "RESOLVER"))
+    observation_id = _method_chain_to_observation(store)
     recorded = write_node(store, _method_node(
-        "HYPOTHESIS", external_ref="hypothesis:foreign/h1",
-        predecessors=(question_id,)))
+        "EVIDENCE", external_ref="evidence:foreign",
+        predecessors=(observation_id,)))
     if not isinstance(recorded, SubstrateRefusal):
         raise AssertionError(
             f"methodology coupling: foreign ref was admitted: {recorded!r}")

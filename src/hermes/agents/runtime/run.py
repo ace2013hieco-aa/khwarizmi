@@ -122,10 +122,22 @@ The wire shape a profile's contract expects:
 ```json
 {"rationale": "<proposal-set rationale, contract-required>",
  "kind": "INSERT_TASK", "payload": {...},
- "proposals": [{"kind": "...", "rationale": "...", "payload": {...}}],
+ "statement": "<what the proposal asserts, not why; required when the
+               reply proposes in a minting stage>",
+ "proposals": [{"kind": "...", "rationale": "...", "payload": {...},
+                "statement": "..."}],
  "tool_calls": [{"capability_id": "...", "arguments": {...}, "rationale": "..."}],
  "delegations": [{"profile": "critic", "spec": {...}, "task_type": "AGENT_TASK"}]}
 ```
+
+`statement` is the *draft's* asserted content; `rationale` is why the draft
+was raised. They are different fields because a justification is not a claim
+(OPS-5Y): a minted HYPOTHESIS, PREDICTION or CLAIM reads its statement from
+here, never from the rationale. The key is optional except when the reply
+proposes in a minting stage — `HYPOTHESIS`, `PREDICTION` or `CLAIM` — where the
+contract requires a non-empty statement and the router refuses a proposal
+without one (OPS-5Z). A proposal that carries no statement keeps its previous
+identity and digest.
 
 Either the single-proposal form (`kind` + `payload`) or the multi-proposal form
 (`proposals`) — never both, and only the optional sections the profile declares
@@ -148,6 +160,7 @@ from hermes.agents.runtime.assembly import (
     ContextAssembler,
     contract_feedback_envelope,
     default_context_assembler,
+    draft_feedback_envelope,
     feedback_envelopes,
     proposal_envelopes,
     retry_envelope,
@@ -260,7 +273,13 @@ TOOL_CALLS_FIELD: str = "tool_calls"
 #: an unknown key is refused, never ignored. ``TOOL_CALL_ARGUMENTS_KEY`` is
 #: named separately because the validator requires it to be a mapping, and the
 #: prompt renders that one key as an object rather than a string (OPS-5G).
-DRAFT_KEYS: frozenset[str] = frozenset({"kind", "rationale", "payload"})
+#:
+#: ``statement`` (OPS-5Y) is the draft's asserted content, distinct from the
+#: rationale's justification. It is optional: a proposal that omits it keeps
+#: its previous digest and mapping (``Proposal.to_mapping`` is conditional).
+DRAFT_KEYS: frozenset[str] = frozenset({"kind", "rationale", "payload",
+                                        "statement"})
+STATEMENT_MAX_CHARS: int = 2000
 TOOL_CALL_ARGUMENTS_KEY: str = "arguments"
 TOOL_CALL_KEYS: frozenset[str] = frozenset({"capability_id",
                                             TOOL_CALL_ARGUMENTS_KEY,
@@ -299,6 +318,30 @@ _CONTRACT_SECTIONS: Mapping[str, str] = {
 _PLANE_REFUSAL_CODES: frozenset[str] = frozenset(
     {PROPOSAL, ROLE, MALFORMED_PAYLOAD, STALE, LOCK, RATIONALE, "OPERATOR"})
 
+#: The spine codes the *model* can repair, and therefore the only spine refusals
+#: the next tick is told about (OPS-5Z2). The split is the same one OPS-15 made
+#: for model refusals, at the layer that can still act on it:
+#:
+#: * `MALFORMED_PAYLOAD` — the gateway's closed payload schema refused a key or a
+#:   value the model wrote (run 40's `provenance_level` on `INSERT_TASK`).
+#: * `EVIDENCE_REF` / `EVIDENCE_DOES_NOT_RESOLVE` — the draft cites an artifact
+#:   ref that does not dereference in this project (run 40's invented
+#:   `evidence:obs-sars-covid-40-…`).
+#: * `PROVENANCE` — a reserved provenance ref that does not dereference.
+#:
+#: Every other spine refusal is decided *above* the model: `ROLE`/`OPERATOR` are
+#: authority, `PROPOSAL` covers governance and an already-decided proposal,
+#: `STALE`/`LOCK`/`BUDGET`/`DEPENDENCY`/`IDEMPOTENCY_CONFLICT` are scheduler and
+#: identity facts, `NOT_WIRED`/`UNKNOWN_KIND` are build facts, and
+#: `PROJECT_NOT_FOUND`/`SCOPE_NOT_GOVERNED`/`NOT_COMPILED`/`CLASSIFICATION_REF`
+#: are the spine's own state. Re-prompting any of them would spend a tick on a
+#: question whose answer cannot change. Written as literals because this plane
+#: may not import `research/` (the codes are the gateway's frozen vocabulary at
+#: `gateway.py:120-140`), plus the substrate's citation code.
+ACTIONABLE_SPINE_CODES: frozenset[str] = frozenset({
+    MALFORMED_PAYLOAD, "EVIDENCE_REF", "EVIDENCE_DOES_NOT_RESOLVE", "PROVENANCE",
+})
+
 
 @runtime_checkable
 class ModelPort(Protocol):
@@ -329,6 +372,7 @@ class IntentApplier(Protocol):
 def output_contract_for(
     spec: ProfileSpec, *,
     capability_tool_note: str = "",
+    requires_statement: bool = False,
 ) -> OutputContract:
     """The profile's declared output contract, built from configuration.
 
@@ -337,11 +381,21 @@ def output_contract_for(
     forms. It rides the ``tool_calls`` field note; it is prompt data, never a
     validator. The runtime's ``spec.tools`` check and the plane's grant remain
     the authority.
+
+    ``requires_statement`` (OPS-5Z) makes the ``statement`` field conditional:
+    required when the reply proposes, still optional for a gather tick. It
+    defaults to False so every existing caller keeps today's contract by
+    construction.
     """
     fields = [
         FieldSpec(spec.model_policy.kind_field, "string", required=False),
         FieldSpec(spec.model_policy.rationale_field, "string"),
         FieldSpec("payload", "object", required=False),
+        # OPS-5Y: the draft's asserted content. OPS-5Z: conditional on the
+        # reply proposing — `required` stays False because a gather tick in a
+        # minting stage raises no proposal and must validate.
+        FieldSpec("statement", "string", required=False,
+                  required_when_proposing=requires_statement),
     ]
     for section in spec.model_policy.structured_fields:
         field_type = _CONTRACT_SECTIONS.get(section)
@@ -352,6 +406,19 @@ def output_contract_for(
         fields.append(FieldSpec(section, field_type, required=False))
     field_names = {field.name for field in fields}
     field_notes: list[tuple[str, str]] = []
+    # OPS-5Y/OPS-5ZM: the draft's prose, rendered from the validator's own
+    # bound so the prompt cannot state a different one. The stage's objective
+    # says what it wants (a claim, or an experiment's discriminating test);
+    # this note says where that substance belongs. Optional everywhere: the
+    # runtime accepts a draft without it.
+    _statement_core = (
+        "the substance this stage's objective asks for — a claim, or an "
+        "experiment's discriminating test — never why it is raised (that is "
+        f"the rationale); at most {STATEMENT_MAX_CHARS} characters")
+    field_notes.append((
+        "statement",
+        _statement_core if requires_statement
+        else f"optional: {_statement_core}"))
     if spec.model_policy.kind_field in field_names:
         # OPS-5I: the note used to say "omit it in the multi-proposal form".
         # That form cannot be used in this build — the plane refuses a
@@ -481,6 +548,11 @@ class _RunState:
     #: The content identities of the verdicts already consumed — the stability set
     #: the re-draft loop terminates on when a reviewer's judgment stops moving.
     seen_verdicts: set[str] = field(default_factory=set)
+    #: The model-actionable draft refusals owed to the *next* tick's prompt
+    #: (OPS-5Z2). Filled by `_emit_drafts`/`_emit_intent`, consumed and cleared by
+    #: the next `_model_phase`, so each refusal is rendered once — the model gets
+    #: the reason it has to fix, and the tick budget still ends the run.
+    draft_feedback: list[RuntimeRefusal] = field(default_factory=list)
     #: The run's absolute monotonic deadline, or `None` when it declared none
     #: (LOOP-4 E2/E3/M1). Derived once per *run* — not once per attempt — and
     #: carried across a resume as the same absolute instant, so the bound belongs
@@ -488,12 +560,27 @@ class _RunState:
     deadline: float | None = None
 
     def refuse(self, code: str, detail: str, *, tick: int, kind: str = "",
-               excerpt: str = "") -> RuntimeRefusal:
+               excerpt: str = "",
+               model_actionable: bool = False) -> RuntimeRefusal:
         item = RuntimeRefusal(code=code, detail=detail, profile=self.profile,
                               tick=tick, lease_generation=self.lease_generation,
-                              kind=kind, excerpt=excerpt)
+                              kind=kind, excerpt=excerpt,
+                              model_actionable=model_actionable)
         self.refusals.append(item)
         return item
+
+    def queue_draft_feedback(self, refusal: RuntimeRefusal) -> RuntimeRefusal:
+        """Owe one refusal to the next tick's prompt (OPS-5Z2), when the model
+        is the party that can repair it.
+
+        Explicit, never automatic: queueing every refusal that happens to be
+        `model_actionable` would also sweep a tool-phase refusal into a draft
+        feedback slot it does not belong to. The caller is the draft site, and
+        the queue is the only thing the next `_model_phase` reads.
+        """
+        if refusal.model_actionable:
+            self.draft_feedback.append(refusal)
+        return refusal
 
     def terminate(self, state: str, termination: str) -> None:
         self.state = state
@@ -779,13 +866,31 @@ class AgentRuntime:
                 detail=f"run {verdict.lower()} before the tick made any call")
             return True
 
+        proposals_before = len(state.proposals)
+        refusals_at_entry = len(state.refusals)
         produced = self._model_phase(spec, context, state, run_id, tick, token,
                                      deadline)
         if produced is None:
             return True
         structured, drafted = produced
+        # A refusal is an act too: the model proposed and the spine turned it
+        # away. `drafted` is empty for a draft refused before it is drafted, so
+        # the count alone cannot tell "proposed and refused" from "said nothing".
+        #
+        # Measured *here*, immediately after the model phase. Reading the count
+        # at the termination call instead would also cover the tool and
+        # delegation phases, so a malformed tool call — refused, with no note
+        # queued — bought the stage an extra tick, which is the opposite of what
+        # this rule is for.
+        model_refused = len(state.refusals) > refusals_at_entry
+        # Only the MODEL phase's proposals count as "raised" for the per-tick
+        # stop policies. A delegation child is a different act: it used to be
+        # excluded from `len(drafted)`, and S8 pins that separation.
+        raised = sum(1 for proposal in state.proposals[proposals_before:]
+                     if proposal.was_admitted())
 
         retained = len(state.feedback)
+        tool_calls_before = state.tool_calls
         if not self._tool_phase(structured, spec, context, state, run_id, tick,
                                 deadline=deadline, token=token):
             # A capability that failed (or was refused) stops the run: the state
@@ -795,13 +900,22 @@ class AgentRuntime:
         self._delegation_phase(structured, spec, context, state, run_id, tick,
                                token)
 
-        raised = len(drafted)
+        # A draft the spine REFUSED raised nothing on this tick: it wrote no
+        # row, and the model can repair it on a later tick if the stage is still
+        # running. `drafted` remains the full digest set for convergence; the
+        # per-tick stop policies read this tick's admission records instead
+        # (the same records the driver reads for its stage tally).
         novel = sum(1 for digest in drafted if digest not in state.seen_drafts)
         state.seen_drafts.update(drafted)
         evidence_stable = self._absorb_evidence(state, state.feedback[retained:])
+        # A call the plane actually invoked this tick means the stage is still
+        # gathering, not that it looked and found nothing (OPS-5Z4).
+        gathered = state.tool_calls > tool_calls_before
 
-        termination = self._tick_termination(spec, context, state, raised, novel,
-                                             evidence_stable)
+        termination = self._tick_termination(
+            spec, context, state, raised, novel, evidence_stable,
+            gathered=gathered,
+            drafted=bool(drafted) or model_refused)
         if termination is None:
             return False
         # The run is about to report its terminal state: a cancel (or a deadline
@@ -833,7 +947,9 @@ class AgentRuntime:
 
     def _tick_termination(self, spec: ProfileSpec, context: TaskContext,
                           state: _RunState, raised: int, novel: int,
-                          evidence_stable: bool = False
+                          evidence_stable: bool = False,
+                          gathered: bool = False,
+                          drafted: bool = False
                           ) -> str | None:
         """Why this tick stops the run, or `None` when the run continues.
 
@@ -842,6 +958,12 @@ class AgentRuntime:
         proposal set for its declared review to consider (the review itself is the
         close act), instead of falling through to the tick limit with a
         configuration knob that does nothing (R4 probe 5d).
+
+        ``raised`` is this tick's count of **admitted/duplicate** proposals, not
+        the number of drafts handed to the spine: a refused draft is a refusal,
+        and counting it as raised ended OBSERVATION on the tick that only
+        searched (run 40). `PROPOSAL_LIMIT` counts the run's admitted proposals
+        — a refused draft does not consume the stage's proposal budget.
 
         `converged` means the run's **evidence stopped moving** (LOOP-2). The
         draft-digest signal it used to be — which only ever said "the model
@@ -854,7 +976,23 @@ class AgentRuntime:
         policy = spec.termination.stop_when
         if policy == "proposals_raised" and raised:
             return Termination.STOP_WHEN.value
-        if policy == "no_proposals" and raised == 0:
+        if (policy == "no_proposals" and raised == 0 and not gathered
+                and not drafted):
+            # `no_proposals` means the model proposed nothing. A draft the spine
+            # *refused* is not nothing: the model proposed and was turned away,
+            # and the note queued for it (OPS-5Z2) is the tick's whole point.
+            # Counting admissions here made a refused objection indistinguishable
+            # from a clean adversarial pass — the critic's own policy — so a
+            # malformed objection ended the review SUCCEEDED with zero admitted
+            # proposals. `proposals_raised` keeps counting admissions; only this
+            # policy needs the distinction, and it needs the other half of it.
+            # A tick that *called a capability* is a gather tick: the model has
+            # not yet seen what it read, so "no proposals" is not a completed
+            # adversarial pass. The contract's tool-only sentence promises the
+            # stage continues within its tick budget; without this exception a
+            # critic's first gather ended the stage before its result arrived
+            # (OPS-5Z4). A refused or skipped call never increments
+            # `state.tool_calls`, so only a real invocation buys the next tick.
             return Termination.NO_PROPOSALS.value
         if policy == "converged" and raised:
             if evidence_stable:
@@ -863,7 +1001,9 @@ class AgentRuntime:
                 return Termination.STOP_WHEN.value
         if policy == "review_complete" and raised:
             return Termination.STOP_WHEN.value
-        if len(state.proposals) >= self._max_proposals(spec, context):
+        if (sum(1 for proposal in state.proposals
+                if proposal.was_admitted())
+                >= self._max_proposals(spec, context)):
             return Termination.PROPOSAL_LIMIT.value
         return None
 
@@ -889,6 +1029,14 @@ class AgentRuntime:
                 detail=f"run {verdict.lower()} before the model call")
             return None
 
+        # OPS-5Z2: the draft refusals the last tick recorded are owed to *this*
+        # tick's prompt, once. Snapshot and clear before the call: a refusal
+        # recorded by this tick's own drafts belongs to the next one, and the
+        # in-tick retry below is the same tick's question, so it keeps the note
+        # rather than being asked amnesiacally (the LOOP-4 E5 rule).
+        pending_draft_feedback = tuple(state.draft_feedback)
+        state.draft_feedback.clear()
+
         call_budget = max(1, spec.termination.max_model_calls_per_tick)
         # OPS-15: one informed retry per model phase per tick. The `1` is
         # deliberate: the cap is model *calls*, not the supervisor's general
@@ -900,7 +1048,8 @@ class AgentRuntime:
             max_retries=min(1, self._supervisor.retry.max_retries,
                             call_budget - 1),
             base_delay_seconds=self._supervisor.retry.base_delay_seconds)
-        request = self._model_request(spec, context, state, tick)
+        request = self._model_request(spec, context, state, tick,
+                                      draft_refusals=pending_draft_feedback)
         self._emit(kind="MODEL_REQUESTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"tier": spec.model_policy.tier,
@@ -924,7 +1073,8 @@ class AgentRuntime:
                             "call_budget": call_budget, "attempt": attempt})
                 result = self._model.invoke(self._model_request(
                     spec, context, state, tick, retry_refusal=refused[-1],
-                    retry_attempt=attempt - 1))
+                    retry_attempt=attempt - 1,
+                    draft_refusals=pending_draft_feedback))
             if isinstance(result, ModelRefusal):
                 refused.append(result)
             return result
@@ -1014,11 +1164,15 @@ class AgentRuntime:
         evidence_refs = self._evidence_refs(state)
         for refusal in refusals:
             state.refusals.append(refusal)
+            # OPS-5Z2: a refused draft the model can repair is also a fact the
+            # *next* tick's prompt has to carry; the report and the event alone
+            # leave the model re-asking the same question it just got wrong.
+            state.queue_draft_feedback(refusal)
             self._emit(kind="PROPOSAL_REFUSED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"code": refusal.code, "kind": refusal.kind})
         digests: list[str] = []
-        for kind, rationale, payload, artifact_ref in drafts:
+        for kind, rationale, payload, artifact_ref, statement in drafts:
             self._emit(kind="PROPOSAL_DRAFTED", run_id=run_id, tick=tick,
                        lease_generation=context.lease_generation,
                        detail={"kind": kind.value, "model": model_ref})
@@ -1039,7 +1193,9 @@ class AgentRuntime:
                     + (f" (preserved as {reference})" if reference else "")
                     + " — the plane will not hand the spine a payload it would have "
                       "to truncate",
-                    tick=tick, kind=kind.value, excerpt=raw_excerpt)
+                    tick=tick, kind=kind.value, excerpt=raw_excerpt,
+                    model_actionable=True)
+                state.queue_draft_feedback(refusal)
                 self._emit(kind="PROPOSAL_REFUSED", run_id=run_id, tick=tick,
                            lease_generation=context.lease_generation,
                            detail={"code": refusal.code, "kind": kind.value})
@@ -1047,6 +1203,7 @@ class AgentRuntime:
             proposal = self._emit_intent(intent, rationale, spec, context, state,
                                         run_id, tick, model_ref, artifact_ref,
                                         capability_refs=evidence_refs,
+                                        statement=statement,
                                         raw_excerpt=raw_excerpt)
             state.proposals.append(proposal)
             digests.append(proposal.draft_digest())
@@ -1068,18 +1225,36 @@ class AgentRuntime:
     def _validate_drafts(self, structured: Mapping[str, Any], spec: ProfileSpec,
                          context: TaskContext, tick: int, *,
                          raw_excerpt: str = ""
-                         ) -> tuple[list[tuple[IntentKind, str, dict[str, Any], str]],
+                         ) -> tuple[list[tuple[IntentKind, str, dict[str, Any], str,
+                                               str]],
                                     list[RuntimeRefusal]]:
-        """The draft schema plus the profile authority rule, in one place."""
+        """The draft schema plus the profile authority rule, in one place.
+
+        Each surviving draft is ``(kind, rationale, payload, artifact_ref,
+        statement)``. ``statement`` is the draft's asserted content when the
+        model supplied one (OPS-5Y); an empty string means "not supplied", and
+        a key that is present but blank or oversized is refused rather than
+        silently dropped.
+        """
         refusals: list[RuntimeRefusal] = []
 
-        def refuse(code: str, detail: str, *, kind: str = "") -> None:
+        def refuse(code: str, detail: str, *, kind: str = "",
+                   model_actionable: bool = True) -> None:
+            """Record one draft refusal; `model_actionable` defaults True here.
+
+            Every site in this function refuses the draft's **own** shape, bounds
+            or statement — things the model wrote and can rewrite — so the default
+            is the truthful one. The single exception is the authority branch
+            below (`refuses_by_authority`): the profile's partition is not the
+            model's to repair by proposing again, and re-prompting it would spend
+            a tick on a decision retrying cannot change (OPS-5Z2).
+            """
             refusals.append(RuntimeRefusal(
                 code=code, detail=detail, profile=spec.name, tick=tick,
                 lease_generation=context.lease_generation, kind=kind,
-                excerpt=raw_excerpt))
+                excerpt=raw_excerpt, model_actionable=model_actionable))
 
-        allowed = {"kind", "rationale", "payload"} | set(
+        allowed = {"kind", "rationale", "payload", "statement"} | set(
             spec.model_policy.structured_fields)
         unknown = sorted(set(structured) - allowed)
         if unknown:
@@ -1105,7 +1280,7 @@ class AgentRuntime:
         else:
             return [], refusals
 
-        drafts: list[tuple[IntentKind, str, dict[str, Any], str]] = []
+        drafts: list[tuple[IntentKind, str, dict[str, Any], str, str]] = []
         for position, item in enumerate(items):
             if not isinstance(item, Mapping):
                 refuse(MALFORMED_PAYLOAD,
@@ -1136,7 +1311,7 @@ class AgentRuntime:
                 code = (PROPOSAL
                         if kind.value in spec.authority.requires_human_for
                         else ROLE)
-                refuse(code, refusal, kind=kind.value)
+                refuse(code, refusal, kind=kind.value, model_actionable=False)
                 continue
             rationale = item.get("rationale")
             if not isinstance(rationale, str) or not rationale.strip():
@@ -1150,6 +1325,37 @@ class AgentRuntime:
                 refuse(MALFORMED_PAYLOAD,
                        f"proposal {position} payload is {type(payload).__name__}, "
                        f"not a mapping", kind=kind.value)
+                continue
+            statement = item.get("statement", "")
+            if not isinstance(statement, str):
+                refuse(MALFORMED_PAYLOAD,
+                       f"proposal {position} statement is "
+                       f"{type(statement).__name__}, not a string",
+                       kind=kind.value)
+                continue
+            statement = statement.strip()
+            if "statement" in item and not statement:
+                refuse(MALFORMED_PAYLOAD,
+                       f"proposal {position} carries an empty statement — a "
+                       f"supplied statement must say what the proposal asserts",
+                       kind=kind.value)
+                continue
+            if not statement and context.payload.get(
+                    "requires_statement") is True:
+                # OPS-5Z: this stage mints a node and the model is its source,
+                # so an *absent* statement is refused here too. The router
+                # refuses it first on the live path and re-asks inside the
+                # tick; this catches a port that bypasses the router.
+                refuse(MALFORMED_PAYLOAD,
+                       f"proposal {position} has no statement — this stage "
+                       f"mints a {kind.value} and the proposal must assert "
+                       f"what it claims", kind=kind.value)
+                continue
+            if len(statement) > STATEMENT_MAX_CHARS:
+                refuse(MALFORMED_PAYLOAD,
+                       f"proposal {position} statement is {len(statement)} "
+                       f"characters, over the {STATEMENT_MAX_CHARS}-character "
+                       f"bound", kind=kind.value)
                 continue
             built, artifact_ref = self._derive_payload(kind, dict(payload), context,
                                                       spec, len(drafts))
@@ -1173,7 +1379,7 @@ class AgentRuntime:
                        f"{authored} — identity is derived by rule at the write "
                        f"boundary, never authored", kind=kind.value)
                 continue
-            drafts.append((kind, rationale, built, artifact_ref))
+            drafts.append((kind, rationale, built, artifact_ref, statement))
         return drafts, refusals
 
     def _derive_payload(self, kind: IntentKind, payload: dict[str, Any],
@@ -1214,6 +1420,7 @@ class AgentRuntime:
                      context: TaskContext, state: _RunState, run_id: str, tick: int,
                      model_ref: str, artifact_ref: str,
                      capability_refs: tuple[str, ...] = (),
+                     statement: str = "",
                      raw_excerpt: str = "") -> Proposal:
         """Emit one intent through the Orchestration API and record its verdict.
 
@@ -1225,7 +1432,7 @@ class AgentRuntime:
         self._emit(kind="INTENT_EMITTED", run_id=run_id, tick=tick,
                    lease_generation=context.lease_generation,
                    detail={"kind": intent.kind.value})
-        admission, detail, entity_id = self._apply(intent)
+        admission, detail, entity_id, rejection_code = self._apply(intent)
         self._emit(
             kind={"ADMITTED": "INTENT_ADMITTED", "DUPLICATE": "INTENT_DUPLICATE",
                   "REFUSED": "INTENT_REFUSED"}[admission],
@@ -1234,12 +1441,19 @@ class AgentRuntime:
             detail={"kind": intent.kind.value, "entity_id": entity_id,
                     "detail": detail})
         if admission == Admission.REFUSED.value:
-            state.refuse(_code_of(detail), detail or "the spine refused the intent",
-                         tick=tick, kind=intent.kind.value,
-                         excerpt=raw_excerpt)
+            # OPS-5Z2: the *spine's* code decides whether the model can repair
+            # this — a closed payload schema or a citation that names nothing
+            # admitted is the model's to fix; a role, governance or scheduler
+            # refusal is not. `detail` keeps the spine code visible either way.
+            refusal = state.refuse(
+                _code_of(detail), detail or "the spine refused the intent",
+                tick=tick, kind=intent.kind.value, excerpt=raw_excerpt,
+                model_actionable=rejection_code in ACTIONABLE_SPINE_CODES)
+            state.queue_draft_feedback(refusal)
         return Proposal(
             intent=intent,
             rationale=rationale,
+            statement=statement,
             tick=tick,
             profile=spec.name,
             agent_profile=spec.agent_profile,
@@ -1252,8 +1466,15 @@ class AgentRuntime:
             admitted_entity_id=entity_id,
         )
 
-    def _apply(self, intent: Intent) -> tuple[str, str, str]:
-        """`apply_intent` through the port: verdict as data, never an exception."""
+    def _apply(self, intent: Intent) -> tuple[str, str, str, str]:
+        """`apply_intent` through the port: verdict as data, never an exception.
+
+        Returns `(admission, detail, entity_id, rejection_code)`. The fourth value
+        is the spine's **own** rejection code (empty on any success), kept as a value
+        rather than recovered from `detail`'s prose: the plane maps an unknown
+        code to `PROPOSAL` in `detail`, and OPS-5Z2 has to tell a citation refusal
+        from a governance one without parsing a message that may be reworded.
+        """
         try:
             result = self._orchestration(intent)
         except IntentRejectedError as exc:
@@ -1264,11 +1485,11 @@ class AgentRuntime:
                 # Keep the spine's own code visible: the plane's vocabulary is
                 # closed, but the operator must still see *why* it refused.
                 detail = f"{detail} (spine code {original})"
-            return Admission.REFUSED.value, f"{code}: {detail}", ""
+            return Admission.REFUSED.value, f"{code}: {detail}", "", original
         entity_id = str(getattr(result, "entity_id", "") or "")
         duplicate = bool(getattr(result, "duplicate", False))
         return (Admission.DUPLICATE.value if duplicate else Admission.ADMITTED.value,
-                "", entity_id)
+                "", entity_id, "")
 
     # ── tools ──
 
@@ -1757,16 +1978,19 @@ class AgentRuntime:
     def _model_request(self, spec: ProfileSpec, context: TaskContext,
                        state: _RunState, tick: int, *,
                        retry_refusal: ModelRefusal | None = None,
-                       retry_attempt: int = 0) -> ModelRequest:
+                       retry_attempt: int = 0,
+                       draft_refusals: Sequence[RuntimeRefusal] = ()
+                       ) -> ModelRequest:
         """One request per tick; the prompt is the assembler port's job.
 
         The prompt is the port's envelopes, then this run's retained tool feedback
-        (LOOP-2), then any consumed review verdicts (LOOP-3), then — on a retry —
-        the refusal that ended the previous attempt (LOOP-4 E5, OPS-15), then the
-        tick marker. The retry note keeps `runtime.retry` for the LOOP-4
-        `RATIONALE` case and uses `runtime.contract_feedback` for a whole-reply
-        contract-shape refusal. All four trailing halves are *loop state*, not
-        context: they are
+        (LOOP-2), then any consumed review verdicts (LOOP-3), then the draft
+        refusals the last tick recorded (OPS-5Z2), then — on a retry — the refusal
+        that ended the previous attempt (LOOP-4 E5, OPS-15), then the tick marker.
+        The retry note keeps `runtime.retry` for the LOOP-4 `RATIONALE` case and
+        uses `runtime.contract_feedback` for a contract-shape refusal; a draft
+        refusal uses the same origin through `draft_feedback_envelope`. All five
+        trailing halves are *loop state*, not context: they are
         composed after the port, so the assembler keeps owning what a run's own
         context contributes and the runtime adds only what happened during the
         run — which is also why the context digest a resume is checked against
@@ -1778,6 +2002,11 @@ class AgentRuntime:
         prompt = list(self._assembler(context))
         prompt.extend(feedback_envelopes(state.feedback))
         prompt.extend(review_envelopes(state.review_verdicts))
+        # Nothing is appended when the queue is empty, so a clean tick's prompt is
+        # byte-identical to the one this plane built before OPS-5Z2 — the LOOP
+        # baseline's prompt-byte vector is the guard for that.
+        for index, refusal in enumerate(draft_refusals):
+            prompt.append(draft_feedback_envelope(refusal, index=index))
         if retry_refusal is not None:
             if retry_refusal.contract_feedback:
                 prompt.append(contract_feedback_envelope(
@@ -1798,7 +2027,9 @@ class AgentRuntime:
             output_contract=output_contract_for(
                 spec,
                 capability_tool_note=self._capability_tool_notes.get(
-                    spec.name, "")),
+                    spec.name, ""),
+                requires_statement=context.payload.get(
+                    "requires_statement") is True),
             rationale=spec.role,
             max_output_tokens=spec.model_policy.max_output_tokens,
             # OPS-5B Path A: ModelRequest.tools is the *native* tool
@@ -1836,6 +2067,7 @@ class AgentRuntime:
             context_digest=context.digest(),
             proposals=tuple(state.proposals),
             refusals=tuple(state.refusals),
+            draft_feedback=tuple(state.draft_feedback),
             delegations=tuple(state.delegations),
             tool_calls=state.tool_calls,
             feedback=tuple(state.feedback),
@@ -2029,6 +2261,11 @@ class AgentRuntime:
             proposals=[self._refresh(proposal)
                        for proposal in checkpoint.proposals],
             refusals=list(checkpoint.refusals),
+            # The refusals owed to the tick this resume is about to run. A crash
+            # between the refused tick and its consumer re-renders them once, on
+            # the resumed tick — the same prompt the interrupted tick would have
+            # built, never a forgotten one.
+            draft_feedback=list(checkpoint.draft_feedback),
             delegations=list(checkpoint.delegations),
             tool_calls=checkpoint.tool_calls,
             seen_drafts={proposal.draft_digest()
@@ -2048,7 +2285,10 @@ class AgentRuntime:
 
     def _refresh(self, proposal: Proposal) -> Proposal:
         """Re-emit a checkpointed proposal: the spine answers, idempotently."""
-        admission, detail, entity_id = self._apply(proposal.intent)
+        # The spine code is not needed here: a re-emitted proposal is a replay of
+        # an intent already emitted, so its verdict is whatever the spine says
+        # now and never seeds draft feedback.
+        admission, detail, entity_id, _rejection_code = self._apply(proposal.intent)
         return proposal.with_changes(
             admission=admission, admission_detail=detail,
             admitted_entity_id=(entity_id or proposal.admitted_entity_id))

@@ -149,6 +149,12 @@ def test_the_value_set_is_the_agent_profile_enum() -> None:
                 member.value for member in NodeType),
             "profile": frozenset(PROFILE_VALUES),
         },
+        # OPS-5Z Group E: the round's mode is a named vocabulary (the two
+        # costs), not an AgentProfile enum. It is derived and checked by the
+        # verification module; the contract renders the same set.
+        IntentKind.REQUEST_ADDITIONAL_EXPERIMENT: {
+            "mode": frozenset({"verify-one", "parallel-two"}),
+        },
     }
     assert expected == INTENT_PAYLOAD_VALUE_SETS
     assert len(PROFILE_VALUES) == 5

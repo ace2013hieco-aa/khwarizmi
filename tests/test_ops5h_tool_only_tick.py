@@ -579,8 +579,11 @@ def test_a_multi_form_reply_with_a_top_level_kind_refuses_at_the_runtime() -> No
 # ═══════════════ 6. the sentence ═══════════════
 
 
-def test_the_gathering_sentence_reaches_exactly_the_three_profiles() -> None:
-    declared = {"researcher", "experimenter", "critic"}
+def test_the_gathering_sentence_reaches_exactly_the_tool_calling_profiles() -> None:
+    # OPS-5Z4: the verifier now declares `tool_calls`, so it joins the
+    # gathering profiles — a profile that may call a tool must be told that a
+    # tool-only reply is valid.
+    declared = {"researcher", "experimenter", "critic", "verifier"}
     for name, spec in load_profiles().items():
         rendered = render_system(name, _contract_mapping(output_contract_for(spec)))
         sentence = ("A reply that proposes nothing is valid when it calls a "

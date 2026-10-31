@@ -260,6 +260,8 @@ def build_methodology_handler(
     supervisor: Any = None,
     on_stage: Any = None,
     project_index: Any = None,
+    provenance_of: Any = None,
+    artifact_reader: Any = None,
 ) -> WiringTaskHandler:
     """The W3 registration export: one methodology template → the controller.
 
@@ -294,6 +296,16 @@ def build_methodology_handler(
     evaluates. It is deliberately untyped here: this package does not import
     the governance plane (BIND-4's consumer set).
 
+    ``provenance_of`` (OPS-5Y) is the composition-injected read-only port
+    ``(project_id, ref) -> "FETCHED" | "ROW" | None``. It is opaque here so this
+    package keeps its "never persistence" import discipline; omitted, the
+    methodology driver refuses every non-empty ``admission_refs`` at intake
+    (fail closed) and classifies an admitted evidence ref as ``ROW``.
+
+    ``artifact_reader`` (OPS-5Z3) is the composition-injected byte port
+    ``(project_id, artifact_id) -> bytes | None``. It is opaque for the same
+    reason; omitted, the evidence envelope keeps its ref-and-id shape.
+
     ``supervisor`` and ``on_stage`` exist for the live composition's vector
     sink (OPS-1 R3): the supervisor is the object that holds each stage run's
     trace, and ``on_stage(wiring, wired)`` hands that run's surfaces out at the
@@ -321,12 +333,14 @@ def build_methodology_handler(
                 reason=(f"{_PLANE_MALFORMED}: spec.methodology must be a "
                         f"workflow document mapping, got "
                         f"{type(document).__name__}"),
-                outcome_recorded=False)
+                outcome_recorded=False,
+                refusal_code=_PLANE_MALFORMED)
         parsed = parse_workflow(document)
         if isinstance(parsed, MethodologyRefusal):
             return HandlerResult(status="failed_typed",
                                  reason=f"{parsed.code}: {parsed.detail}",
-                                 outcome_recorded=False)
+                                 outcome_recorded=False,
+                                 refusal_code=parsed.code)
         inputs = _inputs_from_spec(spec.get("inputs") or {},
                                    governance_context=governance_context)
         wiring = RuntimeWiring(
@@ -339,15 +353,43 @@ def build_methodology_handler(
             capabilities=capabilities,
             artifacts=artifacts,
             supervisor=supervisor)
+        # OPS-5Z Group E: the verification round's fetch goes through the
+        # capability plane's source_fetch under the RESEARCHER grant — the
+        # spine executes the round the critic proposed; the critic never
+        # gains the egress capability itself.
+        from hermes.research.verification import run_round
+
+        invoke = getattr(capabilities, "invoke", None)
+        researcher_grant = (grants or {}).get("RESEARCHER")
+
+        def _verification_runner(round_: Any) -> Any:
+            return run_round(
+                round_,
+                invoke=invoke,
+                read_artifact=artifact_reader,
+                project_id=ctx.project_id,
+                lease_generation=lease_generation(),
+                grant=researcher_grant,
+                deadline_seconds=60.0)
+
         execution = run_methodology(
             parsed, inputs, wiring=wiring, project_id=ctx.project_id,
             task_id=str(task.get("task_id", "")), actor=actor,
-            on_stage=on_stage, project_index=project_index)
+            on_stage=on_stage, project_index=project_index,
+            provenance_of=provenance_of, artifact_reader=artifact_reader,
+            verification_runner=_verification_runner)
         if isinstance(execution, MethodologyRefusal):
-            return HandlerResult(status="failed_typed",
-                                 reason=f"{execution.code}: {execution.detail}",
-                                 outcome_recorded=False)
+            return HandlerResult(
+                status="failed_typed",
+                reason=f"{execution.code}: {execution.detail}",
+                outcome_recorded=False,
+                stage_depth=execution.stages_recorded,
+                stage_reached=execution.stage,
+                stages_declared=execution.stages_declared,
+                refusal_code=execution.code,
+                backing_class=execution.backing_class)
         applied = sum(stage.intents_applied for stage in execution.stages)
+        grounding_token, grounding_detail = _grounding_token(execution)
         if applied == 0:
             # S6-B2 at the entry: a completion that recorded nothing through
             # the one write path is not an outcome — the capability path's
@@ -364,8 +406,15 @@ def build_methodology_handler(
             # spine said no to everything it said".
             return HandlerResult(
                 status="failed_typed",
-                reason=_zero_admission_reason(execution),
-                outcome_recorded=False)
+                reason=_with_refusal_detail(
+                    _zero_admission_reason(execution), execution),
+                outcome_recorded=False,
+                stage_depth=len(execution.stages),
+                stage_reached=execution.stage_reached,
+                stages_declared=len(parsed.stages),
+                refusal_code=execution.refusal_code or "PROPOSAL",
+                backing_class=_run_backing(execution),
+                grounding=grounding_token)
         if execution.termination != METHODOLOGY_COMPLETE:
             # OPS-5M: the gate above asks whether anything happened; this one
             # asks whether the run finished. They are different questions and
@@ -380,25 +429,92 @@ def build_methodology_handler(
             # unknown or empty value fails closed here too.
             return HandlerResult(
                 status="failed_typed",
-                reason=(f"PROPOSAL: methodology {execution.methodology_id!r} "
-                        f"stopped early — termination "
-                        f"{execution.termination!r} with "
-                        f"{len(execution.stages)} of {len(parsed.stages)} "
-                        f"declared stage(s) recorded; a truncated chain is "
-                        f"not a recorded outcome (OPS-5M)"),
-                outcome_recorded=False)
+                reason=_with_refusal_detail(
+                    (f"PROPOSAL: methodology {execution.methodology_id!r} "
+                     f"stopped early — termination "
+                     f"{execution.termination!r} with "
+                     f"{len(execution.stages)} of {len(parsed.stages)} "
+                     f"declared stage(s) recorded; a truncated chain is "
+                     f"not a recorded outcome (OPS-5M)"), execution),
+                outcome_recorded=False,
+                stage_depth=len(execution.stages),
+                stage_reached=execution.stage_reached,
+                stages_declared=len(parsed.stages),
+                refusal_code=execution.refusal_code or "PROPOSAL",
+                backing_class=_run_backing(execution),
+                grounding=grounding_token)
         return HandlerResult(
             status="completed",
             outcome_recorded=True,
             reason=(f"methodology {execution.methodology_id!r} "
                     f"{execution.termination} over {len(execution.stages)} "
                     f"stage(s); {applied} admission(s) via apply_intent; "
-                    f"substrate derived in-process only"))
+                    f"substrate derived in-process only"
+                    + (f"; CLAIM grounding {grounding_detail}"
+                       if grounding_detail else "")),
+            stage_depth=len(execution.stages),
+            stage_reached=execution.stage_reached,
+            stages_declared=len(parsed.stages),
+            backing_class=_run_backing(execution),
+            grounding=grounding_token)
 
     return WiringTaskHandler(template=template, runner=_run)
 
 
 # ── pure helpers (no I/O, no writes) ──
+
+
+def _run_backing(execution: Any) -> str:
+    """The last recorded stage's evidence backing class, or ``""``.
+
+    The class is carried by the stage that admitted the evidence
+    (OBSERVATION/EVIDENCE), so a run that stops later still reports it; a run
+    that never admitted evidence reports nothing.
+    """
+    for record in reversed(execution.stages):
+        if record.backing_class:
+            return str(record.backing_class)
+    return ""
+
+
+def _with_refusal_detail(reason: str, execution: Any) -> str:
+    """OPS-5Z: name the runtime refusal that stopped the chain, when there was
+    one.
+
+    Appended, never substituted: the reason's head is the verdict and its
+    substrings are pinned. Before this, a run refused for a missing statement
+    reported only that the chain was truncated — the operator could not tell a
+    shape refusal from a stage limit.
+    """
+    detail = getattr(execution, "refusal_detail", "")
+    if not detail:
+        return reason
+    code = getattr(execution, "refusal_code", "") or "PROPOSAL"
+    return f"{reason} — runtime refusal {code}: {detail}"
+
+
+def _grounding_token(execution: Any) -> tuple[str, str]:
+    """``(token, detail)`` for the CLAIM gate's verdict, or ``("", "")``.
+
+    OPS-5Z5: a caveat is a real channel, not prose. ``token`` is the compact
+    structured value the journal carries (``GROUNDED`` / ``CAVEATED:<code>``);
+    ``detail`` is the same answer in words for the handler's reason. A run
+    with no recorded CLAIM stage has neither.
+    """
+    for record in execution.stages:
+        grounding = getattr(record, "grounding", None)
+        if grounding is None:
+            continue
+        token = str(grounding.verdict)
+        if grounding.code:
+            token = f"{token}:{grounding.code}"
+        detail = str(grounding.verdict).lower()
+        if grounding.code:
+            detail = f"{detail} ({grounding.code})"
+        if grounding.detail:
+            detail = f"{detail}: {grounding.detail}"
+        return token, detail
+    return "", ""
 
 
 def _zero_admission_reason(execution: Any) -> str:

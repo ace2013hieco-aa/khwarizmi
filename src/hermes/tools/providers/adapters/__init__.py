@@ -17,6 +17,7 @@ from hermes.tools.providers.adapters.core import CoreAdapter
 from hermes.tools.providers.adapters.crossref import CrossrefAdapter
 from hermes.tools.providers.adapters.europepmc import EuropePmcAdapter
 from hermes.tools.providers.adapters.exa import ExaAdapter
+from hermes.tools.providers.adapters.inspirehep import InspirehepAdapter
 from hermes.tools.providers.adapters.medrxiv import MedrxivAdapter
 from hermes.tools.providers.adapters.openalex import OpenalexAdapter
 from hermes.tools.providers.adapters.pmc import PmcAdapter
@@ -48,6 +49,7 @@ PROVIDER_REGISTRY: dict[str, type[ProviderAdapter]] = {
     "openalex": OpenalexAdapter,
     "crossref": CrossrefAdapter,
     "semantic-scholar": SemanticScholarAdapter,
+    "inspirehep": InspirehepAdapter,
     "core": CoreAdapter,
     "unpaywall": UnpaywallAdapter,
     "brave": BraveAdapter,

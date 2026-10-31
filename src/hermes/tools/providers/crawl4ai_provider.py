@@ -38,6 +38,20 @@ Contract
 S2 status: spike wiring only — no EXTRACT/controller integration, no
 persistence, no event payloads, no ``ProviderHTTPTransport`` change (PS-03
 reconciliation is a design-gate decision).
+
+Reviving the spike
+------------------
+``crawl4ai`` is not a declared extra: it is not wired into anything, and at
+0.9.4 it carried 86 of the 87 advisories in the lock. Install the pin into a
+spike venv to exercise this module and its tests::
+
+    uv venv .spike-crawl4ai
+    uv pip install --python .spike-crawl4ai "crawl4ai==0.9.4"
+    .spike-crawl4ai/Scripts/python -m pytest tests/test_s2_crawl4ai_provider.py
+
+The version check below resolves the pin through ``importlib.metadata``, so
+this works exactly as it did when the extra existed. Re-add the extra to
+``pyproject.toml`` when something wires the provider — not before.
 """
 from __future__ import annotations
 

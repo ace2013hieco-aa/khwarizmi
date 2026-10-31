@@ -30,7 +30,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from hermes.core import Clock, utc_now
 from hermes.core.lifecycle import (
@@ -618,11 +618,17 @@ class TaskRepository:
         to_status: TaskStatus,
         caused_by: str = "controller",
         reason: str = "",
+        details: Mapping[str, Any] | None = None,
     ) -> dict:
         """Atomically transition task status + append event (IDR-013).
 
         F-01: Read + validate INSIDE BEGIN IMMEDIATE.
         F-10: READY→RUNNING is rejected if any dependency is INVALIDATED.
+
+        OPS-5Y: ``details`` is an optional payload for the
+        ``TaskStatusChanged`` event. Omitted (the default) the event payload is
+        the empty mapping it always was, so every existing transition stays
+        byte-identical. The existing 4 KiB validator still runs on it.
         """
         ts = self._clock()
         correlation_id = str(uuid.uuid4())
@@ -701,6 +707,7 @@ class TaskRepository:
                 correlation_id=correlation_id,
                 caused_by=caused_by,
                 reason=reason,
+                payload=dict(details) if details else None,
             )
             self._conn.execute("COMMIT")
         except Exception:

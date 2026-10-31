@@ -41,4 +41,24 @@ sys.path = scrubbed
 # Now invoke pytest
 import pytest  # noqa: E402 — after the sys.path scrub above
 
+# Put THIS checkout's source first, and hand it to subprocesses too.
+#
+# The venv installs `hermes` editable against exactly one checkout. Before this
+# block, a run from any other worktree imported that checkout's src — so the
+# suite reported on a tree nobody was editing. Two shapes, both seen: the tree
+# guard failed naming the other checkout, and TestCredentialGuardTeeth failed
+# because the guard it neutralized in this tree was not the guard its subprocess
+# ran (`python -m hermes.eval.platform_cli` resolved to the editable install).
+#
+# `src` first fixes the in-process import; PYTHONPATH fixes the children, which
+# inherit the environment but not sys.path. On the checkout the venv points at,
+# both are already true and this changes nothing.
+_SRC = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "src")
+if os.path.isdir(_SRC):
+    sys.path.insert(0, _SRC)
+    _existing = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = (_SRC + (os.pathsep + _existing
+                                        if _existing else ""))
+
 raise SystemExit(pytest.main(sys.argv[1:]))

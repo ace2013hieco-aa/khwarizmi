@@ -8,7 +8,7 @@ methodology driver; no network):
    citing that artifact, and is admitted records an ``EVIDENCE`` node whose
    ``external_ref`` is **that** artifact — not an operator seed;
 2. the same run's ``OBSERVATION`` node cites it and the ``CLAIM`` node admits
-   it, while the claim identity stays prior art (labelled);
+   it, while the claim's own identity is minted inline (OPS-5Y);
 3. a seed carrying an ``evidence:`` ref is refused before any model call;
 4. a run with no admitted evidence transition stops at ``EVIDENCE`` and does
    not record a synthetic ref;
@@ -52,7 +52,9 @@ from hermes.persistence.repositories import (
 from hermes.research.capability_supply import (
     SUPPLIED_CAPABILITY_IDS,
     build_research_egress_supply,
+    supplied_capability_risks,
 )
+from hermes.research.chain_refs import RefProvenanceReader
 from hermes.research.gateway import apply_intent
 from hermes.research.live_fetch import ALLOWLIST_HOSTS, build_live_fetch_wiring
 from hermes.research.project_index import ProjectIndexReader
@@ -232,7 +234,8 @@ class Rig:
             task_id=TASK,
             project_index=(ProjectIndexReader(self.conn)
                            if project_index else None),
-            on_stage=on_stage)
+            on_stage=on_stage,
+            provenance_of=RefProvenanceReader(self.conn))
 
 
 @pytest.fixture
@@ -265,7 +268,7 @@ def rig(tmp_path, monkeypatch):
         sandbox_enabled=False)
     plan = plan_capability_plane(
         load_profiles(), supplied=SUPPLIED_CAPABILITY_IDS,
-        risks={"source_fetch": "MEDIUM", "source_search": "MEDIUM"})
+        risks=supplied_capability_risks())
     yield Rig(conn=conn, store=store, invoker=invoker, plan=plan)
     conn.close()
 
@@ -311,7 +314,10 @@ def test_the_fetched_artifact_is_the_evidence_node_ref(rig, capsys) -> None:
     assert observation.content.get("cited_refs") == (AGENT_EVIDENCE,)
     _claim_id, claim = _nodes(execution, "CLAIM")[0]
     assert claim.content.get("admitted_refs") == (AGENT_EVIDENCE,)
-    assert claim.content["external_ref"].startswith("claim:")
+    # OPS-5Y: the claim's identity is minted inline, not a prior-art ref.
+    assert claim.content["origin"] == "MINTED"
+    assert claim.content["statement"].strip()
+    assert "external_ref" not in claim.content
 
     # The gateway's EVIDENCE_REF check accepted the same artifact row; the
     # admission is the durable event, and it carries the ref.
@@ -322,13 +328,13 @@ def test_the_fetched_artifact_is_the_evidence_node_ref(rig, capsys) -> None:
     assert ArtifactRepository(rig.conn).in_project(
         FETCH_HASH, PROJECT) is True
 
-    # The prior-art positions are labelled; the evidence rationale is the
+    # The minted positions are labelled as such; the evidence rationale is the
     # proposal's. None of this is content.
     hypothesis = _nodes(execution, "HYPOTHESIS")[0][1]
-    assert "prior-art citation (no producer in this build)" in (
-        hypothesis.rationale)
-    assert ("claim identity is prior art; support is the recorded evidence "
-            "ref") in claim.rationale
+    assert "run-minted conjecture, not prior art" in hypothesis.rationale
+    assert "run-minted claim; support is the admitted evidence ref" in (
+        claim.rationale)
+    assert "prior-art citation" not in hypothesis.rationale
     assert "grounded" not in str(hypothesis.content)
 
     print("EVIDENCE NODE ID:", evidence_id)
@@ -407,14 +413,17 @@ def test_a_seed_evidence_ref_is_refused() -> None:
 # ═══════════════ 3. no admitted transition stops at EVIDENCE ═══════════════
 
 
-def test_a_run_without_an_admitted_transition_stops_at_evidence(rig) -> None:
+def test_a_run_without_an_admitted_transition_stops_at_observation(rig) -> None:
     model = SilentModel()
     execution = rig.run(model)
     assert isinstance(execution, MethodologyRefusal), execution
     assert execution.source == "substrate"
-    assert execution.stage == "EVIDENCE"
+    # It stops at OBSERVATION, not EVIDENCE: with no admitted transition there
+    # is no artifact to cite, and an observation that cites nothing is not a
+    # recorded stage. The pin's intent — no synthetic ref — is unchanged.
+    assert execution.stage == "OBSERVATION"
     assert execution.code == MALFORMED_PAYLOAD
-    assert "needs a non-empty 'external_ref'" in execution.detail
+    assert "cites nothing" in execution.detail
     assert not _transition_events(rig.conn)
     assert not _artifact_rows(rig.conn)
 
@@ -422,12 +431,15 @@ def test_a_run_without_an_admitted_transition_stops_at_evidence(rig) -> None:
 # ═══════════════ 4. a ghost ref is refused by the gateway, then stops ═══════════
 
 
-def test_a_ghost_ref_is_refused_by_the_gateway_and_stops_at_evidence(rig) -> None:
+def test_a_ghost_ref_is_refused_by_the_gateway_and_stops_at_observation(
+        rig) -> None:
     seen: list[Any] = []
     execution = rig.run(
         GhostEvidenceModel(), on_stage=lambda wiring, result: seen.append(result))
     assert isinstance(execution, MethodologyRefusal), execution
-    assert execution.stage == "EVIDENCE"
+    # The ghost ref is refused at the gateway, so nothing is admitted, so the
+    # observation has nothing to cite and the chain stops there.
+    assert execution.stage == "OBSERVATION"
     observation_results = [
         result for result in seen
         if str(getattr(result, "task_id", "")).endswith(":OBSERVATION")]

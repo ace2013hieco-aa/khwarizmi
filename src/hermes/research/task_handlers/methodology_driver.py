@@ -67,23 +67,33 @@ with (OPS-5K), a pure function of a string — so the evidence selector reads an
 admitted ``evidence/<id>`` handle as the same canonical ``evidence:<id>`` the
 gateway stored. It is not a second artifact-row check: the gateway's
 ``EVIDENCE_REF`` remains the only one.
-Never ``hermes.persistence``, never a repository, never a raw connection or
-transaction, and no new consumer of the governance plane.
+OPS-5Z5 adds the claim gate (``hermes.research.grounding``, deterministic
+regexes, no provider or model) and the one content model
+(``hermes.tools.capabilities.content``, pure JSON/HTML rendering) — the same
+reader the envelope uses, so the gate binds over the prose the model was shown.
+OPS-5Z Group E adds the verification round (``hermes.research.verification``):
+a conflict proposal's terminal record is written through the same injected
+applier, and the round's fetch is an injected runner (the capability plane's
+``source_fetch``), so this module still performs no I/O and opens no
+transaction of its own. Never ``hermes.persistence``, never a repository,
+never a raw connection, and no new consumer of the governance plane.
 
 Refusal vocabulary (frozen)
 ---------------------------
 This module emits no code of its own: ``MALFORMED_PAYLOAD`` (the plane's own
 shape/gate refusal, reused for a workflow-document load failure and for a
 durability claim), and whatever :func:`preflight` or :func:`write_node` return,
-which are their own frozen sets. No new code, kind, event or table is introduced
-anywhere in this slice.
+which are their own frozen sets. The round's own statuses (RESOLVED /
+DISPUTED / REFUSED) are a record, not a refusal code, and the gateway's
+``BUDGET``/``STALE`` travel verbatim when a round or its outcome is refused.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Mapping
 
+import hermes.research.verification as verification
 from hermes.agents.runtime.assembly import (
     ProjectIndexChainNode,
     ProjectIndexPort,
@@ -93,10 +103,15 @@ from hermes.agents.runtime.assembly import (
 )
 from hermes.agents.runtime.types import Admission, Proposal, TaskContext
 from hermes.agents.runtime.wiring import RuntimeWiring, WiredRun
+from hermes.core.intents import Intent, IntentKind, IntentRejectedError
+from hermes.core.node import AgentProfile
 from hermes.core.task_status import TaskStatus
 from hermes.methodology import workflows as methodology_plane
 from hermes.methodology.substrate import (
     MALFORMED_PAYLOAD,
+    MAX_CLAIM_SUBJECT_CHARS,
+    MAX_CLAIM_SUBJECTS,
+    MINTED_NODE_KINDS,
     ChainReconstruction,
     SubstrateNode,
     SubstrateRefusal,
@@ -116,6 +131,8 @@ from hermes.research.evidence_transitions import (
     EVIDENCE_REF_PREFIX,
     canonical_evidence_ref,
 )
+from hermes.research.grounding import GroundingVerdict, check_claim, figures_in
+from hermes.tools.capabilities.content import ArtifactRead, read_content
 
 __all__ = [
     "ADMISSION_BOUNDARY",
@@ -123,9 +140,11 @@ __all__ = [
     "METHODOLOGY_COMPLETE",
     "AdmissionRef",
     "ClaimLimits",
+    "GroundingRecord",
     "MethodologyExecution",
     "StageProjection",
     "StageRecord",
+    "VerificationRecord",
     "claim_limits",
     "is_consequential",
     "parse_workflow",
@@ -285,6 +304,11 @@ def project_stage(
     }
     if stage.objective is not None:
         payload["objective"] = stage.objective
+    if methodology_plane._stage_requires_statement(stage.stage, inputs):
+        # OPS-5Z: the same helper the plane driver uses, so the spine and the
+        # plane cannot drift. `inputs=None` means the projection cannot see an
+        # override, so a minting stage requires the statement.
+        payload["requires_statement"] = True
     context = TaskContext(
         task_id=stage_task_id,
         project_id=project_id,
@@ -379,6 +403,64 @@ class AdmissionRef:
 
 
 @dataclass(frozen=True, slots=True)
+class GroundingRecord:
+    """What the deterministic claim gate said about the CLAIM stage's prose.
+
+    OPS-5Z5: the caveat channel. ``SupportState.PARTIAL`` is a *model-declared*
+    field on extraction drafts; it is not a channel a gate can write, and its
+    values do not map ("partial support" is not "nothing was checked"). This
+    record is the gate's own answer, produced from bytes: ``GROUNDED`` when
+    every figure bound, ``CAVEATED`` when nothing checkable was asserted or the
+    read fell back. A refusal never produces a record — it stops the run as a
+    named ``MethodologyRefusal``.
+    """
+
+    verdict: str                     # "GROUNDED" | "CAVEATED"
+    code: str = ""                   # the gate's caveat code, when caveated
+    detail: str = ""
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {"verdict": self.verdict, "code": self.code,
+                "detail": self.detail}
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationRecord:
+    """What one verification round did about a conflict (OPS-5Z Group E).
+
+    ``status`` is the round's terminal answer: ``RESOLVED`` (one side is
+    established by the fetched evidence), ``DISPUTED`` (neither side is, or
+    the conflict persisted past the one-round bound) or ``REFUSED`` (the
+    round could not run; ``code`` names why). ``conflict_kind``/``detail``
+    name the conflict that caused the round — the journal's OPENED event
+    carries the full object; this is the stage-visible summary.
+    """
+
+    status: str
+    round_id: str = ""
+    mode: str = ""
+    winner_ref: str = ""
+    code: str = ""
+    detail: str = ""
+    conflict_kind: str = ""
+    conflict_detail: str = ""
+    evidence_refs: tuple[str, ...] = ()
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "round_id": self.round_id,
+            "mode": self.mode,
+            "winner_ref": self.winner_ref,
+            "code": self.code,
+            "detail": self.detail,
+            "conflict_kind": self.conflict_kind,
+            "conflict_detail": self.conflict_detail,
+            "evidence_refs": list(self.evidence_refs),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class StageRecord:
     """One stage's result: the run's terminal state, its node and its admission.
 
@@ -412,9 +494,23 @@ class StageRecord:
     intents_refused: int
     refusal_codes: tuple[str, ...]
     aborted: bool
+    #: ``"MINTED"`` for the three stages whose node content the run produces
+    #: itself (OPS-5Y), empty otherwise. Included in the mapping only when
+    #: non-empty, so every other stage record keeps its previous shape.
+    content_origin: str = ""
+    #: The evidence ref's backing class, carried by the stage that admitted it
+    #: (OPS-5Y). Empty everywhere else, and omitted from the mapping when empty.
+    backing_class: str = ""
+    #: OPS-5Z5: the claim gate's verdict, carried only by the CLAIM stage.
+    #: ``None`` everywhere else and omitted from the mapping when absent.
+    grounding: GroundingRecord | None = None
+    #: OPS-5Z Group E: the verification round opened on a conflict, carried by
+    #: the stage that proposed it and by the CLAIM stage it examined. ``None``
+    #: everywhere else and omitted from the mapping when absent.
+    verification: VerificationRecord | None = None
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping = {
             "stage": self.stage,
             "profile": self.profile,
             "state": self.state,
@@ -432,6 +528,15 @@ class StageRecord:
             "refusal_codes": list(self.refusal_codes),
             "aborted": self.aborted,
         }
+        if self.content_origin:
+            mapping["content_origin"] = self.content_origin
+        if self.backing_class:
+            mapping["backing_class"] = self.backing_class
+        if self.grounding is not None:
+            mapping["grounding"] = self.grounding.to_mapping()
+        if self.verification is not None:
+            mapping["verification"] = self.verification.to_mapping()
+        return mapping
 
 
 # ═══════════════════════ claim limits (§8 item 9) ═══════════════════════
@@ -505,6 +610,13 @@ class MethodologyExecution:
     stages: tuple[StageRecord, ...]
     termination: str
     question_id: str = ""
+    #: The stage whose run was attempted last, or whose run stopped the chain
+    #: (OPS-5Y). On a complete run this is the last recorded stage.
+    stage_reached: str = ""
+    #: OPS-5Z: the runtime refusal that stopped the chain, when there was one.
+    #: Empty on a complete run, and on a truncation that produced no refusal.
+    refusal_code: str = ""
+    refusal_detail: str = ""
 
     def reconstruction(self) -> ChainReconstruction | SubstrateRefusal:
         """Recompute the recorded chain from the derived store — a read.
@@ -547,6 +659,10 @@ class MethodologyExecution:
             "stages": [stage.to_mapping() for stage in self.stages],
             "termination": self.termination,
             "question_id": self.question_id,
+            **({"refusal_code": self.refusal_code}
+               if self.refusal_code else {}),
+            **({"refusal_detail": self.refusal_detail}
+               if self.refusal_detail else {}),
         }
 
 
@@ -608,6 +724,238 @@ def _canonical_citation(ref: str) -> str | None:
     return canonical
 
 
+#: A CLAIM's declared entities are bounded by the substrate's own node-field
+#: limits (imported, not redefined): the driver validates before the node does.
+
+
+def _claim_subjects(inputs: MethodologyInputs, statement: str,
+                    ) -> tuple[str, ...] | MethodologyRefusal:
+    """The validated subjects a CLAIM declares, or a named shape refusal.
+
+    OPS-5Z5: subjects are a *field*, not a derivation. Deriving them from the
+    claim would need entity recognition, and entity recognition is a model —
+    exactly the authority the gate forbids. Deriving them from the artifact
+    would say what the source is about, not what the claim's figures attach to.
+    So the caller declares them (``stage_content["CLAIM"]["subjects"]``) and
+    the gate binds only to names the claim itself contains: a figure-bearing
+    claim with a subject it never names cannot bind, so accepting that pair
+    would pretend to a check ``check_claim`` would not perform.
+
+    A claim with no figure binds nothing. Its subjects are validated for shape
+    but not recorded: declaring an entity a figure-free claim never mentions
+    would be an inert name, and refusing the pair would refuse a correct
+    qualitative claim for a field the gate cannot use either way.
+    """
+    override = inputs.stage_content.get("CLAIM")
+    if not isinstance(override, Mapping):
+        return ()
+    supplied = override.get("subjects")
+    if supplied is None:
+        return ()
+    if isinstance(supplied, str) or not isinstance(supplied, (list, tuple)):
+        return MethodologyRefusal(
+            code=MALFORMED_PAYLOAD,
+            detail=("CLAIM subjects must be an array of strings, got "
+                    f"{type(supplied).__name__}; a bare string names one "
+                    "subject and is refused as a shape error"),
+            stage="CLAIM", source="grounding")
+    names: list[str] = []
+    for item in supplied:
+        if not isinstance(item, str) or not item.strip():
+            return MethodologyRefusal(
+                code=MALFORMED_PAYLOAD,
+                detail=("CLAIM subjects must be non-empty strings; got "
+                        f"{item!r}"),
+                stage="CLAIM", source="grounding")
+        name = item.strip()
+        if len(name) > MAX_CLAIM_SUBJECT_CHARS:
+            return MethodologyRefusal(
+                code=MALFORMED_PAYLOAD,
+                detail=(f"CLAIM subject {name[:40]!r}… is longer than "
+                        f"{MAX_CLAIM_SUBJECT_CHARS} characters"),
+                stage="CLAIM", source="grounding")
+        if name not in names:
+            names.append(name)
+    if len(names) > MAX_CLAIM_SUBJECTS:
+        return MethodologyRefusal(
+            code=MALFORMED_PAYLOAD,
+            detail=(f"a CLAIM may declare at most {MAX_CLAIM_SUBJECTS} "
+                    f"subjects; got {len(names)}"),
+            stage="CLAIM", source="grounding")
+    if not figures_in(statement):
+        return ()
+    for name in names:
+        if name.casefold() not in statement.casefold():
+            return MethodologyRefusal(
+                code=MALFORMED_PAYLOAD,
+                detail=(f"CLAIM subject {name!r} does not occur in the "
+                        "claim's statement; the gate can only bind a figure "
+                        "to a subject the claim names"),
+                stage="CLAIM", source="grounding")
+    return tuple(names)
+
+
+def _ground_claim(
+    *,
+    statement: str,
+    inputs: MethodologyInputs,
+    artifact: ArtifactRead | None,
+) -> tuple[GroundingVerdict, tuple[str, ...]] | MethodologyRefusal:
+    """Run the deterministic claim gate over the admitted artifact's content.
+
+    ``artifact`` is the same read the evidence envelope used on this stage —
+    one port, one read, so the gate cannot bind over different bytes than the
+    model was shown. Its declared format dispatches the read; a fallback or an
+    unreadable artifact is never mined. Neither a missing reader nor an
+    unreadable artifact is a refusal of the claim: ``check_claim`` returns a
+    named caveat, so the run records "nothing was checked" instead of passing
+    it as checked. A figure the gate could not find is a refusal.
+
+    OPS-5Z Group C: a partial read (a title whose abstract could not be
+    reconstructed) is content for what it extracted, but the gate treats the
+    artifact as not fully readable — the absent part may be exactly what the
+    claim quotes, and blaming the claim for it would be a false refusal.
+    """
+    subjects = _claim_subjects(inputs, statement)
+    if isinstance(subjects, MethodologyRefusal):
+        return subjects
+    artifact_text: str | None = None
+    unreadable = ""
+    if artifact is not None:
+        read = read_content(artifact.data, format=artifact.format)
+        if read.is_content and not read.detail:
+            artifact_text = read.text
+        else:
+            unreadable = read.detail or (
+                f"the content reader returned {read.state.value}")
+    verdict = check_claim(statement, artifact_text, subjects=subjects,
+                          unreadable_detail=unreadable)
+    return verdict, subjects
+
+
+def _grounding_refusal(
+    verdict: GroundingVerdict, *,
+    stages_recorded: int, stages_declared: int, backing_class: str,
+) -> MethodologyRefusal:
+    """A refused claim stops the chain as data, naming the gate's own code.
+
+    The code travels verbatim from the gate's closed ``RefusalCode`` enum —
+    the same pass-through discipline the governance preflight uses. The driver
+    invents no code: ``assertion_not_found`` is the gate's answer, not this
+    module's.
+    """
+    refusal = verdict.refusal.value if verdict.refusal is not None else "refused"
+    return MethodologyRefusal(
+        code=refusal,
+        detail=(f"CLAIM refused by the grounding gate: {refusal}: "
+                f"{verdict.detail}"),
+        stage="CLAIM", source="grounding",
+        stages_recorded=stages_recorded,
+        stages_declared=stages_declared,
+        backing_class=backing_class)
+
+
+def _conflict_summary(payload: Mapping[str, Any]) -> tuple[str, str]:
+    """The conflict's kind and detail, for the stage-visible summary."""
+    conflict = payload.get("conflict")
+    if not isinstance(conflict, Mapping):
+        return "", ""
+    return (str(conflict.get("kind") or ""),
+            str(conflict.get("detail") or "")[:900])
+
+
+def _verification_after_stage(
+    *,
+    wired: WiredRun,
+    wiring: RuntimeWiring,
+    project_id: str,
+    verification_runner: Callable[
+        [verification.VerificationRound],
+        verification.VerificationOutcome] | None,
+) -> VerificationRecord | None:
+    """Run the round a stage just opened, and record its terminal outcome.
+
+    The critic proposes; the gateway decides; the spine executes and records.
+    A round proposal that was refused is not silently dropped: ``BUDGET`` (a
+    claim already had its one round) becomes ``DISPUTED`` — the conflict
+    persisted past the bound — and any other refusal is ``REFUSED`` with the
+    spine's own code. An admitted round is executed through the injected
+    runner (the capability plane's ``source_fetch``) and its outcome is
+    recorded through the one mutation path as ``RECORD_VERIFICATION_OUTCOME``.
+    """
+    proposals = [
+        proposal for proposal in wired.result.proposals
+        if proposal.intent.kind is IntentKind.REQUEST_ADDITIONAL_EXPERIMENT]
+    if not proposals:
+        return None
+    proposal = proposals[0]
+    payload = (proposal.intent.payload
+               if isinstance(proposal.intent.payload, Mapping) else {})
+    conflict_kind, conflict_detail = _conflict_summary(payload)
+    mode = str(payload.get("mode") or "")
+    if not proposal.was_admitted():
+        refusal = next(
+            (item for item in reversed(wired.result.refusals)
+             if item.kind == IntentKind.REQUEST_ADDITIONAL_EXPERIMENT.value),
+            None)
+        code = refusal.code if refusal is not None else "PROPOSAL"
+        detail = (refusal.detail if refusal is not None
+                  else proposal.admission_detail)
+        return VerificationRecord(
+            status=("DISPUTED" if code == "BUDGET" else "REFUSED"),
+            mode=mode, code=code, detail=detail,
+            conflict_kind=conflict_kind, conflict_detail=conflict_detail)
+    round_id = proposal.admitted_entity_id
+    try:
+        round_ = verification.parse_round_payload(
+            payload, project_id=project_id)
+    except verification.VerificationError as exc:
+        # The gateway admitted it, so this is a drift between the two
+        # validators; fail closed as a refused round rather than run it.
+        return VerificationRecord(
+            status="REFUSED", round_id=round_id, mode=mode,
+            code="MALFORMED_PAYLOAD", detail=str(exc),
+            conflict_kind=conflict_kind, conflict_detail=conflict_detail)
+    if verification_runner is None:
+        outcome = verification.VerificationOutcome(
+            status="REFUSED", code="NO_RUNNER",
+            detail="no verification runner is wired; the round could not run")
+    else:
+        outcome = verification_runner(round_)
+        if not isinstance(outcome, verification.VerificationOutcome):
+            outcome = verification.VerificationOutcome(
+                status="REFUSED", code="MALFORMED_PAYLOAD",
+                detail="the verification runner returned no outcome")
+    try:
+        wiring.applier(Intent(
+            kind=IntentKind.RECORD_VERIFICATION_OUTCOME,
+            proposed_by=AgentProfile.DETERMINISTIC.value,
+            project_id=project_id,
+            payload=outcome.to_payload(round_id),
+            justification=(
+                f"verification round {round_id}: {outcome.status}; "
+                f"conflict {conflict_kind}: {conflict_detail}")[:900],
+            origin_kind="deterministic",
+            # The round id is `vr_<64 hex>`; the provenance ref bound is 64,
+            # so the record carries the content key without its kind prefix.
+            origin_ref=round_id[len(verification.VERIFICATION_ROUND_PREFIX):]))
+    except IntentRejectedError as exc:
+        code = str(getattr(exc, "code", "") or "PROPOSAL")
+        return VerificationRecord(
+            status="REFUSED", round_id=round_id, mode=round_.mode,
+            code=code,
+            detail=(f"the round outcome could not be recorded "
+                    f"({code}: {getattr(exc, 'reason', exc)})"),
+            conflict_kind=conflict_kind, conflict_detail=conflict_detail,
+            evidence_refs=outcome.evidence_refs)
+    return VerificationRecord(
+        status=outcome.status, round_id=round_id, mode=round_.mode,
+        winner_ref=outcome.winner_ref, code=outcome.code,
+        detail=outcome.detail,
+        conflict_kind=conflict_kind, conflict_detail=conflict_detail,
+        evidence_refs=outcome.evidence_refs)
+
+
 def run_methodology(
     config: MethodologyConfig,
     inputs: MethodologyInputs,
@@ -618,6 +966,11 @@ def run_methodology(
     actor: str = "methodology-driver",
     on_stage: Callable[[RuntimeWiring, Any], None] | None = None,
     project_index: ProjectIndexPort | None = None,
+    provenance_of: Callable[[str, str], str | None] | None = None,
+    artifact_reader: Callable[[str, str], bytes | ArtifactRead | None] | None = None,
+    verification_runner: Callable[
+        [verification.VerificationRound],
+        verification.VerificationOutcome] | None = None,
 ) -> MethodologyExecution | MethodologyRefusal:
     """Drive one parsed workflow document through the W2 runtime wiring.
 
@@ -647,14 +1000,45 @@ def run_methodology(
     OBSERVATION/EVIDENCE runs supplies the ``EVIDENCE`` node's ref. A run with
     no admitted transition stops at ``EVIDENCE`` rather than recording a
     synthetic ref.
+
+    OPS-5Y: ``provenance_of`` is the composition-injected read-only port
+    (``(project_id, ref) -> "FETCHED" | "ROW" | None``). Every
+    ``admission_refs`` entry is registered before any stage, governance
+    consult or model call and only with a backing the port reports; an
+    unbacked entry is refused as data at intake. Omitted, every non-empty
+    ``admission_refs`` refuses — fail closed.
+
+    OPS-5Z3: ``artifact_reader`` is the composition-injected byte port
+    ``(project_id, artifact_id) -> bytes | None``. When supplied, the
+    ``runtime.evidence`` envelope carries a bounded excerpt of the admitted
+    artifact, so the EVIDENCE stage can describe or quote what the chain
+    actually fetched. Omitted, the envelope keeps its OPS-5L shape (ref and id
+    only) — the reader is a pure lookup here, and this package still imports no
+    persistence.
+
+    OPS-5Z5: the same bytes feed the deterministic claim gate at the CLAIM
+    stage. ``check_claim`` runs over ``read_content``'s rendering — the one
+    content model — with the subjects the caller declared on the CLAIM draft.
+    A refused claim is a named ``MethodologyRefusal`` carrying the gate's own
+    refusal code, and the stage is not recorded; a caveat rides
+    :class:`GroundingRecord` on the stage. A missing reader or an unreadable
+    artifact is a caveat, never a silent pass: the gate says what it could not
+    check.
     """
     seed_refusal = methodology_plane._seeded_evidence_refusal(inputs)
     if seed_refusal is not None:
-        return seed_refusal
+        return replace(seed_refusal, stages_declared=len(config.stages))
     lease_generation = wiring.lease_generation
     store = SubstrateStore()
     for ref in inputs.admission_refs:
-        store.admit_ref(ref, project_id)
+        refused = store.admit_ref(
+            ref, project_id,
+            backing=methodology_plane._resolved_backing(
+                provenance_of, project_id, ref, witness="RESOLVER"))
+        if refused is not None:
+            return MethodologyRefusal(code=refused.code, detail=refused.detail,
+                                      source="inputs",
+                                      stages_declared=len(config.stages))
     for ref in inputs.retracted_refs:
         store.retract(ref)
 
@@ -665,12 +1049,17 @@ def run_methodology(
     content_cache: dict[str, Mapping[str, Any]] = {}
     evidence_ref = ""
     evidence_proposal: Any = None
+    stage_reached = ""
+    refusal_code = ""
+    refusal_detail = ""
 
+    verification_records: list[dict[str, Any]] = []
     for projection in stage_projections(
             config, project_id=project_id, task_id=task_id,
             lease_generation=lease_generation, inputs=inputs):
         if (config.termination.max_stages
                 and len(stages) >= config.termination.max_stages):
+            stage_reached = projection.stage
             termination = "STAGE_LIMIT"
             break
         if not projection.required:
@@ -682,6 +1071,7 @@ def run_methodology(
             predecessor_id = existing[0][0]
             if projection.stage == "QUESTION":
                 question_id = question_id or predecessor_id
+            stage_reached = projection.stage
             continue
 
         # BIND-4 consult BEFORE the stage runs. A denial stops the run here —
@@ -690,7 +1080,11 @@ def run_methodology(
             projection.spec, inputs, project_id=project_id, actor=actor,
             rationale=inputs.question)
         if denial is not None:
-            return denial
+            return replace(
+                denial, stages_recorded=len(stages),
+                stages_declared=len(config.stages),
+                backing_class=methodology_plane._evidence_backing_class(
+                    store, evidence_ref))
 
         context = projection.context
         if predecessor_id:
@@ -699,6 +1093,15 @@ def run_methodology(
                 "predecessor": predecessor_id,
                 "predecessor_content": dict(
                     content_cache.get(predecessor_id, {})),
+            })
+        if verification_records:
+            # OPS-5Z Group E: a round that ran is a fact later stages must see.
+            # The latest round's verdict rides the stage payload (untrusted,
+            # like every other stage fact), so the conclusion can say what the
+            # disputed claim became instead of reasoning over the chain alone.
+            context = context.with_changes(payload={
+                **dict(context.payload),
+                "verification": verification_records[-1],
             })
         if project_index is not None:
             chain_nodes = tuple(
@@ -709,16 +1112,48 @@ def run_methodology(
             context = context.with_changes(
                 context=context.context
                 + (project_index_envelope(project_id, view),))
+        artifact: ArtifactRead | None = None
+        read_failure = ""
         if evidence_ref:
             # OPS-5L: the run's admitted evidence fact, on its own origin. It is
             # appended only when a ref exists; before an admission there is no
             # envelope (never a "none" sentinel). The stage that admits the ref
             # cannot see it in its own prompt (the prompt predates the
             # admission); every later stage can, and the EVIDENCE stage must.
+            #
+            # OPS-5Z3: an id is not a source. When the composition wires the
+            # byte reader, the envelope also carries a bounded excerpt of the
+            # admitted artifact. The read is scoped to this project by the
+            # port; the envelope's 4 KiB bound is independent of the artifact's
+            # size.
+            if artifact_reader is not None:
+                fetched = artifact_reader(
+                    project_id, evidence_ref.partition(":")[2])
+                # OPS-5Z Group C: the port may carry the artifact's declared
+                # format beside its bytes. A bare-bytes reader keeps working
+                # (its artifact is undeclared, which reads as a fallback for a
+                # serialization and as text for prose).
+                if isinstance(fetched, ArtifactRead):
+                    artifact = fetched
+                elif isinstance(fetched, (bytes, bytearray, memoryview)):
+                    artifact = ArtifactRead(data=bytes(fetched))
+                if artifact is None:
+                    # OPS-5Z5: a wired read that returned nothing is a failed
+                    # read, not a ref-only envelope. Say so; otherwise the
+                    # stage cannot tell "no source" from "not read".
+                    read_failure = (
+                        "the artifact's bytes could not be read in this "
+                        "project")
             context = context.with_changes(
                 context=context.context
-                + (evidence_envelope(task_id=context.task_id,
-                                     evidence_ref=evidence_ref),))
+                + (evidence_envelope(
+                    task_id=context.task_id,
+                    evidence_ref=evidence_ref,
+                    artifact_bytes=(artifact.data
+                                    if artifact is not None else None),
+                    artifact_format=(artifact.format
+                                     if artifact is not None else ""),
+                    read_failure=read_failure),))
         wired: WiredRun = wiring.run(projection.profile, context)
         if on_stage is not None:
             # The surface is handed out, never interpreted here: the live
@@ -737,6 +1172,15 @@ def run_methodology(
             # The runtime's terminal state is authoritative. A stage whose run
             # did not succeed is not recorded and does not extend the chain: the
             # chain stops at the stage that did not run.
+            stage_reached = projection.stage
+            if wired.result.refusals:
+                # OPS-5Z: the last refusal is the one that stopped this stage.
+                # Carried out so the handler's reason can name it instead of
+                # reporting only that the chain was truncated. Placed before
+                # `termination` so the assignment stays adjacent to `break` —
+                # the ops5m source scan encodes that adjacency.
+                refusal_code = wired.result.refusals[-1].code
+                refusal_detail = wired.result.refusals[-1].detail
             termination = wired.result.termination or wired.result.state
             break
 
@@ -751,11 +1195,59 @@ def run_methodology(
                 # Projection of the gateway's admission into the in-memory
                 # registry the substrate's write boundary reads. Not a second
                 # validation: the gateway already checked the artifact row.
-                store.admit_ref(evidence_ref, project_id)
+                # OPS-5Y: the backing is GATEWAY-witnessed; the port supplies
+                # only the FETCHED/ROW classification support reads.
+                store.admit_ref(
+                    evidence_ref, project_id,
+                    backing=methodology_plane._evidence_backing(
+                        provenance_of, project_id, evidence_ref))
+
+        statement = methodology_plane._stage_prose(
+            projection.stage, inputs, wired.result.proposals)
+        # OPS-5Z5: the claim gate runs at the only live claim path, on the
+        # content the model was shown, before the claim is recorded. A
+        # refusal stops the chain here (the claim is not a node); a caveat is
+        # recorded on the stage, never rendered as a pass.
+        grounding: GroundingRecord | None = None
+        subjects: tuple[str, ...] = ()
+        if projection.stage == "CLAIM":
+            verdict = _ground_claim(
+                statement=statement, inputs=inputs, artifact=artifact)
+            if isinstance(verdict, MethodologyRefusal):
+                return replace(
+                    verdict, stages_recorded=len(stages),
+                    stages_declared=len(config.stages),
+                    backing_class=methodology_plane._evidence_backing_class(
+                        store, evidence_ref))
+            grounding_verdict, subjects = verdict
+            if grounding_verdict.refusal is not None:
+                return _grounding_refusal(
+                    grounding_verdict,
+                    stages_recorded=len(stages),
+                    stages_declared=len(config.stages),
+                    backing_class=methodology_plane._evidence_backing_class(
+                        store, evidence_ref))
+            grounding = GroundingRecord(
+                verdict=("GROUNDED" if grounding_verdict.grounded
+                         else "CAVEATED"),
+                code=(grounding_verdict.caveat.value
+                      if grounding_verdict.caveat is not None else ""),
+                detail=grounding_verdict.detail)
 
         content = dict(methodology_plane._default_content(
             projection.stage, inputs, predecessor_id, question_id,
-            evidence_ref=evidence_ref))
+            evidence_ref=evidence_ref, statement=statement))
+        if projection.stage == "CLAIM":
+            if subjects:
+                # The one new CLAIM field (OPS-5Z5): the entities the gate
+                # bound the claim's figures to. Validated by _claim_subjects
+                # and again by the substrate's shape gate.
+                content["subjects"] = subjects
+            else:
+                # A figure-free claim binds nothing; a shape-valid list the
+                # gate did not use is not recorded as if it had. The override
+                # itself may have carried it into ``content``.
+                content.pop("subjects", None)
         if predecessor_id:
             content["predecessors"] = (predecessor_id,)
         node = SubstrateNode(
@@ -768,8 +1260,13 @@ def run_methodology(
                 wired.result.proposals, evidence_proposal))
         recorded = write_node(store, node)
         if isinstance(recorded, SubstrateRefusal):
-            return MethodologyRefusal(code=recorded.code, detail=recorded.detail,
-                                      stage=projection.stage, source="substrate")
+            return MethodologyRefusal(
+                code=recorded.code, detail=recorded.detail,
+                stage=projection.stage, source="substrate",
+                stages_recorded=len(stages),
+                stages_declared=len(config.stages),
+                backing_class=methodology_plane._evidence_backing_class(
+                    store, evidence_ref))
         node_id = recorded
         if projection.stage == "QUESTION":
             question_id = node_id
@@ -790,7 +1287,31 @@ def run_methodology(
             intents_duplicate=duplicate,
             intents_refused=refused,
             refusal_codes=wired.result.refusal_codes(),
-            aborted=wired.aborted))
+            aborted=wired.aborted,
+            content_origin=("MINTED" if projection.stage in MINTED_NODE_KINDS
+                            else ""),
+            backing_class=(methodology_plane._evidence_backing_class(
+                store, evidence_ref)
+                if projection.stage in methodology_plane._EVIDENCE_STAGES
+                else ""),
+            grounding=grounding))
+        # OPS-5Z Group E: a stage's admitted verification round runs here,
+        # after its node is recorded and before the next stage. The record is
+        # carried by the stage that proposed it and by the CLAIM stage it
+        # examined, so "the claim is disputed" is visible where the claim is.
+        verification_record = _verification_after_stage(
+            wired=wired, wiring=wiring, project_id=project_id,
+            verification_runner=verification_runner)
+        if verification_record is not None:
+            stages[-1] = replace(stages[-1],
+                                 verification=verification_record)
+            for index in range(len(stages) - 1, -1, -1):
+                if stages[index].stage == "CLAIM":
+                    stages[index] = replace(
+                        stages[index], verification=verification_record)
+                    break
+            verification_records.append(verification_record.to_mapping())
+        stage_reached = projection.stage
         predecessor_id = node_id
 
     return MethodologyExecution(
@@ -802,4 +1323,7 @@ def run_methodology(
         store=store,
         stages=tuple(stages),
         termination=termination,
-        question_id=question_id)
+        question_id=question_id,
+        stage_reached=stage_reached,
+        refusal_code=refusal_code,
+        refusal_detail=refusal_detail)

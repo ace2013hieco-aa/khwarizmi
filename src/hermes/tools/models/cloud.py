@@ -301,7 +301,14 @@ def _contract_lines(contract: Mapping[str, Any]) -> list[str]:
             spec: Mapping[str, Any] = raw  # pyright: ignore[reportUnknownVariableType]
             name = str(spec.get("name", ""))
             kind = str(spec.get("type", "string"))
-            need = "required" if spec.get("required", True) else "optional"
+            if spec.get("required_when_proposing") is True:
+                # OPS-5Z: the requirement is conditional on the reply raising a
+                # proposal, which `required` cannot express.
+                need = "required when the reply proposes"
+            elif spec.get("required", True):
+                need = "required"
+            else:
+                need = "optional"
             allowed = spec.get("allowed_values") or []
             tail = ""
             if isinstance(allowed, list) and allowed:
@@ -311,7 +318,11 @@ def _contract_lines(contract: Mapping[str, Any]) -> list[str]:
             if isinstance(notes, Mapping):
                 note = notes.get(name)
                 if isinstance(note, str) and note:
-                    tail += f"; {note}"
+                    # Gate 8: the slot already states the requirement, so a
+                    # note repeating it says it twice ("optional; optional:
+                    # ..."). Drop the duplicated prefix; the note's substance
+                    # is unchanged.
+                    tail += f"; {note.removeprefix('optional: ')}"
             lines.append(f"- {name} ({kind}, {need}{tail})")
     return lines
 
@@ -389,8 +400,14 @@ def render_system(profile: str, contract: Mapping[str, Any] | None) -> str:
         # plane refuses a reply that omits the top-level kind, and the runtime
         # refuses one that carries it — so the note states one form and says
         # the other is refused instead of offering both.
-        text = (f'The top-level "{single}" field is required: the '
-                f"single-proposal form is the only proposal form in this build")
+        # OPS-5Z3: the requirement is conditional on the reply proposing. The
+        # previous unconditional sentence contradicted the gather exemption
+        # eleven lines later, and run 40's reply is the signature of a model
+        # obeying the first sentence: a deferring rationale with a proposal
+        # kind on the tick that only searched.
+        text = (f'The top-level "{single}" field is required when the reply '
+                f"proposes: the single-proposal form is the only proposal "
+                f"form in this build")
         if multi:
             text += f', and a reply carrying a non-empty "{multi}" array is refused'
         parts.append(text + ".")

@@ -96,11 +96,15 @@ __all__ = [
     "EDGE_ID_PREFIX",
     "EVIDENCE_DOES_NOT_RESOLVE",
     "MALFORMED_PAYLOAD",
+    "MAX_CLAIM_SUBJECTS",
+    "MAX_CLAIM_SUBJECT_CHARS",
+    "MINTED_NODE_KINDS",
     "NEW_NODE_KINDS",
     "NODE_CONTENT_KEYS",
     "NODE_ID_PREFIX",
     "OPPOSING_ASSERTIONS",
     "PREMATURE_CONCLUSION",
+    "PRIOR_ART_UNBACKED",
     "PROVENANCE",
     "RATIONALE",
     "REFERENCED_NODE_KINDS",
@@ -114,6 +118,7 @@ __all__ = [
     "ChainStage",
     "NodeContradiction",
     "ProvenanceEdge",
+    "RefBacking",
     "SubstrateFormatError",
     "SubstrateNode",
     "SubstrateRefusal",
@@ -143,15 +148,25 @@ NODE_ID_PREFIX = "mnode_"
 EDGE_ID_PREFIX = "medge_"
 CONTRADICTION_ID_PREFIX = "mcon_"
 
-#: The five kinds this round *defines* — the chain steps missing from the repo.
+#: The chain kinds the run **defines** itself. OPS-5Y moved HYPOTHESIS,
+#: PREDICTION and CLAIM here: their content is minted inline (a statement and
+#: an origin), never cited by an identity that has no producer. QUESTION,
+#: EXPERIMENT, OBSERVATION, CRITIQUE and CONCLUSION were already local.
 NEW_NODE_KINDS: frozenset[str] = frozenset({
-    "QUESTION", "EXPERIMENT", "OBSERVATION", "CRITIQUE", "CONCLUSION",
+    "QUESTION", "HYPOTHESIS", "PREDICTION", "EXPERIMENT", "OBSERVATION",
+    "CLAIM", "CRITIQUE", "CONCLUSION",
 })
 
-#: The four kinds the repo already carries. Read by ref only — a node of one of
-#: these kinds is a *citation* and carries the artifact's external ref.
-REFERENCED_NODE_KINDS: frozenset[str] = frozenset({
-    "HYPOTHESIS", "PREDICTION", "EVIDENCE", "CLAIM",
+#: The (one) kind that is a *citation* of an existing artifact. EVIDENCE keeps
+#: its producer — the admitted evidence transition — and its artifact-checked
+#: identity; the other three no longer pretend to have either.
+REFERENCED_NODE_KINDS: frozenset[str] = frozenset({"EVIDENCE"})
+
+#: The local kinds whose content is a runaway assertion: they carry a
+#: non-empty ``statement`` and ``origin == "MINTED"``. A conjecture or claim
+#: minted by the run is never prior art, and is never cited by a ref.
+MINTED_NODE_KINDS: frozenset[str] = frozenset({
+    "HYPOTHESIS", "PREDICTION", "CLAIM",
 })
 
 #: The namespace each referenced kind's external ref must carry. This is what
@@ -209,11 +224,12 @@ UNSUPPORTED_CLAIM = "UNSUPPORTED_CLAIM"                 # a CLAIM with no admitt
 PREMATURE_CONCLUSION = "PREMATURE_CONCLUSION"           # a CONCLUSION whose lineage is incomplete
 CIRCULAR_REASONING = "CIRCULAR_REASONING"               # a provenance edge that closes a cycle
 RETRACTED_CITATION = "RETRACTED_CITATION"               # N9: a retracted ref admitted as support
+PRIOR_ART_UNBACKED = "PRIOR_ART_UNBACKED"               # an asserted ref no project row carries
 
 SUBSTRATE_REFUSAL_CODES: frozenset[str] = frozenset({
     MALFORMED_PAYLOAD, RATIONALE, PROVENANCE, EVIDENCE_DOES_NOT_RESOLVE,
     UNSUPPORTED_CLAIM, PREMATURE_CONCLUSION, CIRCULAR_REASONING,
-    RETRACTED_CITATION,
+    RETRACTED_CITATION, PRIOR_ART_UNBACKED,
 })
 
 #: Content keys that would make a node carry an authored identity. Refused.
@@ -224,8 +240,17 @@ AUTHORED_ID_KEYS: tuple[str, ...] = ("node_id", "id", "content_hash",
 NODE_CONTENT_KEYS: frozenset[str] = frozenset({
     "question", "external_ref", "question_ref", "subject_ref",
     "assertion", "admitted_refs", "cited_refs", "predecessors",
-    "summary", "label",
+    "summary", "label", "statement", "origin", "test",
+    # OPS-5Z5: a CLAIM's declared entities. The grounding gate binds each
+    # figure to a subject and cannot work without them; deriving them from
+    # the claim would need entity recognition, i.e. a model the gate forbids.
+    "subjects",
 })
+
+#: Bounds on a CLAIM's declared subjects. They are a short entity list, not a
+#: document: the gate searches the claim and the artifact for each name.
+MAX_CLAIM_SUBJECTS = 32
+MAX_CLAIM_SUBJECT_CHARS = 200
 
 
 class SubstrateFormatError(ValueError):
@@ -330,6 +355,26 @@ def node_contradiction_id_of(first_ref: str, second_ref: str) -> str:
 
 
 # ═══════════════════════ refusal ═══════════════════════
+
+
+@dataclass(frozen=True, slots=True)
+class RefBacking:
+    """What backs one asserted ref — the witness, and what it saw.
+
+    ``origin`` is the only bit the support invariant reads: ``"FETCHED"`` (the
+    row is a ``source_payload`` written by the fetch capability, so its bytes
+    came from outside the run) or ``"ROW"`` (a real project row whose content
+    the run did not fetch — a claim, a program hypothesis/prediction, or a
+    model-authored artifact). ``witness`` records who said so (``"RESOLVER"``
+    for the injected provenance port at intake, ``"GATEWAY"`` for the run's own
+    admitted evidence transition) and is audit text, never a decision input.
+
+    A registration without a backing is refused by :meth:`SubstrateStore.
+    admit_ref`: an assertion is not an artifact.
+    """
+
+    origin: str
+    witness: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -524,13 +569,17 @@ class SubstrateStore:
 
     ``resolving_refs`` maps an external artifact ref to the project it resolves
     in — the citation registry the write boundary checks against.
-    ``retracted_refs`` is the N9 projection: refs whose S5 retraction state is
-    current, inadmissible as support.
+    ``ref_backing`` records the one bit the support invariant reads per
+    resolving ref: ``"FETCHED"`` (a ``source_payload`` written by the fetch
+    capability) or ``"ROW"`` (a real project row whose content the run did not
+    fetch). ``retracted_refs`` is the N9 projection: refs whose S5 retraction
+    state is current, inadmissible as support.
     """
 
     nodes: dict[str, SubstrateNode] = field(default_factory=dict)
     resolving_refs: dict[str, str] = field(default_factory=dict)
     retracted_refs: frozenset[str] = frozenset()
+    ref_backing: dict[str, str] = field(default_factory=dict)
 
     # ── reads ──
 
@@ -548,18 +597,40 @@ class SubstrateStore:
         """Every provenance edge derived from the recorded nodes."""
         return provenance_edges(self)
 
-    def admit_ref(self, ref: str, project_id: str) -> None:
+    def admit_ref(self, ref: str, project_id: str, *,
+                  backing: RefBacking | None = None
+                  ) -> SubstrateRefusal | None:
         """Register an external ref as resolving in ``project_id`` (fixture act).
 
-        The registry is **last-writer-wins and keyed by ref string alone — it
-        records no content hash**. Re-admitting the same ref in another project
-        therefore re-homes it: the previous owner's citations then fail closed
-        (``EVIDENCE_DOES_NOT_RESOLVE`` — "resolves in project 'p2', not 'p1'").
-        That failure is in the safe direction (no cross-project read becomes
-        possible), but it *is* a silent rebind, not a duplicate; a content-hash
-        keyed registry would make it explicit and reject the second owner.
+        A registration is only accepted with a :class:`RefBacking`: the ref
+        names a row the project can dereference, and the backing says whether
+        those bytes came from the fetch capability (``FETCHED``) or from a row
+        whose content the run did not fetch (``ROW``). No backing, no
+        registration — ``PRIOR_ART_UNBACKED``. This is the fail-closed default
+        that makes a typed-in prior-art ref refuse at intake instead of
+        pretending to be an artifact.
+
+        The registry remains **last-writer-wins and keyed by ref string alone**
+        for the in-memory fixture API; a production caller supplies a
+        project-scoped backing from a read-only port, so a re-home cannot pass
+        as an artifact. The in-memory registry is not a security boundary and
+        this docstring does not pretend it is.
         """
+        if backing is None:
+            return _refuse(
+                PRIOR_ART_UNBACKED,
+                f"ref {ref!r} is asserted as prior art but no project row "
+                f"carries it — an assertion is not an artifact",
+                project_id=project_id, ref=str(ref))
+        if backing.origin not in ("FETCHED", "ROW"):
+            return _refuse(
+                PRIOR_ART_UNBACKED,
+                f"ref {ref!r} carries backing origin {backing.origin!r}, which "
+                f"is neither FETCHED nor ROW — the witness did not classify it",
+                project_id=project_id, ref=str(ref))
         self.resolving_refs[str(ref)] = str(project_id)
+        self.ref_backing[str(ref)] = backing.origin
+        return None
 
     def retract(self, ref: str) -> None:
         """Mark a ref retracted (the N9 projection, supplied by the caller)."""
@@ -572,12 +643,14 @@ class SubstrateStore:
                       for node_id, node in sorted(self.nodes.items())},
             "resolving_refs": dict(sorted(self.resolving_refs.items())),
             "retracted_refs": sorted(self.retracted_refs),
+            "ref_backing": dict(sorted(self.ref_backing.items())),
         }
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "SubstrateStore":
         unknown = sorted(set(data) - {"schema_version", "nodes",
-                                      "resolving_refs", "retracted_refs"})
+                                      "resolving_refs", "retracted_refs",
+                                      "ref_backing"})
         if unknown:
             raise SubstrateFormatError(f"unknown SubstrateStore keys: {unknown}")
         store = cls()
@@ -600,6 +673,11 @@ class SubstrateStore:
                                 dict(data.get("resolving_refs") or {}).items()}
         store.retracted_refs = frozenset(
             str(ref) for ref in (data.get("retracted_refs") or ()))
+        # An old mapping with no backing reads as an all-ROW store: every
+        # claim it holds refuses support (fail closed), and every citation
+        # still resolves. No record gains a FETCHED bit by being read back.
+        store.ref_backing = {str(key): str(value) for key, value in
+                             dict(data.get("ref_backing") or {}).items()}
         return store
 
 
@@ -838,16 +916,25 @@ def _shape_refusal(node: SubstrateNode) -> SubstrateRefusal | None:
 def _kind_refusal(node: SubstrateNode) -> SubstrateRefusal | None:
     """The kind-specific content requirements."""
     content = node.content
+    if "subjects" in content and node.kind != "CLAIM":
+        # OPS-5Z5: the field exists for the claim gate's binding and nowhere
+        # else. A global content key that any node may carry is a smuggling
+        # channel; a conjecture's "subjects" would mean nothing and would ride
+        # the next prompt as if it did.
+        return _refuse(
+            MALFORMED_PAYLOAD,
+            f"only a CLAIM node may declare 'subjects'; a {node.kind} node "
+            f"carries none — the field names the entities a claim's figures "
+            f"bind to",
+            kind=node.kind, project_id=node.project_id)
     if node.kind in NEW_NODE_KINDS:
-        # R6-FIX2 (E3): a locally-defined kind (QUESTION, EXPERIMENT,
-        # OBSERVATION, CRITIQUE, CONCLUSION — exactly the kinds with no
-        # REF_NAMESPACES entry) carries its content **inline**; ``external_ref``
-        # is the citation key for *existing-kind* artifacts only. A local kind
-        # with a non-empty ``external_ref`` is refused ``MALFORMED_PAYLOAD`` —
-        # the byte value points at an existing artifact, but the position is a
-        # chain step this round defines, so no existing artifact is being cited.
-        # This check fires *before* the QUESTION early return below, so the
-        # shape rule applies to **every** local kind including QUESTION.
+        # OPS-5Y: every locally-defined kind — including the minted
+        # HYPOTHESIS, PREDICTION and CLAIM — carries its content **inline**;
+        # ``external_ref`` is the citation key for the one existing-kind
+        # artifact (EVIDENCE). A local kind with a non-empty ``external_ref``
+        # is refused ``MALFORMED_PAYLOAD``: the position mints content, so no
+        # existing artifact is being cited. This check fires *before* the
+        # QUESTION early return below, so the rule is total.
         ref = content.get("external_ref")
         if isinstance(ref, str) and ref:
             return _refuse(
@@ -856,6 +943,97 @@ def _kind_refusal(node: SubstrateNode) -> SubstrateRefusal | None:
                 f"{ref!r} — locally-defined nodes carry their content inline; "
                 f"external_ref is for cited existing-kind artifacts only",
                 kind=node.kind, project_id=node.project_id, ref=ref)
+        if node.kind in MINTED_NODE_KINDS:
+            statement = content.get("statement")
+            if not isinstance(statement, str) or not statement.strip():
+                return _refuse(
+                    MALFORMED_PAYLOAD,
+                    f"a {node.kind} node is minted by the run: it needs a "
+                    f"non-empty 'statement' — a conjecture or claim with no "
+                    f"asserted content is not a chain node",
+                    kind=node.kind, project_id=node.project_id)
+            origin = content.get("origin")
+            if origin != "MINTED":
+                return _refuse(
+                    MALFORMED_PAYLOAD,
+                    f"a {node.kind} node is minted by the run: 'origin' must "
+                    f"be exactly 'MINTED', got {origin!r} — a minted node "
+                    f"never claims an external identity",
+                    kind=node.kind, project_id=node.project_id)
+            if node.kind in ("HYPOTHESIS", "PREDICTION"):
+                if "admitted_refs" in content:
+                    return _refuse(
+                        MALFORMED_PAYLOAD,
+                        f"a {node.kind} node is a conjecture: it may not carry "
+                        f"'admitted_refs' — a conjecture supports nothing and "
+                        f"must not become a support anchor",
+                        kind=node.kind, project_id=node.project_id)
+            else:  # CLAIM
+                for admitted in node.admitted_refs():
+                    if not str(admitted).startswith("evidence:"):
+                        return _refuse(
+                            MALFORMED_PAYLOAD,
+                            f"a CLAIM may admit only evidence: refs as "
+                            f"support; {admitted!r} carries another namespace "
+                            f"— a prior-art claim is cited, never admitted",
+                            kind=node.kind, project_id=node.project_id,
+                            ref=str(admitted))
+                subjects = content.get("subjects")
+                # OPS-5Z5: the one new CLAIM field. It is validated because
+                # the gate binds figures to these names; a malformed list
+                # would make the gate's answer depend on a shape error.
+                if (subjects is not None
+                        and (not isinstance(subjects, (list, tuple))
+                             or not subjects
+                             or len(subjects) > MAX_CLAIM_SUBJECTS
+                             or any(
+                                 not isinstance(item, str)
+                                 or not item.strip()
+                                 or len(item) > MAX_CLAIM_SUBJECT_CHARS
+                                 for item in subjects))):
+                    return _refuse(
+                        MALFORMED_PAYLOAD,
+                        f"a CLAIM's 'subjects' must be a non-empty array "
+                        f"of at most {MAX_CLAIM_SUBJECTS} non-empty "
+                        f"strings, each at most {MAX_CLAIM_SUBJECT_CHARS} "
+                        f"characters; got {subjects!r}",
+                        kind=node.kind, project_id=node.project_id)
+    if node.kind == "EXPERIMENT":
+        # The stage's whole job is to design the discriminating step. Its
+        # content used to be only `predecessors`: the driver had no branch and
+        # the gate had no rule, so the run recorded an experiment node that
+        # described no experiment. `test` is the proposal's own prose — the
+        # `statement` field on the wire — under the name the node carries it:
+        # an experiment is a design, not a minted assertion, so it has no
+        # `origin: "MINTED"`.
+        test = content.get("test")
+        if not isinstance(test, str) or not test.strip():
+            return _refuse(
+                MALFORMED_PAYLOAD,
+                "an EXPERIMENT node needs a non-empty 'test' describing the "
+                "discriminating step it would run — an experiment that records "
+                "no test is a placeholder, not a stage",
+                kind=node.kind, project_id=node.project_id)
+        return None
+    if node.kind == "OBSERVATION":
+        # The stage's whole job is to observe something that was fetched. Its
+        # content carried `cited_refs` only when an artifact existed, so an
+        # observation with nothing fetched recorded a node with no content at
+        # all — and the chain then failed at EVIDENCE, one stage later, for a
+        # citation the run could not possibly have made. Run 40 did exactly
+        # that: zero artifacts, an OBSERVATION recorded, and an EVIDENCE
+        # refusal that named the wrong stage.
+        cited = content.get("cited_refs")
+        refs = [r for r in (cited if isinstance(cited, (list, tuple)) else ())
+                if isinstance(r, str) and r]
+        if not refs:
+            return _refuse(
+                MALFORMED_PAYLOAD,
+                "an OBSERVATION node cites nothing: it needs a non-empty "
+                "'cited_refs' naming the artifact it observed — a stage that "
+                "observed nothing is not a recorded stage",
+                kind=node.kind, project_id=node.project_id)
+        return None
     if node.kind == "QUESTION":
         question = content.get("question")
         if not isinstance(question, str) or not question.strip():
@@ -910,18 +1088,19 @@ def _refs_refusal(store: SubstrateStore,
 
     * the node's own ``external_ref`` — **kind-aware**:
 
-        * a **referenced** kind (HYPOTHESIS, PREDICTION, EVIDENCE, CLAIM) is a
-          *citation* of an existing-kind artifact. The shape gate already made
-          an empty ``external_ref`` impossible, so this position **always
+        * the **referenced** kind (EVIDENCE, the one citation kind) is a
+          *citation* of an existing artifact. The shape gate already made an
+          empty ``external_ref`` impossible, so this position **always
           resolves** under admission semantics — a hallucinated citation, a
           cross-project citation, and a retracted citation (``RETRACTED_CITATION``
           — N9) all fail closed here, and a node may not admit its own
           ``external_ref`` as support (``CIRCULAR_REASONING``);
-        * a **locally-defined** kind (QUESTION, EXPERIMENT, OBSERVATION,
-          CRITIQUE, CONCLUSION) carries its content inline. The shape gate
-          already refused any non-empty ``external_ref`` with ``MALFORMED_PAYLOAD``;
-          this position is **defense in depth** — if the shape gate is ever
-          bypassed, the same refusal is returned here, not a silent resolve.
+        * a **locally-defined** kind (everything else, including the minted
+          HYPOTHESIS, PREDICTION and CLAIM) carries its content inline. The
+          shape gate already refused any non-empty ``external_ref`` with
+          ``MALFORMED_PAYLOAD``; this position is **defense in depth** — if the
+          shape gate is ever bypassed, the same refusal is returned here, not a
+          silent resolve.
 
     * ``admitted_refs`` (support-bearing) resolve under the same admission
       semantics; a node may not admit its own ``external_ref`` — an artifact
@@ -1049,6 +1228,49 @@ def _provenance_refusal(store: SubstrateStore,
     return None
 
 
+def _is_fetched_backed(store: SubstrateStore, project_id: str, ref: str) -> bool:
+    """True iff ``ref`` resolves in this project to a fetched external artifact.
+
+    The substrate stores only the witness's one bit (``ref_backing``); it does
+    not read the artifact row. A ref that is unregistered, owned by another
+    project, retracted, or classified ``ROW`` is not an external anchor.
+    """
+    return (store.resolving_refs.get(ref) == project_id
+            and store.ref_backing.get(ref) == "FETCHED"
+            and ref not in store.retracted_refs)
+
+
+def _support_closure(store: SubstrateStore, start: str) -> set[str]:
+    """``S(C)`` — the wider closure, computed only to explain a refusal.
+
+    Every node reachable from ``start`` through declared predecessors, with
+    that node's ``external_ref`` and ``admitted_refs``. ``cited_refs`` are
+    deliberately excluded: a mention is not support. The closure is **not**
+    the sufficiency test (OPS-5Y §4.1); a fetched artifact anywhere in it does
+    not anchor a claim whose direct support is row-backed.
+    """
+    refs: set[str] = set()
+    seen: set[str] = set()
+    stack = [str(start)]
+    while stack:
+        current = stack.pop()
+        node = store.nodes.get(current)
+        if node is None:
+            continue
+        own_ref = node.external_ref()
+        if own_ref:
+            refs.add(own_ref)
+        refs.update(node.admitted_refs())
+        for predecessor in node.predecessors():
+            if (predecessor in store.nodes
+                    and store.nodes[predecessor].project_id == node.project_id
+                    and predecessor not in seen
+                    and predecessor != str(start)):
+                seen.add(predecessor)
+                stack.append(predecessor)
+    return refs
+
+
 def _support_refusal(store: SubstrateStore, node: SubstrateNode,
                      node_id: str) -> SubstrateRefusal | None:
     """Unsupported-claim and premature-conclusion checks.
@@ -1057,6 +1279,12 @@ def _support_refusal(store: SubstrateStore, node: SubstrateNode,
     the claim in the chain, but the claim is supported only by an **admitted**
     evidence ref. A claim with a position and no admitted evidence is exactly
     the unsupported claim this refuses.
+
+    OPS-5Y adds the direct-support rule ``D(C)``: at least one ref in the
+    claim's own admitted refs or its direct EVIDENCE predecessor's citation
+    must be ``FETCHED`` (a ``source_payload`` written by the fetch capability).
+    The wider closure ``S(C)`` is computed only to explain a refusal — a
+    fetched ancestor or sibling never launders a ``ROW``-backed admission.
     """
     if node.kind == "CLAIM":
         admitted = tuple(ref for ref in node.admitted_refs()
@@ -1068,6 +1296,34 @@ def _support_refusal(store: SubstrateStore, node: SubstrateNode,
                 "EVIDENCE node is a chain position, not support; a claim "
                 "without admitted evidence is refused",
                 kind=node.kind, project_id=node.project_id)
+        direct: set[str] = set(admitted)
+        for predecessor in node.predecessors():
+            pred_node = store.nodes.get(predecessor)
+            if pred_node is not None and pred_node.kind == "EVIDENCE":
+                own_ref = pred_node.external_ref()
+                if own_ref:
+                    direct.add(own_ref)
+        if not any(_is_fetched_backed(store, node.project_id, ref)
+                   for ref in direct):
+            closure = _support_closure(store, node_id)
+            elsewhere = sorted(
+                ref for ref in closure - direct
+                if _is_fetched_backed(store, node.project_id, ref))
+            backing = ", ".join(
+                f"{ref} ({store.ref_backing.get(ref, 'unbacked')})"
+                for ref in sorted(direct))
+            detail = (
+                "a CLAIM is supported only by fetched external artifacts in "
+                f"its direct support set: none of [{backing}] resolves to a "
+                "source_payload written by capability:source_fetch, so the "
+                "claim has no external anchor")
+            if elsewhere:
+                detail += (
+                    f"; the wider closure reaches fetched ref(s) {elsewhere}, "
+                    f"but reachability is not support — a fetched ancestor or "
+                    f"sibling does not anchor this claim")
+            return _refuse(UNSUPPORTED_CLAIM, detail, kind=node.kind,
+                           project_id=node.project_id)
     if node.kind == "CONCLUSION":
         question_ref = str(node.content.get("question_ref", ""))
         ancestry = _ancestors(store, node_id) | set(node.predecessors())
@@ -1132,7 +1388,8 @@ def write_node(store: SubstrateStore, node: SubstrateNode,
     # Stage the node so the lineage checks can see it, then check support.
     staged = SubstrateStore(nodes=dict(store.nodes),
                             resolving_refs=dict(store.resolving_refs),
-                            retracted_refs=store.retracted_refs)
+                            retracted_refs=store.retracted_refs,
+                            ref_backing=dict(store.ref_backing))
     staged.nodes[node_id] = node
     support = _support_refusal(staged, node, node_id)
     if support is not None:

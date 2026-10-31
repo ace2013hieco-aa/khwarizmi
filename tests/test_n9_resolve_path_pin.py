@@ -35,8 +35,8 @@ appear in the scan but in none of the three tables, so
 ``test_every_resolve_site_is_classified`` fails and names the site. The
 only way to land a new resolve path is to classify it here on purpose.
 
-Current census (8 resolve sites, 4 predicate sites -- EXT-3, base
-``main@6cce97c``):
+Current census (9 resolve sites, 4 certified predicate sites -- EXT-3, base
+``main@6cce97c``; OPS-5Z Group E adds the round's evidence fence):
 
     resolve site                                   enclosing function                       verdict
     ---------------------------------------------  ---------------------------------------  ----------------
@@ -48,6 +48,7 @@ Current census (8 resolve sites, 4 predicate sites -- EXT-3, base
     persistence/source_outcomes.py:719              SourceOutcomeRepository._validate_task_binding  non-evidence
     research/gateway.py:2386                        _validate_curate_knowledge              frozen gap
     research/gateway.py:3953                        _validate_source_spec                   non-evidence
+    research/gateway.py                            _validate_record_verification_outcome   frozen gap
 """
 
 from __future__ import annotations
@@ -167,6 +168,20 @@ N9_FROZEN_GAP_REGISTER = {
         "lifecycle) adjacent to the N9-certified gateway site, so the "
         "change needs a design gate plus the N9 certification re-run. "
         "Gate-blocked."
+    ),
+    (
+        "research/gateway.py",
+        "_validate_record_verification_outcome",
+    ): (
+        "OPS-5Z Group E: a verification round records RESOLVED against the "
+        "fetched artifact it names, so the round's evidence ref IS an "
+        "admissibility position and should carry the retraction predicate. "
+        "The predicate's call-site census is FROZEN at exactly four "
+        "(AGENTS.md; N9 cert 02cb976), so adding a fifth call here is a "
+        "design gate plus the N9 slice re-run, not a local fence. The "
+        "IDR-046 web-derived bar IS applied at this site; the retraction "
+        "gap is recorded, not hidden. Until the gate lands, a round could "
+        "in principle cite a retracted fetched payload."
     ),
 }
 

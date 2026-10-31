@@ -9,11 +9,12 @@ from __future__ import annotations
 import xml.etree.ElementTree as _XET  # type: ignore[import-untyped]
 from typing import Any
 
+from hermes.tools.capabilities.content import ContentFormat
 from hermes.tools.providers.adapters.base_adapter import (
     JsonSearchAdapter,
     make_contract,
 )
-from hermes.tools.providers.base import Page, PageState
+from hermes.tools.providers.base import Page, PageState, media_kind
 
 __all__ = ["PubmedAdapter"]
 
@@ -58,6 +59,13 @@ class PubmedAdapter(JsonSearchAdapter):
         "pubdate": ("PubDate", "Year"),
         "source": ("Title", "Journal"),
     }
+    content_format = ContentFormat.PUBMED
+
+    def fetch_content_format(self, media_type: str | None) -> str:
+        """PubMed XML is a field-wise record; a PubMed web page is HTML."""
+        if media_kind(media_type) == "xml":
+            return ContentFormat.PUBMED
+        return super().fetch_content_format(media_type)
 
     def parse_page(self, payload: object, state: PageState) -> Page:
         """Handle PubMed's esearch JSON string idlist and XML element-text Ids."""

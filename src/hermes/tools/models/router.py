@@ -369,6 +369,10 @@ class FieldSpec:
     type: str  # "string"|"integer"|"number"|"boolean"|"array"|"object"
     required: bool = True
     allowed_values: frozenset[str] = frozenset()
+    # OPS-5Z: required only when the reply *proposes*. `required` is per reply,
+    # so it cannot express this: a minting stage's gather tick raises no
+    # proposal and must still validate.
+    required_when_proposing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -2263,6 +2267,22 @@ class ModelRouter:
                     ROLE,
                     f"model proposed kind {proposed!r}, outside the injected "
                     f"proposable allowlist", contract_feedback=True)
+        if not action_only:
+            # OPS-5Z: a field marked required_when_proposing is required only
+            # for a reply that raises a proposal. Placed after the kind check
+            # so a reply with neither a legal kind nor a statement still fails
+            # as ROLE, as it does today.
+            for name, spec in declared.items():
+                if not spec.required_when_proposing:
+                    continue
+                value = parsed.get(name)
+                if not isinstance(value, str) or not value.strip():
+                    raise _Refusal(
+                        MALFORMED_PAYLOAD,
+                        f"model output proposed without a non-empty {name!r} "
+                        f"for contract {contract.name!r}; a proposal must "
+                        f"assert what it claims", retryable=True,
+                        contract_feedback=True)
         return parsed
 
     def _translate_tool_calls(
@@ -2449,7 +2469,9 @@ def _contract_mapping(contract: OutputContract | None) -> dict[str, Any] | None:
         "name": contract.name,
         "fields": [
             {"name": spec.name, "type": spec.type, "required": spec.required,
-             "allowed_values": sorted(spec.allowed_values)}
+             "allowed_values": sorted(spec.allowed_values),
+             **({"required_when_proposing": True}
+                if spec.required_when_proposing else {})}
             for spec in contract.fields
         ],
         "kind_field": contract.kind_field,
